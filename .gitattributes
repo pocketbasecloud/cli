@@ -1,0 +1,2 @@
+# Monorepo-only files excluded from the public mirror (`git archive HEAD:cli`).
+CLAUDE.md export-ignore

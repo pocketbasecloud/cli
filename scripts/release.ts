@@ -184,10 +184,12 @@ async function buildArchives() {
 
 function printPublishCommands() {
   log("7. publish commands (run these yourself, in this order)");
+  // Paths are prefixed with `./` so npm treats them as folders — a bare
+  // `npm/<key>` is parsed as a github:owner/repo shorthand and fails.
   for (const t of TARGETS) {
-    console.log(`npm publish npm/${t.key} --access public`);
+    console.log(`npm publish ./npm/${t.key} --access public`);
   }
-  console.log(`npm publish npm/cli --access public   # last`);
+  console.log(`npm publish ./npm/cli --access public   # last`);
   console.log(
     `\ngh release create v${VERSION} --repo pocketbasecloud/cli \\\n` +
       `  --title "pb v${VERSION}" dist/*`,
