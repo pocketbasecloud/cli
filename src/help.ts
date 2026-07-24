@@ -21,6 +21,12 @@ const GLOBAL_FLAGS: FlagSpec[] = [
     description: "Fail instead of prompting",
   },
   {
+    name: "interactive",
+    type: "boolean",
+    required: false,
+    description: "Prompt for missing required values instead of erroring (-i)",
+  },
+  {
     name: "project",
     type: "string",
     required: false,
@@ -81,6 +87,7 @@ export function buildHelpText(registry: Record<string, Handler>): string {
     "  --json             Output machine-readable JSON",
     "  --yes, -y          Skip confirmation prompts",
     "  --no-input         Fail instead of prompting",
+    "  --interactive, -i  Prompt for missing required values instead of erroring",
     "  --project <id>     Which cloud project a `cloud ...` command targets",
     "                     (defaults to the linked/`use`d project)",
     "  --profile <name>   Which saved instance login (from `pb use <url>`)",

@@ -3,7 +3,7 @@ import type { CloudCmdDeps } from "./project.ts";
 import type { ResourceKind } from "../clients/types.ts";
 import { CliError } from "../errors.ts";
 import { resolveProject } from "../resolve/project.ts";
-import { findExisting } from "./deploy-helper.ts";
+import { resolveExisting } from "./deploy-helper.ts";
 
 export async function streamToWriter(
   body: ReadableStream<Uint8Array>,
@@ -41,10 +41,15 @@ export function makeLogsCommands(deps: CloudCmdDeps): Record<string, Handler> {
       id: ctx.raw.id as string | undefined,
       name: ctx.raw.name as string | undefined,
     };
-    const found = findExisting(await client.listResources(kind, p.id), token);
-    if (!found || found === "ambiguous") {
-      throw new CliError("Specify a unique --name or --id.", 2);
-    }
+    const found = await resolveExisting(
+      await client.listResources(kind, p.id),
+      token,
+      {
+        label: which === "pb" ? "PocketBase" : "backend",
+        interactive: ctx.flags.interactive,
+        noInput: ctx.flags.noInput,
+      },
+    );
     const follow = ctx.raw.follow === true;
     const res = await client.ext("/api/logs/stream", {
       targetId: found.id,

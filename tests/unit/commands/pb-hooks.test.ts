@@ -22,7 +22,13 @@ Deno.test("hooks push reads dir and calls bulk-write", async () => {
   });
   const code = await cmds["cloud pb hooks push"]({
     args: [dir],
-    flags: { json: true, yes: true, noInput: true, project: p.id },
+    flags: {
+      json: true,
+      yes: true,
+      noInput: true,
+      interactive: false,
+      project: p.id,
+    },
     raw: {},
   });
   assertEquals(code, 0);

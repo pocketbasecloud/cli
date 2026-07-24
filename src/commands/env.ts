@@ -3,7 +3,7 @@ import type { CloudCmdDeps } from "./project.ts";
 import type { ResourceKind } from "../clients/types.ts";
 import { CliError } from "../errors.ts";
 import { resolveProject } from "../resolve/project.ts";
-import { findExisting } from "./deploy-helper.ts";
+import { resolveExisting } from "./deploy-helper.ts";
 
 export function parseDotenv(text: string): Record<string, string> {
   const out: Record<string, string> = {};
@@ -43,10 +43,16 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
       id: ctx.raw.id as string | undefined,
       name: ctx.raw.name as string | undefined,
     };
-    const found = findExisting(await client.listResources(kind, p.id), token);
-    if (!found || found === "ambiguous") {
-      throw new CliError(`Specify a unique --name or --id for the ${type}.`, 2);
-    }
+    const found = await resolveExisting(
+      await client.listResources(kind, p.id),
+      token,
+      {
+        label: type,
+        interactive: ctx.flags.interactive,
+        noInput: ctx.flags.noInput,
+        errorMessage: `Specify a unique --name or --id for the ${type}.`,
+      },
+    );
     return { client, targetId: found.id, type };
   }
 

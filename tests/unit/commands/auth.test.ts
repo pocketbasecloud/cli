@@ -19,7 +19,7 @@ Deno.test("whoami prints user when authenticated", async () => {
   });
   const code = await cmds["cloud whoami"]({
     args: [],
-    flags: { json: true, yes: false, noInput: true },
+    flags: { json: true, yes: false, noInput: true, interactive: false },
     raw: {},
   });
   assertEquals(code, 0);
@@ -41,7 +41,7 @@ Deno.test("logout clears cloud auth", async () => {
   });
   await cmds["cloud logout"]({
     args: [],
-    flags: { json: false, yes: true, noInput: true },
+    flags: { json: false, yes: true, noInput: true, interactive: false },
     raw: {},
   });
   assertEquals(saved.cloud, null);

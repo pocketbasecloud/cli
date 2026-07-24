@@ -24,7 +24,13 @@ Deno.test("backend deploy sends runtime and start command", async () => {
   });
   const code = await cmds["cloud backend deploy"]({
     args: [],
-    flags: { json: true, yes: true, noInput: true, project: p.id },
+    flags: {
+      json: true,
+      yes: true,
+      noInput: true,
+      interactive: false,
+      project: p.id,
+    },
     raw: { name: "api", runtime: "deno", start: "deno task start" },
   });
   assertEquals(code, 0);

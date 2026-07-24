@@ -22,7 +22,7 @@ Deno.test("records create parses JSON data and posts", async () => {
   const cmds = makeRecordsCommands(deps(client));
   const code = await cmds["records create"]({
     args: ["posts", '{"title":"hi"}'],
-    flags: { json: true, yes: true, noInput: true },
+    flags: { json: true, yes: true, noInput: true, interactive: false },
     raw: {},
   });
   assertEquals(code, 0);
@@ -35,7 +35,7 @@ Deno.test("records rm requires collection and id", async () => {
   const cmds = makeRecordsCommands(deps(client));
   const code = await cmds["records rm"]({
     args: ["posts", "rec1"],
-    flags: { json: true, yes: true, noInput: true },
+    flags: { json: true, yes: true, noInput: true, interactive: false },
     raw: {},
   });
   assertEquals(code, 0);

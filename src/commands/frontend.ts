@@ -6,7 +6,11 @@ import { CliError } from "../errors.ts";
 import { printResult } from "../ui/output.ts";
 import { confirm } from "../ui/prompt.ts";
 import { resolveProject } from "../resolve/project.ts";
-import { deployResource, findExisting, pollStatus } from "./deploy-helper.ts";
+import {
+  deployResource,
+  pollStatus,
+  resolveExisting,
+} from "./deploy-helper.ts";
 
 export function makeFrontendCommands(
   deps: CloudCmdDeps,
@@ -31,13 +35,15 @@ export function makeFrontendCommands(
       id: ctx.raw.id as string | undefined,
       name: (ctx.raw.name as string) ?? ctx.args[0],
     };
-    const found = findExisting(
+    const found = await resolveExisting(
       await client.listResources("frontends", p.id),
       token,
+      {
+        label: "frontend",
+        interactive: ctx.flags.interactive,
+        noInput: ctx.flags.noInput,
+      },
     );
-    if (!found || found === "ambiguous") {
-      throw new CliError("Specify a unique --name or --id.", 2);
-    }
     return { client, found };
   }
 

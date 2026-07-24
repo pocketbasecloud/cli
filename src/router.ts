@@ -1,11 +1,13 @@
 import { parseArgs } from "@std/cli/parse-args";
 import { CliError } from "./errors.ts";
 import type { CommandSpec } from "./usage.ts";
+import { fillMissingFromSpec, type PromptIO } from "./ui/prompt.ts";
 
 export type GlobalFlags = {
   json: boolean;
   yes: boolean;
   noInput: boolean;
+  interactive: boolean;
   help?: boolean;
   project?: string;
   profile?: string;
@@ -23,6 +25,7 @@ export function parseGlobal(argv: string[]): { path: string[]; ctx: CmdCtx } {
       "json",
       "yes",
       "no-input",
+      "interactive",
       "follow",
       "none",
       "remove",
@@ -63,7 +66,7 @@ export function parseGlobal(argv: string[]): { path: string[]; ctx: CmdCtx } {
       "update-rule",
       "delete-rule",
     ],
-    alias: { y: "yes", f: "follow", h: "help" },
+    alias: { y: "yes", f: "follow", h: "help", i: "interactive" },
     "--": false,
   });
   const path = parsed._.map(String);
@@ -71,6 +74,7 @@ export function parseGlobal(argv: string[]): { path: string[]; ctx: CmdCtx } {
     json: parsed.json === true,
     yes: parsed.yes === true,
     noInput: parsed["no-input"] === true,
+    interactive: parsed.interactive === true,
     help: parsed.help === true,
     project: parsed.project as string | undefined,
     profile: parsed.profile as string | undefined,
@@ -85,6 +89,7 @@ export async function dispatch(
   registry: Record<string, Handler>,
   argv: string[],
   commands?: Record<string, CommandSpec>,
+  io?: PromptIO,
 ): Promise<number> {
   const { path, ctx } = parseGlobal(argv);
   for (let n = path.length; n >= 1; n--) {
@@ -92,8 +97,8 @@ export async function dispatch(
     const handler = registry[key];
     if (handler) {
       ctx.args = path.slice(n);
+      const spec = commands?.[key];
       if (ctx.flags.help) {
-        const spec = commands?.[key];
         if (ctx.flags.json) {
           const fallback: CommandSpec = {
             usage: `Usage: pb ${key}`,
@@ -116,6 +121,17 @@ export async function dispatch(
         return 0;
       }
       try {
+        if (ctx.flags.interactive) {
+          if (ctx.flags.noInput) {
+            throw new CliError(
+              "--interactive cannot be combined with --no-input.",
+              2,
+            );
+          }
+          if (spec) {
+            await fillMissingFromSpec(spec, ctx, { noInput: false, io });
+          }
+        }
         return await handler(ctx);
       } catch (e) {
         if (e instanceof CliError) {

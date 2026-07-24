@@ -30,7 +30,7 @@ Deno.test("project create adds a project", async () => {
   const cmds = makeProjectCommands(d);
   const code = await cmds["cloud project create"]({
     args: ["myapp"],
-    flags: { json: true, yes: true, noInput: true },
+    flags: { json: true, yes: true, noInput: true, interactive: false },
     raw: {},
   });
   assertEquals(code, 0);
@@ -46,7 +46,7 @@ Deno.test("project use stores currentProject", async () => {
   const cmds = makeProjectCommands(d);
   await cmds["cloud project use"]({
     args: [p.id],
-    flags: { json: true, yes: true, noInput: true },
+    flags: { json: true, yes: true, noInput: true, interactive: false },
     raw: {},
   });
   assertEquals(config.currentProject, p.id);

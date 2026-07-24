@@ -4,7 +4,11 @@ import { CliError } from "../errors.ts";
 import { printResult } from "../ui/output.ts";
 import { confirm } from "../ui/prompt.ts";
 import { resolveProject } from "../resolve/project.ts";
-import { deployResource, findExisting, pollStatus } from "./deploy-helper.ts";
+import {
+  deployResource,
+  pollStatus,
+  resolveExisting,
+} from "./deploy-helper.ts";
 
 export function makeBackendCommands(
   deps: CloudCmdDeps,
@@ -76,13 +80,15 @@ export function makeBackendCommands(
       id: ctx.raw.id as string | undefined,
       name: (ctx.raw.name as string) ?? ctx.args[0],
     };
-    const found = findExisting(
+    const found = await resolveExisting(
       await client.listResources("backends", p.id),
       token,
+      {
+        label: "backend",
+        interactive: ctx.flags.interactive,
+        noInput: ctx.flags.noInput,
+      },
     );
-    if (!found || found === "ambiguous") {
-      throw new CliError("Specify a unique --name or --id.", 2);
-    }
     console.log(JSON.stringify(found, null, 2));
     return 0;
   };
@@ -93,13 +99,15 @@ export function makeBackendCommands(
       id: ctx.raw.id as string | undefined,
       name: (ctx.raw.name as string) ?? ctx.args[0],
     };
-    const found = findExisting(
+    const found = await resolveExisting(
       await client.listResources("backends", p.id),
       token,
+      {
+        label: "backend",
+        interactive: ctx.flags.interactive,
+        noInput: ctx.flags.noInput,
+      },
     );
-    if (!found || found === "ambiguous") {
-      throw new CliError("Specify a unique --name or --id.", 2);
-    }
     if (
       !await confirm(`Delete backend ${found.name}?`, {
         noInput: ctx.flags.noInput,

@@ -31,7 +31,13 @@ Deno.test("frontend domain add posts to custom-domain/add", async () => {
   const cmds = makeFrontendCommands(deps(client, p.id));
   const code = await cmds["cloud frontend domain add"]({
     args: ["example.com"],
-    flags: { json: true, yes: true, noInput: true, project: p.id },
+    flags: {
+      json: true,
+      yes: true,
+      noInput: true,
+      interactive: false,
+      project: p.id,
+    },
     raw: { name: "site" },
   });
   assertEquals(code, 0);

@@ -33,7 +33,7 @@ Deno.test("logs one-shot returns 0 and forwards filter", async () => {
   const cmds = makeInstanceLogsCommands(deps(client));
   const code = await cmds["logs"]({
     args: [],
-    flags: { json: true, yes: true, noInput: true },
+    flags: { json: true, yes: true, noInput: true, interactive: false },
     raw: { filter: "level>0" },
   });
   assertEquals(code, 0);

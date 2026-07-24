@@ -36,7 +36,16 @@ Deno.test("buildManifest includes the global flags", () => {
   const names = manifest.globalFlags.map((f) => f.name).sort();
   assertEquals(
     names,
-    ["help", "json", "no-input", "profile", "project", "version", "yes"],
+    [
+      "help",
+      "interactive",
+      "json",
+      "no-input",
+      "profile",
+      "project",
+      "version",
+      "yes",
+    ],
   );
 });
 

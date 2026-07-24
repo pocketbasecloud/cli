@@ -39,7 +39,13 @@ Deno.test("pb deploy creates then reaches running", async () => {
   const cmds = makePbCommands(d);
   const code = await cmds["cloud pb deploy"]({
     args: [],
-    flags: { json: true, yes: true, noInput: true, project: p.id },
+    flags: {
+      json: true,
+      yes: true,
+      noInput: true,
+      interactive: false,
+      project: p.id,
+    },
     raw: { name: "db1" },
   });
   assertEquals(code, 0);

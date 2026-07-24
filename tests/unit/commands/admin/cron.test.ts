@@ -22,7 +22,7 @@ Deno.test("cron run passes job id", async () => {
   const cmds = makeCronCommands(deps(client));
   const code = await cmds["cron run"]({
     args: ["__pbLogsCleanup__"],
-    flags: { json: true, yes: true, noInput: true },
+    flags: { json: true, yes: true, noInput: true, interactive: false },
     raw: {},
   });
   assertEquals(code, 0);

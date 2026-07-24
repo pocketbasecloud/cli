@@ -22,7 +22,7 @@ Deno.test("settings mail set updates smtp section", async () => {
   const cmds = makeSettingsCommands(deps(client));
   const code = await cmds["settings mail set"]({
     args: ['{"enabled":true,"host":"smtp.example.com"}'],
-    flags: { json: true, yes: true, noInput: true },
+    flags: { json: true, yes: true, noInput: true, interactive: false },
     raw: {},
   });
   assertEquals(code, 0);
@@ -35,7 +35,7 @@ Deno.test("settings backup create passes basename", async () => {
   const cmds = makeSettingsCommands(deps(client));
   const code = await cmds["settings backup create"]({
     args: ["snapshot.zip"],
-    flags: { json: true, yes: true, noInput: true },
+    flags: { json: true, yes: true, noInput: true, interactive: false },
     raw: {},
   });
   assertEquals(code, 0);

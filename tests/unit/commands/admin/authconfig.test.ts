@@ -23,7 +23,7 @@ Deno.test("auth config --set updates a field on an auth collection", async () =>
   const cmds = makeAuthConfigCommands(deps(client));
   const code = await cmds["auth"]({
     args: ["users", "config"],
-    flags: { json: true, yes: true, noInput: true },
+    flags: { json: true, yes: true, noInput: true, interactive: false },
     raw: { set: 'oauth2={"enabled":true}' },
   });
   assertEquals(code, 0);
@@ -39,7 +39,7 @@ Deno.test("auth config rejects non-auth collections", async () => {
     () =>
       cmds["auth"]({
         args: ["posts", "config"],
-        flags: { json: true, yes: true, noInput: true },
+        flags: { json: true, yes: true, noInput: true, interactive: false },
         raw: {},
       }),
     Error,

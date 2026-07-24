@@ -22,7 +22,7 @@ Deno.test("collections create sends name and type", async () => {
   const cmds = makeCollectionsCommands(deps(client));
   const code = await cmds["collections create"]({
     args: ["posts"],
-    flags: { json: true, yes: true, noInput: true },
+    flags: { json: true, yes: true, noInput: true, interactive: false },
     raw: {},
   });
   assertEquals(code, 0);
@@ -40,7 +40,7 @@ Deno.test("collections export writes JSON to out file", async () => {
   const cmds = makeCollectionsCommands(deps(client));
   const code = await cmds["collections export"]({
     args: [],
-    flags: { json: true, yes: true, noInput: true },
+    flags: { json: true, yes: true, noInput: true, interactive: false },
     raw: { out },
   });
   assertEquals(code, 0);

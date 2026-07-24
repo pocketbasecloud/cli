@@ -23,7 +23,7 @@ Deno.test("rules set updates only provided rules and clears on 'null'", async ()
   const cmds = makeRulesCommands(deps(client));
   const code = await cmds["rules set"]({
     args: ["posts"],
-    flags: { json: true, yes: true, noInput: true },
+    flags: { json: true, yes: true, noInput: true, interactive: false },
     raw: { "list-rule": "@request.auth.id != ''", "delete-rule": "null" },
   });
   assertEquals(code, 0);

@@ -19,7 +19,7 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 function ctx(over: Partial<CmdCtx> = {}): CmdCtx {
   return {
     args: [],
-    flags: { json: false, yes: true, noInput: true },
+    flags: { json: false, yes: true, noInput: true, interactive: false },
     raw: {},
     ...over,
   };
@@ -96,7 +96,9 @@ Deno.test("versions lists from github and marks the latest", async () => {
 Deno.test("versions --json reports the github source", async () => {
   const h = harness();
   await h.cmds["versions"](
-    ctx({ flags: { json: true, yes: true, noInput: true } }),
+    ctx({
+      flags: { json: true, yes: true, noInput: true, interactive: false },
+    }),
   );
   const parsed = JSON.parse(h.out[0]);
   assertEquals(parsed.source, "github");
@@ -120,7 +122,9 @@ Deno.test("versions falls back to the builtin list and says so", async () => {
 Deno.test("versions --json reports the builtin source when offline", async () => {
   const h = harness({ offline: true });
   await h.cmds["versions"](
-    ctx({ flags: { json: true, yes: true, noInput: true } }),
+    ctx({
+      flags: { json: true, yes: true, noInput: true, interactive: false },
+    }),
   );
   const parsed = JSON.parse(h.out[0]);
   assertEquals(parsed.source, "builtin");
@@ -188,7 +192,7 @@ Deno.test("init --json emits the binary path and scaffold results", async () => 
   const h = harness({ zip, sums });
   await h.cmds["init"](
     ctx({
-      flags: { json: true, yes: true, noInput: true },
+      flags: { json: true, yes: true, noInput: true, interactive: false },
       raw: { os: "linux", arch: "amd64" },
     }),
   );
@@ -245,7 +249,7 @@ Deno.test("--json output carries no prose hint", async () => {
   const h = harness({ zip, sums });
   await h.cmds["install"](
     ctx({
-      flags: { json: true, yes: true, noInput: true },
+      flags: { json: true, yes: true, noInput: true, interactive: false },
       raw: { os: "linux", arch: "amd64" },
     }),
   );

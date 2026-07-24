@@ -22,7 +22,7 @@ Deno.test("org create makes an org", async () => {
   const cmds = makeOrgCommands(deps(client));
   const code = await cmds["cloud org create"]({
     args: ["acme"],
-    flags: { json: true, yes: true, noInput: true },
+    flags: { json: true, yes: true, noInput: true, interactive: false },
     raw: {},
   });
   assertEquals(code, 0);
@@ -36,7 +36,7 @@ Deno.test("org share sets organization on a project", async () => {
   const cmds = makeOrgCommands(deps(client));
   const code = await cmds["cloud org share"]({
     args: [p.id],
-    flags: { json: true, yes: true, noInput: true },
+    flags: { json: true, yes: true, noInput: true, interactive: false },
     raw: { org: o.id },
   });
   assertEquals(code, 0);
@@ -49,7 +49,7 @@ Deno.test("org share --none unshares", async () => {
   const cmds = makeOrgCommands(deps(client));
   await cmds["cloud org share"]({
     args: [p.id],
-    flags: { json: true, yes: true, noInput: true },
+    flags: { json: true, yes: true, noInput: true, interactive: false },
     raw: { none: true },
   });
   assertEquals(client.calls.shareProject[0], [p.id, null]);

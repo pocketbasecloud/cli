@@ -26,7 +26,13 @@ Deno.test("data export writes response body to out file", async () => {
   });
   const code = await cmds["cloud data export"]({
     args: [],
-    flags: { json: true, yes: true, noInput: true, project: p.id },
+    flags: {
+      json: true,
+      yes: true,
+      noInput: true,
+      interactive: false,
+      project: p.id,
+    },
     raw: { out },
   });
   assertEquals(code, 0);

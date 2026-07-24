@@ -23,7 +23,7 @@ Deno.test("upgrade prints plan and portal link", async () => {
   );
   const code = await cmds["cloud upgrade"]({
     args: [],
-    flags: { json: false, yes: true, noInput: true },
+    flags: { json: false, yes: true, noInput: true, interactive: false },
     raw: {},
   });
   assertEquals(code, 0);

@@ -33,7 +33,13 @@ Deno.test("env import posts bulk-set with parsed vars", async () => {
   });
   const code = await cmds["cloud env import"]({
     args: [join(dir, ".env")],
-    flags: { json: true, yes: true, noInput: true, project: p.id },
+    flags: {
+      json: true,
+      yes: true,
+      noInput: true,
+      interactive: false,
+      project: p.id,
+    },
     raw: { target: "backend", name: "api" },
   });
   assertEquals(code, 0);

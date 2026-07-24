@@ -25,7 +25,7 @@ Deno.test("use creates a profile and sets default", async () => {
   const cmds = makeInstanceAuthCommands(deps(config).d);
   const code = await cmds["use"]({
     args: ["https://db.example.com"],
-    flags: { json: true, yes: true, noInput: true },
+    flags: { json: true, yes: true, noInput: true, interactive: false },
     raw: {},
   });
   assertEquals(code, 0);
@@ -42,7 +42,7 @@ Deno.test("login stores the returned token", async () => {
   const cmds = makeInstanceAuthCommands(deps(config).d);
   const code = await cmds["login"]({
     args: [],
-    flags: { json: true, yes: true, noInput: true },
+    flags: { json: true, yes: true, noInput: true, interactive: false },
     raw: { email: "a@b.co", password: "secret" },
   });
   assertEquals(code, 0);
