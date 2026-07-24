@@ -2,9 +2,10 @@ import { assertEquals, assertRejects } from "@std/assert";
 import {
   deployResource,
   findExisting,
+  missingTargetMessage,
   pollStatus,
   resolveExisting,
-  resolveTargetToken,
+  resolveTarget,
 } from "../../../src/commands/deploy-helper.ts";
 import { createMockCloudClient } from "../../mocks/cloud.mock.ts";
 import type { Resource } from "../../../src/clients/types.ts";
@@ -125,60 +126,137 @@ Deno.test("deployResource updates when name exists", async () => {
   assertEquals(resource.id, made.id);
 });
 
-async function withBinding(
-  resource: Record<string, unknown> | null,
-): Promise<string> {
+/** A pb.json with production+staging frontends, or none at all. */
+async function withBinding(bound: boolean): Promise<string> {
   const dir = await Deno.makeTempDir();
-  if (resource) {
+  if (bound) {
     await Deno.writeTextFile(
       join(dir, "pb.json"),
-      JSON.stringify({ projectId: "p1", resource }),
+      JSON.stringify({
+        projectId: "p1",
+        kind: "frontends",
+        defaultEnvironment: "production",
+        environments: {
+          production: { id: "fe1", name: "web" },
+          staging: { id: "fe2", name: "web-staging" },
+        },
+      }),
     );
   }
   return dir;
 }
 
-Deno.test("resolveTargetToken: explicit id/name wins over any binding", async () => {
-  const dir = await withBinding({ kind: "frontends", id: "fe1", name: "web" });
+Deno.test("resolveTarget: explicit id/name wins over any binding", async () => {
+  const dir = await withBinding(true);
   try {
-    assertEquals(await resolveTargetToken({ id: "x" }, "frontends", dir), {
+    assertEquals(await resolveTarget({ id: "x" }, "frontends", dir), {
       id: "x",
       fromBinding: false,
+      environment: "production",
+      hasEnvironments: true,
     });
-    assertEquals(await resolveTargetToken({ name: "y" }, "frontends", dir), {
+    assertEquals(await resolveTarget({ name: "y" }, "frontends", dir), {
       name: "y",
       fromBinding: false,
+      environment: "production",
+      hasEnvironments: true,
     });
   } finally {
     await Deno.remove(dir, { recursive: true });
   }
 });
 
-Deno.test("resolveTargetToken: falls back to a kind-matched binding", async () => {
-  const dir = await withBinding({ kind: "frontends", id: "fe1", name: "web" });
+Deno.test("resolveTarget: falls back to the default environment's entry", async () => {
+  const dir = await withBinding(true);
   try {
-    assertEquals(await resolveTargetToken({}, "frontends", dir), {
+    assertEquals(await resolveTarget({}, "frontends", dir), {
       id: "fe1",
       fromBinding: true,
+      environment: "production",
+      hasEnvironments: true,
     });
-    // A binding of a different kind is ignored.
-    assertEquals(await resolveTargetToken({}, "backends", dir), {
+    // A file bound to a different kind is ignored, as before environments.
+    assertEquals(await resolveTarget({}, "backends", dir), {
       fromBinding: false,
+      environment: "production",
+      hasEnvironments: true,
     });
   } finally {
     await Deno.remove(dir, { recursive: true });
   }
 });
 
-Deno.test("resolveTargetToken: no flags and no binding yields nothing", async () => {
-  const dir = await withBinding(null);
+Deno.test("resolveTarget: --env picks that environment's entry", async () => {
+  const dir = await withBinding(true);
   try {
-    assertEquals(await resolveTargetToken({}, "frontends", dir), {
+    assertEquals(
+      await resolveTarget({}, "frontends", dir, { envFlag: "staging" }),
+      {
+        id: "fe2",
+        fromBinding: true,
+        environment: "staging",
+        hasEnvironments: true,
+      },
+    );
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test("resolveTarget: an unconfigured --env is an error", async () => {
+  const dir = await withBinding(true);
+  try {
+    await assertRejects(
+      () => resolveTarget({}, "frontends", dir, { envFlag: "preview" }),
+      Error,
+      'Unknown environment "preview". Configured: production, staging.',
+    );
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test("resolveTarget: strictKind refuses a directory bound to another kind", async () => {
+  const dir = await withBinding(true);
+  try {
+    await assertRejects(
+      () => resolveTarget({}, "backends", dir, { strictKind: true }),
+      Error,
+      "pb.json is bound to frontends — deploy backends from a different",
+    );
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test("resolveTarget: no flags and no binding yields nothing", async () => {
+  const dir = await withBinding(false);
+  try {
+    assertEquals(await resolveTarget({}, "frontends", dir), {
       fromBinding: false,
+      environment: "production",
+      hasEnvironments: false,
     });
   } finally {
     await Deno.remove(dir, { recursive: true });
   }
+});
+
+Deno.test("missingTargetMessage distinguishes an unconfigured env from a fresh directory", () => {
+  assertEquals(
+    missingTargetMessage(
+      { fromBinding: false, environment: "staging", hasEnvironments: true },
+      "frontend",
+    ),
+    'Environment "staging" is not configured — pass --name to create it.',
+  );
+  assertEquals(
+    missingTargetMessage(
+      { fromBinding: false, environment: "production", hasEnvironments: false },
+      "frontend",
+    ),
+    "Pass --name to create the first frontend.",
+  );
 });
 
 Deno.test("deployResource errors on a stale binding and runs onStale", async () => {

@@ -4,13 +4,22 @@ import { CliError } from "../errors.ts";
 import { printResult } from "../ui/output.ts";
 import { confirm } from "../ui/prompt.ts";
 import { resolveProject } from "../resolve/project.ts";
-import { clearResourceLink, upsertResourceLink } from "../config.ts";
 import {
+  removeEnvironment,
+  removeEnvironmentFor,
+  upsertEnvironment,
+} from "../config.ts";
+import {
+  attachZip,
+  buildBundle,
   deployResource,
+  missingTargetMessage,
   pollStatus,
+  pushEnvFile,
   resolveExisting,
-  resolveTargetToken,
+  resolveTarget,
 } from "./deploy-helper.ts";
+import { reportRemoval } from "./environments.ts";
 
 export function makeBackendCommands(
   deps: CloudCmdDeps,
@@ -32,15 +41,39 @@ export function makeBackendCommands(
     const cwd = deps.cwd();
     const name = (ctx.raw.name as string) ?? ctx.args[0];
     const id = ctx.raw.id as string | undefined;
-    const target = await resolveTargetToken({ id, name }, "backends", cwd);
+    const target = await resolveTarget({ id, name }, "backends", cwd, {
+      envFlag: ctx.raw.env as string | undefined,
+      allowNewEnvironment: true,
+      strictKind: true,
+    });
     if (!target.id && !target.name) {
-      throw new CliError("Pass --name to create the first backend.", 2);
+      throw new CliError(missingTargetMessage(target, "backend"), 2);
     }
-    const data: Record<string, unknown> = { project: p.id };
+    const log = ctx.flags.json ? () => {} : (m: string) => console.log(m);
+    const bundle = await buildBundle({
+      cwd,
+      kind: "backends",
+      zipPath: ctx.raw.zip as string | undefined,
+      skipBuild: ctx.raw["skip-build"] === true,
+      runtime: ctx.raw.runtime as string | undefined,
+      envFile: ctx.raw["env-file"] as string | undefined,
+      environment: target.environment,
+      log,
+    });
+    const runtime = ctx.raw.runtime ?? bundle.build.runtime;
+    if (!runtime) {
+      throw new CliError(
+        "Pass --runtime (deno|bun|nodejs|nextjs) or set build.runtime in pb.json.",
+        2,
+      );
+    }
+    const data: Record<string, unknown> = { project: p.id, runtime };
     if (name) data.name = name;
-    if (ctx.raw.runtime) data.runtime = ctx.raw.runtime;
-    if (ctx.raw.start) data.startCommand = ctx.raw.start;
-    if (ctx.raw.zip) data.zipFile = ctx.raw.zip;
+    // The packager knows how a Next.js standalone bundle starts; an explicit
+    // --start still wins.
+    const start = ctx.raw.start ?? bundle.startCommand;
+    if (start) data.startCommand = start;
+    attachZip(data, bundle);
     const { resource, created } = await deployResource(
       client,
       "backends",
@@ -49,17 +82,37 @@ export function makeBackendCommands(
         id: target.id,
         name: target.name,
         data,
+        // backend.service.ts only redeploys a record whose status says a new
+        // archive is waiting.
+        updateData: { status: "uploading" },
         requireExisting: target.fromBinding,
-        onStale: () => clearResourceLink(cwd),
+        environment: target.environment,
+        onStale: async () => {
+          await removeEnvironment(cwd, target.environment);
+        },
       },
     );
-    await upsertResourceLink(cwd, p.id, {
+    await upsertEnvironment(cwd, {
+      projectId: p.id,
       kind: "backends",
-      id: resource.id,
-      name: resource.name,
+      environment: target.environment,
+      entry: { id: resource.id, name: resource.name },
     });
+    if (ctx.raw["skip-env"] !== true) {
+      await pushEnvFile(client, {
+        targetId: resource.id,
+        type: "backend",
+        cwd,
+        build: bundle.build,
+        explicit: ctx.raw["env-file"] !== undefined,
+        log,
+      });
+    }
     if (!ctx.flags.json) {
-      console.log(`${created ? "Creating" : "Redeploying"} ${resource.name}…`);
+      console.log(
+        `${created ? "Creating" : "Redeploying"} ${resource.name} ` +
+          `(environment: ${target.environment})…`,
+      );
     }
     const final = await pollStatus(client, "backends", resource.id, {
       terminal: ["running", "error", "failed"],
@@ -69,7 +122,7 @@ export function makeBackendCommands(
     });
     console.log(
       ctx.flags.json
-        ? JSON.stringify(final)
+        ? JSON.stringify({ ...final, environment: target.environment })
         : `Done: ${final.name} is ${final.status}.`,
     );
     return final.status === "running" ? 0 : 6;
@@ -92,7 +145,9 @@ export function makeBackendCommands(
       id: ctx.raw.id as string | undefined,
       name: (ctx.raw.name as string) ?? ctx.args[0],
     };
-    const target = await resolveTargetToken(base, "backends", deps.cwd());
+    const target = await resolveTarget(base, "backends", deps.cwd(), {
+      envFlag: ctx.raw.env as string | undefined,
+    });
     const found = await resolveExisting(
       await client.listResources("backends", p.id),
       { id: target.id, name: target.name },
@@ -102,7 +157,7 @@ export function makeBackendCommands(
         noInput: ctx.flags.noInput,
       },
     );
-    return { client, found };
+    return { client, found, environment: target.environment };
   }
 
   const info: Handler = async (ctx: CmdCtx) => {
@@ -112,7 +167,7 @@ export function makeBackendCommands(
   };
 
   const rm: Handler = async (ctx: CmdCtx) => {
-    const { client, found } = await resolveOne(ctx);
+    const { client, found, environment } = await resolveOne(ctx);
     if (
       !await confirm(`Delete backend ${found.name}?`, {
         noInput: ctx.flags.noInput,
@@ -123,10 +178,15 @@ export function makeBackendCommands(
       return 0;
     }
     await client.updateResource("backends", found.id, { status: "deleted" });
-    await clearResourceLink(deps.cwd());
+    const removal = await removeEnvironmentFor(
+      deps.cwd(),
+      environment,
+      found.id,
+    );
     console.log(
       ctx.flags.json ? JSON.stringify({ ok: true }) : `Deleting ${found.name}.`,
     );
+    if (!ctx.flags.json) reportRemoval(removal, environment, console.log);
     return 0;
   };
 

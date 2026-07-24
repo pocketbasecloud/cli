@@ -57,8 +57,9 @@ Deno.test("a multi-paragraph command (auth) reconstructs identically to the orig
 Deno.test("cloud backend deploy has a choices-constrained runtime flag", () => {
   const spec = COMMANDS["cloud backend deploy"];
   const runtime = spec.flags.find((f) => f.name === "runtime");
-  assertEquals(runtime?.choices, ["deno", "bun", "nodejs"]);
-  assertEquals(runtime?.required, true);
+  assertEquals(runtime?.choices, ["deno", "bun", "nodejs", "nextjs"]);
+  // Not required: build.runtime in pb.json, or inference, can supply it.
+  assertEquals(runtime?.required, false);
 });
 
 Deno.test("no command spec repeats a global flag", () => {

@@ -13,16 +13,54 @@ export type Config = {
   defaultProfile: string | null;
   profiles: Record<string, Profile>;
 };
-/** The single cloud resource a directory's pb.json is bound to (1:1). */
-export type ResourceLink = {
-  kind: ResourceKind;
+/**
+ * One deployment target of a directory: the cloud resource a named environment
+ * points at, plus whatever that environment builds differently. The resource's
+ * `kind` is not here — it lives on the file, shared by every environment,
+ * because a directory is one kind forever.
+ */
+export type EnvEntry = {
   id: string;
   name: string;
+  /** Overrides merged over the file's base `build`, key by key. */
+  build?: BuildConfig;
 };
+/**
+ * How a directory turns into a deployable zip. The file's base block applies to
+ * every environment; an environment may override any subset of it. Fields that
+ * do not apply to the bound kind are ignored rather than rejected.
+ */
+export type BuildConfig = {
+  /** Shell command run in the resource directory. Omit for no build step. */
+  command?: string;
+  /** Directory whose contents become the zip root. */
+  outputDir?: string;
+  /** Backends only. Mirrors --runtime; selects the packaging strategy. */
+  runtime?: "deno" | "bun" | "nodejs" | "nextjs";
+  /** Extra exclude globs, on top of the built-in denylist. */
+  exclude?: string[];
+  /** Which dotenv file --push-env reads. Defaults to ".env". */
+  envFile?: string;
+  /** PocketBase only. Paths relative to the resource directory. */
+  pbPublic?: string;
+  pbHooks?: string;
+  pbMigrations?: string;
+};
+
+/**
+ * A directory's pb.json: fields shared by every environment, plus the per
+ * environment deltas. `projectId` is deliberately not overridable — every
+ * environment of a directory lives in the same cloud project.
+ */
 export type LinkFile = {
   projectId: string;
   pocketbaseVersion?: string;
-  resource?: ResourceLink;
+  /** The kind every environment of this directory deploys. */
+  kind?: ResourceKind;
+  build?: BuildConfig;
+  /** Which environment a command targets when none is named. */
+  defaultEnvironment?: string;
+  environments?: Record<string, EnvEntry>;
 };
 
 export function defaultConfig(): Config {
@@ -88,7 +126,7 @@ export async function readLinkFile(cwd: string): Promise<LinkFile | null> {
 }
 
 /** Read the cwd's own pb.json (no walk-up), tolerating an absent/invalid file. */
-async function readOwnPbJson(cwd: string): Promise<Partial<LinkFile>> {
+export async function readOwnPbJson(cwd: string): Promise<Partial<LinkFile>> {
   try {
     return JSON.parse(await Deno.readTextFile(join(cwd, "pb.json")));
   } catch {
@@ -96,49 +134,145 @@ async function readOwnPbJson(cwd: string): Promise<Partial<LinkFile>> {
   }
 }
 
+async function writePbJson(
+  cwd: string,
+  file: Partial<LinkFile>,
+): Promise<void> {
+  await Deno.writeTextFile(
+    join(cwd, "pb.json"),
+    JSON.stringify(file, null, 2) + "\n",
+  );
+}
+
 /**
- * Record the cloud resource this directory deploys to. Writes to the cwd's own
- * pb.json (creating it, self-contained, if absent), preserving other fields.
+ * Record the cloud resource one environment of this directory deploys to.
+ * Writes to the cwd's own pb.json (creating it, self-contained, if absent),
+ * preserving other fields and the environment's own build overrides.
  *
- * `projectId` always names the project the bound resource lives in — the two
+ * `projectId` always names the project the bound resources live in — the two
  * must agree, or a later flagless command would look the resource up in the
  * wrong project. It therefore overwrites any `projectId` already in the file,
  * which only differs when the caller passed an explicit `--project`.
+ *
+ * `kind` and `defaultEnvironment` are filled in on the way through: the first
+ * environment recorded becomes the default, and later ones leave it alone.
  */
-export async function upsertResourceLink(
+export async function upsertEnvironment(
   cwd: string,
-  projectId: string,
-  resource: ResourceLink,
+  opts: {
+    projectId: string;
+    kind: ResourceKind;
+    environment: string;
+    entry: EnvEntry;
+  },
 ): Promise<void> {
   const existing = await readOwnPbJson(cwd);
-  const next: LinkFile = {
-    ...existing,
-    projectId,
-    resource,
+  const environments = { ...existing.environments };
+  environments[opts.environment] = {
+    ...environments[opts.environment],
+    ...opts.entry,
   };
-  await Deno.writeTextFile(
-    join(cwd, "pb.json"),
-    JSON.stringify(next, null, 2) + "\n",
-  );
+  await writePbJson(cwd, {
+    ...existing,
+    projectId: opts.projectId,
+    kind: opts.kind,
+    defaultEnvironment: existing.defaultEnvironment ?? opts.environment,
+    environments,
+  });
+}
+
+/** What `removeEnvironment` had to do beyond dropping the entry. */
+export type RemoveEnvResult = {
+  /** False when the environment was not in the file to begin with. */
+  removed: boolean;
+  /** Set when the removed environment was the default and one other remained. */
+  repointedTo?: string;
+  /** True when the default was removed and several candidates remained. */
+  defaultDropped?: boolean;
+  /** True when that was the last environment, so `kind` went with it. */
+  emptied?: boolean;
+};
+
+/**
+ * Forget one environment of the cwd's *own* pb.json. Unlike `readLinkFile` this
+ * never walks up, so `rm` and `unlink` cannot detach a parent directory.
+ *
+ * Removing the default leaves the file without one rather than silently
+ * promoting an arbitrary survivor: the next bare deploy then asks for `--env`
+ * instead of guessing which environment inherited production's role.
+ */
+export async function removeEnvironment(
+  cwd: string,
+  environment: string,
+): Promise<RemoveEnvResult> {
+  const existing = await readOwnPbJson(cwd);
+  const environments = { ...existing.environments };
+  if (!(environment in environments)) return { removed: false };
+  delete environments[environment];
+
+  const next: Partial<LinkFile> = { ...existing };
+  const remaining = Object.keys(environments);
+  if (remaining.length === 0) {
+    delete next.environments;
+    delete next.defaultEnvironment;
+    delete next.kind;
+    await writePbJson(cwd, next);
+    return { removed: true, emptied: true };
+  }
+
+  next.environments = environments;
+  const result: RemoveEnvResult = { removed: true };
+  if (existing.defaultEnvironment === environment) {
+    if (remaining.length === 1) {
+      next.defaultEnvironment = remaining[0];
+      result.repointedTo = remaining[0];
+    } else {
+      delete next.defaultEnvironment;
+      result.defaultDropped = true;
+    }
+  }
+  await writePbJson(cwd, next);
+  return result;
 }
 
 /**
- * The resource bound to the cwd's *own* pb.json. Unlike `readLinkFile` this
- * never walks up, so `pb cloud unlink` cannot detach a parent directory.
+ * Drop `environment` only when it is the one pointing at `id`. `rm --name
+ * something-else` resolves a resource the file may not track, and must not
+ * detach an environment bound to a different one.
  */
-export async function readOwnResourceLink(
+export async function removeEnvironmentFor(
   cwd: string,
-): Promise<ResourceLink | null> {
-  return (await readOwnPbJson(cwd)).resource ?? null;
+  environment: string,
+  id: string,
+): Promise<RemoveEnvResult> {
+  const existing = await readOwnPbJson(cwd);
+  if (existing.environments?.[environment]?.id !== id) {
+    return { removed: false };
+  }
+  return await removeEnvironment(cwd, environment);
 }
 
-/** Remove the resource binding from the cwd's pb.json, leaving the rest intact. */
-export async function clearResourceLink(cwd: string): Promise<void> {
+/** Forget every environment, leaving `projectId` and `build` intact. */
+export async function clearEnvironments(cwd: string): Promise<string[]> {
   const existing = await readOwnPbJson(cwd);
-  if (!existing.resource) return;
-  delete existing.resource;
-  await Deno.writeTextFile(
-    join(cwd, "pb.json"),
-    JSON.stringify(existing, null, 2) + "\n",
-  );
+  const names = Object.keys(existing.environments ?? {});
+  if (names.length === 0) return [];
+  delete existing.environments;
+  delete existing.defaultEnvironment;
+  delete existing.kind;
+  await writePbJson(cwd, existing);
+  return names;
+}
+
+/**
+ * Record an inferred build config in the cwd's pb.json so the next deploy is
+ * deterministic and the choice is reviewable in git. Never called when the
+ * file already carries a `build` block.
+ */
+export async function upsertBuildConfig(
+  cwd: string,
+  build: BuildConfig,
+): Promise<void> {
+  const existing = await readOwnPbJson(cwd);
+  await writePbJson(cwd, { ...existing, build });
 }

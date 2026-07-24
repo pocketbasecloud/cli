@@ -5,10 +5,12 @@ import { makePbCommands } from "./pb.ts";
 import { makeFrontendCommands } from "./frontend.ts";
 import { makeBackendCommands } from "./backend.ts";
 import { makeEnvCommands } from "./env.ts";
+import { makeEnvironmentsCommands } from "./environments.ts";
 import { makeDataCommands } from "./data.ts";
 import { makeLogsCommands } from "./logs.ts";
 import { makeOrgCommands } from "./org.ts";
 import { makeUpgradeCommands } from "./upgrade.ts";
+import { makeCloudInitCommands } from "./init.ts";
 import { makeLocalCommands } from "./local.ts";
 import type { LocalDeps } from "../local/deps.ts";
 import { type AdminCmdDeps } from "./admin/deps.ts";
@@ -112,10 +114,12 @@ export function registerCommands(registry: Record<string, Handler>): void {
     makeFrontendCommands(cloud),
     makeBackendCommands(cloud),
     makeEnvCommands(cloud),
+    makeEnvironmentsCommands(cloud),
     makeDataCommands(cloud),
     makeLogsCommands(cloud),
     makeOrgCommands(cloud),
     makeUpgradeCommands(cloud, PORTAL_BASE),
+    makeCloudInitCommands({ cwd: cloud.cwd }),
     makeLocalCommands(buildLocalDeps()),
     makeInstanceAuthCommands(admin),
     makeCollectionsCommands(admin),

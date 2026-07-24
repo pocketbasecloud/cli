@@ -1,10 +1,13 @@
 import type { CmdCtx, Handler } from "../router.ts";
 import type { CloudAuth, Config } from "../config.ts";
 import {
-  clearResourceLink,
-  readOwnResourceLink,
-  upsertResourceLink,
+  clearEnvironments,
+  readOwnPbJson,
+  removeEnvironment,
+  upsertEnvironment,
 } from "../config.ts";
+import { resolveEnvironmentName } from "../resolve/environment.ts";
+import { reportRemoval } from "./environments.ts";
 import type { ICloudClient } from "../clients/cloud.ts";
 import { CliError } from "../errors.ts";
 import { printResult } from "../ui/output.ts";
@@ -123,38 +126,79 @@ export function makeProjectCommands(
       noInput: ctx.flags.noInput,
       io: deps.io,
     });
-    await upsertResourceLink(cwd, p.id, {
+    // The file's own environments decide the target, never a parent's: link
+    // writes here, so it must read from here.
+    const own = await readOwnPbJson(cwd);
+    if (own.kind && own.kind !== kind) {
+      throw new CliError(
+        `pb.json is bound to ${own.kind} — link ${kind} from a different ` +
+          `directory.`,
+        2,
+      );
+    }
+    const environment = resolveEnvironmentName(own, {
+      flag: ctx.raw.env as string | undefined,
+    }).name;
+    await upsertEnvironment(cwd, {
+      projectId: p.id,
       kind,
-      id: resource.id,
-      name: resource.name,
+      environment,
+      entry: { id: resource.id, name: resource.name },
     });
     console.log(
       ctx.flags.json
         ? JSON.stringify({
-          linked: { kind, id: resource.id, name: resource.name },
+          linked: { kind, id: resource.id, name: resource.name, environment },
         })
-        : `Linked ./ to ${kindLabel(kind)} "${resource.name}".`,
+        : `Linked ./ to ${kindLabel(kind)} "${resource.name}" ` +
+          `(environment: ${environment}).`,
     );
     return 0;
   };
 
   const unlink: Handler = async (ctx: CmdCtx) => {
     const cwd = deps.cwd();
-    const bound = await readOwnResourceLink(cwd);
-    if (!bound) {
+    const own = await readOwnPbJson(cwd);
+    const bound = Object.keys(own.environments ?? {});
+    if (bound.length === 0) {
       console.log(
         ctx.flags.json
-          ? JSON.stringify({ unlinked: null })
+          ? JSON.stringify({ unlinked: [] })
           : "Nothing linked here.",
       );
       return 0;
     }
-    await clearResourceLink(cwd);
+    if (ctx.raw.all === true) {
+      const removed = await clearEnvironments(cwd);
+      console.log(
+        ctx.flags.json
+          ? JSON.stringify({ unlinked: removed })
+          : `Unlinked ./ from ${removed.length} environment(s): ${
+            removed.join(", ")
+          }.`,
+      );
+      return 0;
+    }
+    const environment = resolveEnvironmentName(own, {
+      flag: ctx.raw.env as string | undefined,
+    }).name;
+    const entry = own.environments?.[environment];
+    if (!entry) {
+      throw new CliError(
+        `Unknown environment "${environment}". Configured: ${
+          bound.join(", ")
+        }.`,
+        2,
+      );
+    }
+    const removal = await removeEnvironment(cwd, environment);
     console.log(
       ctx.flags.json
-        ? JSON.stringify({ unlinked: bound })
-        : `Unlinked ./ from ${kindLabel(bound.kind)} "${bound.name}".`,
+        ? JSON.stringify({ unlinked: [environment] })
+        : `Unlinked ./ from ${kindLabel(own.kind!)} "${entry.name}" ` +
+          `(environment: ${environment}).`,
     );
+    if (!ctx.flags.json) reportRemoval(removal, environment, console.log);
     return 0;
   };
 

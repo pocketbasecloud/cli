@@ -246,13 +246,15 @@ Deno.test("pinVersion preserves an existing cloud link", async () => {
     "/work/pb.json",
     JSON.stringify({
       projectId: "p1",
-      resource: { kind: "pocketbases", id: "pb1", name: "main" },
+      kind: "pocketbases",
+      environments: { production: { id: "pb1", name: "main" } },
     }),
   );
   await pinVersion(h.deps, "/work", "0.39.9");
   assertEquals(JSON.parse(h.texts.get("/work/pb.json")!), {
     projectId: "p1",
-    resource: { kind: "pocketbases", id: "pb1", name: "main" },
+    kind: "pocketbases",
+    environments: { production: { id: "pb1", name: "main" } },
     pocketbaseVersion: "0.39.9",
   });
 });

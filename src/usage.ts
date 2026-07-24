@@ -66,13 +66,16 @@ export const COMMANDS: Record<string, CommandSpec> = {
   },
   "cloud link": {
     usage: "pb cloud link [<pb|frontend|backend>] [<name|id>]",
-    summary: "Link this directory to a cloud resource.",
+    summary: "Link one environment of this directory to a cloud resource.",
     details:
       "Records the resource in ./pb.json so deploy, info, rm, logs, and env\n" +
       "need no --name/--id when run here. Never creates or changes the cloud\n" +
       "resource itself.\n\n" +
       "With no arguments, pick from every resource in the project; with a kind\n" +
-      "only, pick from that kind.",
+      "only, pick from that kind.\n\n" +
+      "The link belongs to one environment — the file's default, or --env.\n" +
+      "Link a second environment to give this directory a second target:\n" +
+      "  pb cloud link frontend web-staging --env staging",
     args: [
       { name: "kind", required: false },
       { name: "name|id", required: false },
@@ -80,25 +83,106 @@ export const COMMANDS: Record<string, CommandSpec> = {
     flags: [],
   },
   "cloud unlink": {
-    usage: "pb cloud unlink",
-    summary: "Remove this directory's resource link.",
+    usage: "pb cloud unlink [--all]",
+    summary: "Forget one of this directory's environments.",
     details:
-      "Clears the resource from ./pb.json only — the cloud resource is left\n" +
-      "untouched, as are the file's projectId and pocketbaseVersion.",
+      "Clears the environment from ./pb.json only — the cloud resource is left\n" +
+      "untouched, as are the file's projectId, build block, and\n" +
+      "pocketbaseVersion. --all forgets every environment at once.",
+    args: [],
+    flags: [{
+      name: "all",
+      type: "boolean",
+      required: false,
+      description: "Forget every environment, not just one.",
+    }],
+  },
+  "cloud environments": {
+    usage: "pb cloud environments",
+    summary: "List the environments recorded in ./pb.json.",
+    details:
+      "Shows which cloud resource each environment of this directory deploys\n" +
+      "to, and which one a bare deploy targets. Reads the file only — no\n" +
+      "login, no network call.\n\n" +
+      "Environments are created by deploying or linking with --env:\n" +
+      "  pb cloud frontend deploy --env staging --name web-staging",
     args: [],
     flags: [],
+  },
+
+  "cloud init": {
+    usage: "pb cloud init [pb|frontend|backend] [--force]",
+    summary: "Write this directory's build config into pb.json.",
+    details:
+      `Inspects the directory and records how it should be built and packaged:
+the build command, the output directory, the backend runtime, or a
+PocketBase project's pb_public / pb_hooks / pb_migrations paths.
+
+Deploy infers the same block when pb.json has none, so this command is
+optional — it just lets you see and edit the guess before anything ships.
+Nothing in the cloud is touched, and no login is needed.
+
+The kind comes from the argument, or from the directory's existing resource
+binding. An existing block is left alone unless --force is passed.`,
+    args: [{
+      name: "kind",
+      required: false,
+      description: "pb, frontend, or backend; defaults to the bound resource",
+    }],
+    flags: [{
+      name: "force",
+      type: "boolean",
+      required: false,
+      description: "Overwrite an existing build block.",
+    }],
   },
 
   // PocketBase instances (cloud-managed)
   "cloud pb deploy": {
     usage:
-      "pb cloud pb deploy --name <name> [--location <loc>] [--server <id>] [--project <id>]",
+      "pb cloud pb deploy --name <name> [--location <loc>] [--server <id>] [--skip-env] [--project <id>]",
     summary: "Create or redeploy a PocketBase instance.",
+    details:
+      `Packages pb_public, pb_hooks, and pb_migrations and ships them with the
+new instance. Their locations come from the "build" block in pb.json, which
+is inferred from the directory and written there on the first deploy.
+
+The platform reads a PocketBase archive only when the instance is created, so
+a redeploy instead pushes pb_hooks/*.pb.js and reports that pb_public and
+pb_migrations were left untouched.
+
+A .env beside pb.json is pushed to the instance's env vars by default (merged,
+existing cloud-only keys kept). Pass --skip-env to leave them alone, or
+--env-file to name a different file.`,
     args: [],
     flags: [
       { name: "name", type: "string", required: true },
       { name: "location", type: "string", required: false },
       { name: "server", type: "string", required: false },
+      {
+        name: "skip-build",
+        type: "boolean",
+        required: false,
+        description: "Package without running the build command.",
+      },
+      {
+        name: "skip-env",
+        type: "boolean",
+        required: false,
+        description: "Do not push the .env file to the instance.",
+      },
+      {
+        name: "env-file",
+        type: "string",
+        required: false,
+        description: "Dotenv file to push (default .env).",
+      },
+      {
+        name: "zip",
+        type: "string",
+        required: false,
+        description: "Upload this archive instead of packaging the directory.",
+      },
     ],
   },
   "cloud pb ls": {
@@ -155,12 +239,31 @@ export const COMMANDS: Record<string, CommandSpec> = {
   // Frontends
   "cloud frontend deploy": {
     usage:
-      "pb cloud frontend deploy --name <name> [--zip <file>] [--location <loc>]",
-    summary: "Create or redeploy a static site.",
+      "pb cloud frontend deploy --name <name> [--skip-build] [--zip <file>] [--location <loc>]",
+    summary: "Build, package, and deploy a static site.",
+    details:
+      `Runs the build command, zips the output directory, and uploads it. Both
+come from the "build" block in pb.json, which is inferred from the directory
+(vite/svelte/angular/next config, package.json build script) and written there
+on the first deploy.
+
+Frontends have no cloud env store — build-time variables are baked into the
+bundle, so --env-file is rejected here.`,
     args: [],
     flags: [
       { name: "name", type: "string", required: true },
-      { name: "zip", type: "string", required: false },
+      {
+        name: "zip",
+        type: "string",
+        required: false,
+        description: "Upload this archive instead of building and packaging.",
+      },
+      {
+        name: "skip-build",
+        type: "boolean",
+        required: false,
+        description: "Package the output directory without rebuilding it.",
+      },
       { name: "location", type: "string", required: false },
     ],
   },
@@ -218,19 +321,60 @@ export const COMMANDS: Record<string, CommandSpec> = {
   // Backends
   "cloud backend deploy": {
     usage:
-      "pb cloud backend deploy --name <name> --runtime <deno|bun|nodejs> [--start <cmd>] [--zip <file>]",
-    summary: "Create or redeploy a backend.",
+      "pb cloud backend deploy --name <name> [--runtime <deno|bun|nodejs|nextjs>] [--start <cmd>] [--skip-env] [--zip <file>]",
+    summary: "Build, package, and deploy a backend.",
+    details:
+      `Runs the build command and uploads the result. The runtime, build command,
+and output directory come from the "build" block in pb.json, inferred from the
+directory (deno.json, bun.lockb, next.config.*, package.json) and written there
+on the first deploy.
+
+deno, bun, and nodejs ship their source — the platform installs dependencies on
+start, so node_modules is excluded.
+
+nextjs ships a prebuilt bundle: the platform does not run next build (it
+exhausts memory on a shared host). Set output: "standalone" in next.config.*,
+and the CLI assembles .next/standalone, .next/static, and public into the
+layout the runtime expects, defaulting the start command to "node server.js".
+
+A .env beside pb.json is pushed to the backend's env vars by default (merged,
+existing cloud-only keys kept). Pass --skip-env to leave them alone, or
+--env-file to name a different file.`,
     args: [],
     flags: [
       { name: "name", type: "string", required: true },
       {
         name: "runtime",
         type: "string",
-        required: true,
-        choices: ["deno", "bun", "nodejs"],
+        required: false,
+        choices: ["deno", "bun", "nodejs", "nextjs"],
+        description: "Defaults to build.runtime in pb.json, else inferred.",
       },
       { name: "start", type: "string", required: false },
-      { name: "zip", type: "string", required: false },
+      {
+        name: "zip",
+        type: "string",
+        required: false,
+        description: "Upload this archive instead of building and packaging.",
+      },
+      {
+        name: "skip-build",
+        type: "boolean",
+        required: false,
+        description: "Package without running the build command.",
+      },
+      {
+        name: "skip-env",
+        type: "boolean",
+        required: false,
+        description: "Do not push the .env file to the backend.",
+      },
+      {
+        name: "env-file",
+        type: "string",
+        required: false,
+        description: "Dotenv file to push (default .env).",
+      },
     ],
   },
   "cloud backend ls": {
@@ -767,3 +911,39 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ],
   },
 };
+
+/**
+ * Every command that resolves a cloud resource through pb.json, and so picks
+ * one of its environments. Listed once and applied below rather than repeated
+ * in fifteen flag arrays, which is how one of them ends up out of step.
+ */
+const ENV_AWARE = [
+  "cloud link",
+  "cloud unlink",
+  "cloud pb deploy",
+  "cloud pb info",
+  "cloud pb rm",
+  "cloud frontend deploy",
+  "cloud frontend info",
+  "cloud frontend rm",
+  "cloud backend deploy",
+  "cloud backend info",
+  "cloud backend rm",
+  "cloud logs",
+  "cloud env ls",
+  "cloud env set",
+  "cloud env rm",
+  "cloud env import",
+];
+
+for (const key of ENV_AWARE) {
+  COMMANDS[key].usage += " [--env <name>]";
+  COMMANDS[key].flags.push({
+    name: "env",
+    type: "string",
+    required: false,
+    description:
+      "pb.json environment to target. Defaults to defaultEnvironment; " +
+      "PB_ENV sets it for a whole shell.",
+  });
+}

@@ -66,3 +66,68 @@ Deno.test("logs posts to logs/stream with type and id", async () => {
     pbRes.id,
   );
 });
+
+Deno.test("logs --env streams that environment's instance", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const prod = await client.createResource("pocketbases", {
+    name: "db1",
+    project: p.id,
+  });
+  const staging = await client.createResource("pocketbases", {
+    name: "db1-staging",
+    project: p.id,
+  });
+  client.ext = (path, body) => {
+    client.calls.ext.push([path, body]);
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) {
+        c.close();
+      },
+    });
+    return Promise.resolve(new Response(stream, { status: 200 }));
+  };
+  const cwd = Deno.makeTempDirSync();
+  await Deno.writeTextFile(
+    `${cwd}/pb.json`,
+    JSON.stringify({
+      projectId: p.id,
+      kind: "pocketbases",
+      defaultEnvironment: "production",
+      environments: {
+        production: { id: prod.id, name: "db1" },
+        staging: { id: staging.id, name: "db1-staging" },
+      },
+    }),
+  );
+  const config: Config = {
+    ...defaultConfig(),
+    cloud: { backendUrl: "u", userToken: "t", userId: "u1" },
+    currentProject: p.id,
+  };
+  const cmds = makeLogsCommands({
+    requireAuth: () => Promise.resolve({ client, config, auth: config.cloud! }),
+    loadConfig: () => Promise.resolve(config),
+    saveConfig: () => Promise.resolve(),
+    cwd: () => cwd,
+  });
+  const flags = {
+    json: false,
+    yes: true,
+    noInput: true,
+    interactive: false,
+    project: p.id,
+  };
+  await cmds["cloud logs"]({ args: ["pb"], flags, raw: { env: "staging" } });
+  assertEquals(
+    (client.calls.ext[0][1] as { targetId: string }).targetId,
+    staging.id,
+  );
+  // And with no --env, the file's default.
+  await cmds["cloud logs"]({ args: ["pb"], flags, raw: {} });
+  assertEquals(
+    (client.calls.ext[1][1] as { targetId: string }).targetId,
+    prod.id,
+  );
+  await Deno.remove(cwd, { recursive: true });
+});

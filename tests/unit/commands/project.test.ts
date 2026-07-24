@@ -110,7 +110,9 @@ Deno.test("link binds the named resource to the directory", async () => {
     assertEquals(code, 0);
     assertEquals(await f.read(), {
       projectId: f.seeded.fe.project,
-      resource: { kind: "frontends", id: f.seeded.fe.id, name: "web" },
+      kind: "frontends",
+      defaultEnvironment: "production",
+      environments: { production: { id: f.seeded.fe.id, name: "web" } },
     });
   } finally {
     await f.cleanup();
@@ -126,7 +128,7 @@ Deno.test("link accepts both pb and pocketbase for the same kind", async () => {
         flags: FLAGS,
         raw: {},
       });
-      assertEquals((await f.read()).resource.kind, "pocketbases");
+      assertEquals((await f.read()).kind, "pocketbases");
     } finally {
       await f.cleanup();
     }
@@ -141,8 +143,8 @@ Deno.test("link resolves a resource by id", async () => {
       flags: FLAGS,
       raw: {},
     });
-    assertEquals((await f.read()).resource, {
-      kind: "backends",
+    assertEquals((await f.read()).kind, "backends");
+    assertEquals((await f.read()).environments.production, {
       id: f.seeded.be.id,
       name: "api",
     });
@@ -200,8 +202,8 @@ Deno.test("bare link picks from every kind in the project", async () => {
       flags: { ...FLAGS, noInput: false },
       raw: {},
     });
-    assertEquals((await f.read()).resource, {
-      kind: "frontends",
+    assertEquals((await f.read()).kind, "frontends");
+    assertEquals((await f.read()).environments.production, {
       id: f.seeded.fe.id,
       name: "web",
     });
@@ -218,8 +220,8 @@ Deno.test("link with a kind only picks from that kind", async () => {
       flags: { ...FLAGS, noInput: false },
       raw: {},
     });
-    assertEquals((await f.read()).resource, {
-      kind: "backends",
+    assertEquals((await f.read()).kind, "backends");
+    assertEquals((await f.read()).environments.production, {
       id: f.seeded.be.id,
       name: "api",
     });
@@ -248,7 +250,7 @@ Deno.test("link errors and writes nothing when the name does not resolve", async
   }
 });
 
-Deno.test("link overwrites an existing binding and keeps the version pin", async () => {
+Deno.test("link --env adds a second environment beside the first", async () => {
   const f = await linkFixture();
   try {
     await Deno.writeTextFile(
@@ -256,19 +258,61 @@ Deno.test("link overwrites an existing binding and keeps the version pin", async
       JSON.stringify({
         projectId: f.seeded.fe.project,
         pocketbaseVersion: "0.39.9",
-        resource: { kind: "frontends", id: f.seeded.fe.id, name: "web" },
+        kind: "frontends",
+        defaultEnvironment: "production",
+        environments: { production: { id: f.seeded.fe.id, name: "web" } },
       }),
     );
+    const staging = await f.client.createResource("frontends", {
+      name: "web-staging",
+      project: f.seeded.fe.project,
+    });
     await f.cmds["cloud link"]({
-      args: ["backend", "api"],
+      args: ["frontend", "web-staging"],
       flags: FLAGS,
-      raw: {},
+      raw: { env: "staging" },
     });
     assertEquals(await f.read(), {
       projectId: f.seeded.fe.project,
       pocketbaseVersion: "0.39.9",
-      resource: { kind: "backends", id: f.seeded.be.id, name: "api" },
+      kind: "frontends",
+      defaultEnvironment: "production",
+      environments: {
+        production: { id: f.seeded.fe.id, name: "web" },
+        staging: { id: staging.id, name: "web-staging" },
+      },
     });
+  } finally {
+    await f.cleanup();
+  }
+});
+
+Deno.test("link refuses a directory already bound to another kind", async () => {
+  // `kind` is shared by every environment, so overwriting it would orphan the
+  // ids the other environments hold.
+  const f = await linkFixture();
+  try {
+    await Deno.writeTextFile(
+      join(f.dir, "pb.json"),
+      JSON.stringify({
+        projectId: f.seeded.fe.project,
+        kind: "frontends",
+        defaultEnvironment: "production",
+        environments: { production: { id: f.seeded.fe.id, name: "web" } },
+      }),
+    );
+    const err = await assertRejects(
+      () =>
+        f.cmds["cloud link"]({
+          args: ["backend", "api"],
+          flags: FLAGS,
+          raw: {},
+        }),
+      CliError,
+    );
+    assertEquals(err.exitCode, 2);
+    assertStringIncludes(err.message, "pb.json is bound to frontends");
+    assertEquals((await f.read()).kind, "frontends");
   } finally {
     await f.cleanup();
   }
@@ -283,7 +327,9 @@ Deno.test("unlink clears the binding and keeps the rest of pb.json", async () =>
       JSON.stringify({
         projectId: "p1",
         pocketbaseVersion: "0.39.9",
-        resource: { kind: "frontends", id: "fe1", name: "web" },
+        kind: "frontends",
+        defaultEnvironment: "production",
+        environments: { production: { id: "fe1", name: "web" } },
       }),
     );
     const code = await makeProjectCommands(d)["cloud unlink"]({
@@ -330,7 +376,9 @@ Deno.test("unlink does not walk up to a parent pb.json", async () => {
     await Deno.mkdir(child);
     const parentFile = JSON.stringify({
       projectId: "p1",
-      resource: { kind: "frontends", id: "fe1", name: "web" },
+      kind: "frontends",
+      defaultEnvironment: "production",
+      environments: { production: { id: "fe1", name: "web" } },
     });
     await Deno.writeTextFile(join(parent, "pb.json"), parentFile);
     const { d } = deps({ cwd: child });

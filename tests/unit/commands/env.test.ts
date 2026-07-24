@@ -53,3 +53,67 @@ Deno.test("env import posts bulk-set with parsed vars", async () => {
   assertEquals(body.type, "backend");
   assertEquals(body.vars, { A: "1", B: "2" });
 });
+
+Deno.test("env set --env writes to that environment's backend", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const prod = await client.createResource("backends", {
+    name: "api",
+    project: p.id,
+  });
+  const staging = await client.createResource("backends", {
+    name: "api-staging",
+    project: p.id,
+  });
+  const cwd = await Deno.makeTempDir();
+  await Deno.writeTextFile(
+    join(cwd, "pb.json"),
+    JSON.stringify({
+      projectId: p.id,
+      kind: "backends",
+      defaultEnvironment: "production",
+      environments: {
+        production: { id: prod.id, name: "api" },
+        staging: { id: staging.id, name: "api-staging" },
+      },
+    }),
+  );
+  const config: Config = {
+    ...defaultConfig(),
+    cloud: { backendUrl: "u", userToken: "t", userId: "u1" },
+    currentProject: p.id,
+  };
+  const cmds = makeEnvCommands({
+    requireAuth: () => Promise.resolve({ client, config, auth: config.cloud! }),
+    loadConfig: () => Promise.resolve(config),
+    saveConfig: () => Promise.resolve(),
+    cwd: () => cwd,
+  });
+  const flags = {
+    json: true,
+    yes: true,
+    noInput: true,
+    interactive: false,
+    project: p.id,
+  };
+  await cmds["cloud env set"]({
+    args: ["A=1"],
+    flags,
+    raw: { target: "backend", env: "staging" },
+  });
+  assertEquals(
+    (client.calls.ext[0][1] as { target_id: string }).target_id,
+    staging.id,
+  );
+  // With no --env, the file's default environment.
+  await cmds["cloud env set"]({
+    args: ["A=1"],
+    flags,
+    raw: { target: "backend" },
+  });
+  assertEquals(
+    (client.calls.ext[1][1] as { target_id: string }).target_id,
+    prod.id,
+  );
+  await Deno.remove(cwd, { recursive: true });
+});

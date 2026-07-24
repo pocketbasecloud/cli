@@ -19,6 +19,10 @@ function deps(
   };
   // An isolated cwd so resource-binding writes don't pollute a shared /tmp.
   const cwd = Deno.makeTempDirSync();
+  // A hooks directory gives deploy something to package and, on a redeploy,
+  // something to push.
+  Deno.mkdirSync(`${cwd}/pb_hooks`);
+  Deno.writeTextFileSync(`${cwd}/pb_hooks/main.pb.js`, "// hook\n");
   return {
     config,
     cwd,
@@ -62,12 +66,16 @@ Deno.test("pb deploy creates then reaches running, recording the binding", async
   });
   assertEquals(code, 0);
   assertEquals(client.calls.createResource.length, 1);
-  // Deploy recorded the new resource in the directory's pb.json.
+  // Deploy recorded the new resource in the directory's pb.json, under the
+  // environment it created and made the default.
   const link = await readLinkFile(cwd);
-  assertEquals(link?.resource, {
-    kind: "pocketbases",
-    id: (await client.listResources("pocketbases", p.id))[0].id,
-    name: "db1",
+  assertEquals(link?.kind, "pocketbases");
+  assertEquals(link?.defaultEnvironment, "production");
+  assertEquals(link?.environments, {
+    production: {
+      id: (await client.listResources("pocketbases", p.id))[0].id,
+      name: "db1",
+    },
   });
 });
 
@@ -86,7 +94,9 @@ Deno.test("bare pb deploy redeploys the bound resource with no --name", async ()
     `${cwd}/pb.json`,
     JSON.stringify({
       projectId: p.id,
-      resource: { kind: "pocketbases", id: pb.id, name: "db1" },
+      kind: "pocketbases",
+      defaultEnvironment: "production",
+      environments: { production: { id: pb.id, name: "db1" } },
     }),
   );
   client.calls.createResource.length = 0; // ignore the seed create above
@@ -119,7 +129,7 @@ Deno.test("pb deploy with no name and no binding errors", async () => {
   );
 });
 
-Deno.test("pb rm clears the directory binding", async () => {
+Deno.test("pb rm clears that environment's binding", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   const pb = await client.createResource("pocketbases", {
@@ -132,7 +142,9 @@ Deno.test("pb rm clears the directory binding", async () => {
     `${cwd}/pb.json`,
     JSON.stringify({
       projectId: p.id,
-      resource: { kind: "pocketbases", id: pb.id, name: "db1" },
+      kind: "pocketbases",
+      defaultEnvironment: "production",
+      environments: { production: { id: pb.id, name: "db1" } },
     }),
   );
   const cmds = makePbCommands(d);
@@ -142,5 +154,72 @@ Deno.test("pb rm clears the directory binding", async () => {
     raw: {},
   });
   assertEquals(code, 0);
-  assertEquals((await readLinkFile(cwd))?.resource, undefined);
+  const link = await readLinkFile(cwd);
+  assertEquals(link?.environments, undefined);
+  // The last environment took `kind` with it, but not the project.
+  assertEquals(link?.kind, undefined);
+  assertEquals(link?.projectId, p.id);
+});
+
+Deno.test("pb deploy --env records a second environment beside the first", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const pb = await client.createResource("pocketbases", {
+    name: "db1",
+    project: p.id,
+  });
+  const { d, config, cwd } = deps(client);
+  config.currentProject = p.id;
+  runningNow(client);
+  await Deno.writeTextFile(
+    `${cwd}/pb.json`,
+    JSON.stringify({
+      projectId: p.id,
+      kind: "pocketbases",
+      defaultEnvironment: "production",
+      environments: { production: { id: pb.id, name: "db1" } },
+    }),
+  );
+  const cmds = makePbCommands(d);
+  const code = await cmds["cloud pb deploy"]({
+    args: [],
+    flags: flags({ project: p.id }),
+    raw: { env: "staging", name: "db1-staging" },
+  });
+  assertEquals(code, 0);
+  const link = await readLinkFile(cwd);
+  assertEquals(link?.defaultEnvironment, "production");
+  assertEquals(link?.environments?.production, { id: pb.id, name: "db1" });
+  assertEquals(link?.environments?.staging.name, "db1-staging");
+});
+
+Deno.test("pb deploy --env on an unconfigured environment demands --name", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const pb = await client.createResource("pocketbases", {
+    name: "db1",
+    project: p.id,
+  });
+  const { d, config, cwd } = deps(client);
+  config.currentProject = p.id;
+  await Deno.writeTextFile(
+    `${cwd}/pb.json`,
+    JSON.stringify({
+      projectId: p.id,
+      kind: "pocketbases",
+      defaultEnvironment: "production",
+      environments: { production: { id: pb.id, name: "db1" } },
+    }),
+  );
+  const cmds = makePbCommands(d);
+  await assertRejects(
+    () =>
+      cmds["cloud pb deploy"]({
+        args: [],
+        flags: flags({ project: p.id }),
+        raw: { env: "staging" },
+      }),
+    Error,
+    'Environment "staging" is not configured — pass --name to create it.',
+  );
 });

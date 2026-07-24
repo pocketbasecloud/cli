@@ -3,7 +3,7 @@ import type { CloudCmdDeps } from "./project.ts";
 import type { ResourceKind } from "../clients/types.ts";
 import { CliError } from "../errors.ts";
 import { resolveProject } from "../resolve/project.ts";
-import { resolveExisting, resolveTargetToken } from "./deploy-helper.ts";
+import { resolveExisting, resolveTarget } from "./deploy-helper.ts";
 
 export function parseDotenv(text: string): Record<string, string> {
   const out: Record<string, string> = {};
@@ -29,7 +29,8 @@ function targetOf(
 }
 
 export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
-  async function resolveTarget(ctx: CmdCtx) {
+  /** The resource whose variables a command reads or writes. */
+  async function resolveVarTarget(ctx: CmdCtx) {
     const { client, config } = await deps.requireAuth();
     const p = await resolveProject({
       client,
@@ -39,13 +40,14 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
       noInput: ctx.flags.noInput,
     });
     const { kind, type } = targetOf(ctx);
-    const target = await resolveTargetToken(
+    const target = await resolveTarget(
       {
         id: ctx.raw.id as string | undefined,
         name: ctx.raw.name as string | undefined,
       },
       kind,
       deps.cwd(),
+      { envFlag: ctx.raw.env as string | undefined },
     );
     const found = await resolveExisting(
       await client.listResources(kind, p.id),
@@ -61,7 +63,7 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
   }
 
   const ls: Handler = async (ctx: CmdCtx) => {
-    const { client, targetId, type } = await resolveTarget(ctx);
+    const { client, targetId, type } = await resolveVarTarget(ctx);
     const res = await client.ext("/api/env/list", {
       target_id: targetId,
       type,
@@ -80,7 +82,7 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
     }
     const key = kv.slice(0, kv.indexOf("="));
     const value = kv.slice(kv.indexOf("=") + 1);
-    const { client, targetId, type } = await resolveTarget(ctx);
+    const { client, targetId, type } = await resolveVarTarget(ctx);
     const res = await client.ext("/api/env/set", {
       target_id: targetId,
       type,
@@ -100,7 +102,7 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
         2,
       );
     }
-    const { client, targetId, type } = await resolveTarget(ctx);
+    const { client, targetId, type } = await resolveVarTarget(ctx);
     const res = await client.ext("/api/env/delete", {
       target_id: targetId,
       type,
@@ -122,7 +124,7 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
       );
     }
     const vars = parseDotenv(await Deno.readTextFile(file));
-    const { client, targetId, type } = await resolveTarget(ctx);
+    const { client, targetId, type } = await resolveVarTarget(ctx);
     const res = await client.ext("/api/env/bulk-set", {
       target_id: targetId,
       type,

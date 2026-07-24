@@ -6,13 +6,21 @@ import { CliError } from "../errors.ts";
 import { printResult } from "../ui/output.ts";
 import { confirm } from "../ui/prompt.ts";
 import { resolveProject } from "../resolve/project.ts";
-import { clearResourceLink, upsertResourceLink } from "../config.ts";
 import {
+  removeEnvironment,
+  removeEnvironmentFor,
+  upsertEnvironment,
+} from "../config.ts";
+import {
+  attachZip,
+  buildBundle,
   deployResource,
+  missingTargetMessage,
   pollStatus,
   resolveExisting,
-  resolveTargetToken,
+  resolveTarget,
 } from "./deploy-helper.ts";
+import { reportRemoval } from "./environments.ts";
 
 export function makeFrontendCommands(
   deps: CloudCmdDeps,
@@ -31,13 +39,17 @@ export function makeFrontendCommands(
 
   async function requireOne(
     ctx: CmdCtx,
-  ): Promise<{ client: ICloudClient; found: Resource }> {
+  ): Promise<
+    { client: ICloudClient; found: Resource; environment: string }
+  > {
     const { client, project: p } = await ctxProject(ctx);
     const base = {
       id: ctx.raw.id as string | undefined,
       name: (ctx.raw.name as string) ?? ctx.args[0],
     };
-    const target = await resolveTargetToken(base, "frontends", deps.cwd());
+    const target = await resolveTarget(base, "frontends", deps.cwd(), {
+      envFlag: ctx.raw.env as string | undefined,
+    });
     const found = await resolveExisting(
       await client.listResources("frontends", p.id),
       { id: target.id, name: target.name },
@@ -47,7 +59,7 @@ export function makeFrontendCommands(
         noInput: ctx.flags.noInput,
       },
     );
-    return { client, found };
+    return { client, found, environment: target.environment };
   }
 
   const deploy: Handler = async (ctx: CmdCtx) => {
@@ -55,14 +67,33 @@ export function makeFrontendCommands(
     const cwd = deps.cwd();
     const name = (ctx.raw.name as string) ?? ctx.args[0];
     const id = ctx.raw.id as string | undefined;
-    const target = await resolveTargetToken({ id, name }, "frontends", cwd);
+    const target = await resolveTarget({ id, name }, "frontends", cwd, {
+      envFlag: ctx.raw.env as string | undefined,
+      allowNewEnvironment: true,
+      strictKind: true,
+    });
     if (!target.id && !target.name) {
-      throw new CliError("Pass --name to create the first frontend.", 2);
+      throw new CliError(missingTargetMessage(target, "frontend"), 2);
+    }
+    const log = ctx.flags.json ? () => {} : (m: string) => console.log(m);
+    const bundle = await buildBundle({
+      cwd,
+      kind: "frontends",
+      zipPath: ctx.raw.zip as string | undefined,
+      skipBuild: ctx.raw["skip-build"] === true,
+      environment: target.environment,
+      log,
+    });
+    if (ctx.raw["env-file"]) {
+      throw new CliError(
+        "Frontends have no cloud env store — build-time vars are baked into the bundle.",
+        2,
+      );
     }
     const data: Record<string, unknown> = { project: p.id };
     if (name) data.name = name;
     if (ctx.raw.location) data.location = ctx.raw.location;
-    if (ctx.raw.zip) data.zipFile = ctx.raw.zip;
+    attachZip(data, bundle);
     const { resource, created } = await deployResource(
       client,
       "frontends",
@@ -71,17 +102,27 @@ export function makeFrontendCommands(
         id: target.id,
         name: target.name,
         data,
+        // frontend.service.ts only redeploys a record whose status says a new
+        // archive is waiting.
+        updateData: { status: "uploading" },
         requireExisting: target.fromBinding,
-        onStale: () => clearResourceLink(cwd),
+        environment: target.environment,
+        onStale: async () => {
+          await removeEnvironment(cwd, target.environment);
+        },
       },
     );
-    await upsertResourceLink(cwd, p.id, {
+    await upsertEnvironment(cwd, {
+      projectId: p.id,
       kind: "frontends",
-      id: resource.id,
-      name: resource.name,
+      environment: target.environment,
+      entry: { id: resource.id, name: resource.name },
     });
     if (!ctx.flags.json) {
-      console.log(`${created ? "Creating" : "Redeploying"} ${resource.name}…`);
+      console.log(
+        `${created ? "Creating" : "Redeploying"} ${resource.name} ` +
+          `(environment: ${target.environment})…`,
+      );
     }
     const final = await pollStatus(client, "frontends", resource.id, {
       terminal: ["running", "error", "failed"],
@@ -91,7 +132,7 @@ export function makeFrontendCommands(
     });
     console.log(
       ctx.flags.json
-        ? JSON.stringify(final)
+        ? JSON.stringify({ ...final, environment: target.environment })
         : `Done: ${final.name} is ${final.status}.`,
     );
     return final.status === "running" ? 0 : 6;
@@ -116,7 +157,7 @@ export function makeFrontendCommands(
   };
 
   const rm: Handler = async (ctx: CmdCtx) => {
-    const { client, found } = await requireOne(ctx);
+    const { client, found, environment } = await requireOne(ctx);
     if (
       !await confirm(`Delete frontend ${found.name}?`, {
         noInput: ctx.flags.noInput,
@@ -127,10 +168,15 @@ export function makeFrontendCommands(
       return 0;
     }
     await client.updateResource("frontends", found.id, { status: "deleted" });
-    await clearResourceLink(deps.cwd());
+    const removal = await removeEnvironmentFor(
+      deps.cwd(),
+      environment,
+      found.id,
+    );
     console.log(
       ctx.flags.json ? JSON.stringify({ ok: true }) : `Deleting ${found.name}.`,
     );
+    if (!ctx.flags.json) reportRemoval(removal, environment, console.log);
     return 0;
   };
 

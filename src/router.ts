@@ -34,6 +34,8 @@ export function parseGlobal(argv: string[]): { path: string[]; ctx: CmdCtx } {
       "all",
       "pre",
       "force",
+      "skip-build",
+      "skip-env",
     ],
     string: [
       "project",
@@ -50,6 +52,8 @@ export function parseGlobal(argv: string[]): { path: string[]; ctx: CmdCtx } {
       "runtime",
       "start",
       "zip",
+      "env",
+      "env-file",
       "out",
       "url",
       "email",
