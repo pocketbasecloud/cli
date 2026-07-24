@@ -1,0 +1,126 @@
+import type { ICloudClient } from "../../src/clients/cloud.ts";
+import type {
+  Org,
+  Project,
+  Resource,
+  ResourceKind,
+  User,
+} from "../../src/clients/types.ts";
+
+export type MockCloudClient = ICloudClient & {
+  calls: {
+    createResource: [ResourceKind, Record<string, unknown>][];
+    updateResource: [ResourceKind, string, Record<string, unknown>][];
+    shareProject: [string, string | null][];
+    ext: [string, unknown][];
+  };
+  projects: Project[];
+  resources: Resource[];
+  orgs: Org[];
+};
+
+export function createMockCloudClient(
+  overrides: Partial<ICloudClient> = {},
+): MockCloudClient {
+  const calls: MockCloudClient["calls"] = {
+    createResource: [],
+    updateResource: [],
+    shareProject: [],
+    ext: [],
+  };
+  const state = {
+    projects: [] as Project[],
+    resources: [] as Resource[],
+    orgs: [] as Org[],
+  };
+  let seq = 0;
+  const id = () => `mock${++seq}`;
+
+  const base: ICloudClient = {
+    whoami: () =>
+      Promise.resolve({ id: "u1", email: "u@e.com", plan: "pro" } as User),
+    listProjects: (orgId?: string) =>
+      Promise.resolve(
+        orgId
+          ? state.projects.filter((p) => p.organization === orgId)
+          : state.projects,
+      ),
+    createProject: (name: string) => {
+      const p: Project = {
+        id: id(),
+        name,
+        user: "u1",
+        organization: "",
+        createdBy: "u1",
+      };
+      state.projects.push(p);
+      return Promise.resolve(p);
+    },
+    deleteProject: () => Promise.resolve(),
+    listResources: (_k, projectId) =>
+      Promise.resolve(state.resources.filter((r) => r.project === projectId)),
+    createResource: (kind, data) => {
+      calls.createResource.push([kind, data]);
+      const r: Resource = {
+        id: id(),
+        name: String(data.name ?? ""),
+        status: "provisioning",
+        project: String(data.project ?? ""),
+        createdBy: "u1",
+      };
+      state.resources.push(r);
+      return Promise.resolve(r);
+    },
+    updateResource: (kind, rid, data) => {
+      calls.updateResource.push([kind, rid, data]);
+      const existing = state.resources.find((x) => x.id === rid);
+      const merged = {
+        ...(existing ??
+          {
+            id: rid,
+            name: "",
+            status: "running",
+            project: "",
+            createdBy: "u1",
+          }),
+        ...data,
+      } as Resource;
+      if (existing) Object.assign(existing, merged);
+      return Promise.resolve(merged);
+    },
+    getResource: (_k, rid) =>
+      Promise.resolve(
+        state.resources.find((x) => x.id === rid) ??
+          {
+            id: rid,
+            name: "",
+            status: "running",
+            project: "",
+            createdBy: "u1",
+          },
+      ),
+    listOrgs: () => Promise.resolve(state.orgs),
+    createOrg: (name) => {
+      const o: Org = { id: id(), name, owner: "u1", role: "owner" };
+      state.orgs.push(o);
+      return Promise.resolve(o);
+    },
+    deleteOrg: () => Promise.resolve(),
+    listMembers: () => Promise.resolve([]),
+    addMember: () => Promise.resolve(),
+    removeMember: () => Promise.resolve(),
+    shareProject: (pid, orgId) => {
+      calls.shareProject.push([pid, orgId]);
+      return Promise.resolve();
+    },
+    ext: (path, body) => {
+      calls.ext.push([path, body]);
+      return Promise.resolve(
+        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      );
+    },
+    ...overrides,
+  };
+
+  return Object.assign(base, { calls, ...state });
+}
