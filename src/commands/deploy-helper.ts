@@ -1,7 +1,27 @@
 import type { ICloudClient } from "../clients/cloud.ts";
 import type { Resource, ResourceKind } from "../clients/types.ts";
 import { CliError } from "../errors.ts";
+import { readLinkFile } from "../config.ts";
 import { type PromptIO, select } from "../ui/prompt.ts";
+
+/**
+ * Resolve which resource a command targets. An explicit `--id`/`--name` always
+ * wins; otherwise fall back to the directory's pb.json binding when its kind
+ * matches. `fromBinding` lets deploy treat a stale binding as an error rather
+ * than silently creating a new resource.
+ */
+export async function resolveTargetToken(
+  token: { id?: string; name?: string },
+  kind: ResourceKind,
+  cwd: string,
+): Promise<{ id?: string; name?: string; fromBinding: boolean }> {
+  if (token.id || token.name) return { ...token, fromBinding: false };
+  const link = await readLinkFile(cwd);
+  if (link?.resource && link.resource.kind === kind) {
+    return { id: link.resource.id, fromBinding: true };
+  }
+  return { fromBinding: false };
+}
 
 export function findExisting(
   resources: Resource[],
@@ -56,7 +76,15 @@ export async function deployResource(
   client: ICloudClient,
   kind: ResourceKind,
   projectId: string,
-  opts: { id?: string; name?: string; data: Record<string, unknown> },
+  opts: {
+    id?: string;
+    name?: string;
+    data: Record<string, unknown>;
+    // When the target came from a pb.json binding, a missing resource means the
+    // binding is stale: run onStale (to clear it) and error instead of creating.
+    requireExisting?: boolean;
+    onStale?: () => Promise<void>;
+  },
 ): Promise<{ resource: Resource; created: boolean }> {
   const existing = findExisting(
     await client.listResources(kind, projectId),
@@ -70,6 +98,13 @@ export async function deployResource(
       resource: await client.updateResource(kind, existing.id, opts.data),
       created: false,
     };
+  }
+  if (opts.requireExisting) {
+    await opts.onStale?.();
+    throw new CliError(
+      `Bound ${kind} ${opts.id} no longer exists — pass --name to recreate.`,
+      2,
+    );
   }
   return {
     resource: await client.createResource(kind, opts.data),

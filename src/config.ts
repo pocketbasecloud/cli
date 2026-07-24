@@ -1,4 +1,5 @@
 import { dirname, join } from "@std/path";
+import type { ResourceKind } from "./clients/types.ts";
 
 export type CloudAuth = {
   backendUrl: string;
@@ -12,10 +13,16 @@ export type Config = {
   defaultProfile: string | null;
   profiles: Record<string, Profile>;
 };
+/** The single cloud resource a directory's pb.json is bound to (1:1). */
+export type ResourceLink = {
+  kind: ResourceKind;
+  id: string;
+  name: string;
+};
 export type LinkFile = {
   projectId: string;
-  backendUrl: string;
   pocketbaseVersion?: string;
+  resource?: ResourceLink;
 };
 
 export function defaultConfig(): Config {
@@ -80,12 +87,58 @@ export async function readLinkFile(cwd: string): Promise<LinkFile | null> {
   }
 }
 
-export async function writeLinkFile(
+/** Read the cwd's own pb.json (no walk-up), tolerating an absent/invalid file. */
+async function readOwnPbJson(cwd: string): Promise<Partial<LinkFile>> {
+  try {
+    return JSON.parse(await Deno.readTextFile(join(cwd, "pb.json")));
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Record the cloud resource this directory deploys to. Writes to the cwd's own
+ * pb.json (creating it, self-contained, if absent), preserving other fields.
+ *
+ * `projectId` always names the project the bound resource lives in — the two
+ * must agree, or a later flagless command would look the resource up in the
+ * wrong project. It therefore overwrites any `projectId` already in the file,
+ * which only differs when the caller passed an explicit `--project`.
+ */
+export async function upsertResourceLink(
   cwd: string,
-  link: LinkFile,
+  projectId: string,
+  resource: ResourceLink,
 ): Promise<void> {
+  const existing = await readOwnPbJson(cwd);
+  const next: LinkFile = {
+    ...existing,
+    projectId,
+    resource,
+  };
   await Deno.writeTextFile(
     join(cwd, "pb.json"),
-    JSON.stringify(link, null, 2) + "\n",
+    JSON.stringify(next, null, 2) + "\n",
+  );
+}
+
+/**
+ * The resource bound to the cwd's *own* pb.json. Unlike `readLinkFile` this
+ * never walks up, so `pb cloud unlink` cannot detach a parent directory.
+ */
+export async function readOwnResourceLink(
+  cwd: string,
+): Promise<ResourceLink | null> {
+  return (await readOwnPbJson(cwd)).resource ?? null;
+}
+
+/** Remove the resource binding from the cwd's pb.json, leaving the rest intact. */
+export async function clearResourceLink(cwd: string): Promise<void> {
+  const existing = await readOwnPbJson(cwd);
+  if (!existing.resource) return;
+  delete existing.resource;
+  await Deno.writeTextFile(
+    join(cwd, "pb.json"),
+    JSON.stringify(existing, null, 2) + "\n",
   );
 }

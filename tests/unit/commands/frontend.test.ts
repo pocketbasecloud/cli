@@ -13,11 +13,13 @@ function deps(
     cloud: { backendUrl: "u", userToken: "t", userId: "u1" },
     currentProject,
   };
+  // An isolated cwd so resource-binding writes don't pollute a shared /tmp.
+  const cwd = Deno.makeTempDirSync();
   return {
     requireAuth: () => Promise.resolve({ client, config, auth: config.cloud! }),
     loadConfig: () => Promise.resolve(config),
     saveConfig: () => Promise.resolve(),
-    cwd: () => "/tmp",
+    cwd: () => cwd,
   };
 }
 

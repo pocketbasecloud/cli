@@ -4,10 +4,12 @@ import {
   findExisting,
   pollStatus,
   resolveExisting,
+  resolveTargetToken,
 } from "../../../src/commands/deploy-helper.ts";
 import { createMockCloudClient } from "../../mocks/cloud.mock.ts";
 import type { Resource } from "../../../src/clients/types.ts";
 import type { PromptIO } from "../../../src/ui/prompt.ts";
+import { join } from "@std/path";
 
 function fakeIO(inputs: string[]): PromptIO {
   const q = [...inputs];
@@ -121,6 +123,83 @@ Deno.test("deployResource updates when name exists", async () => {
   });
   assertEquals(created, false);
   assertEquals(resource.id, made.id);
+});
+
+async function withBinding(
+  resource: Record<string, unknown> | null,
+): Promise<string> {
+  const dir = await Deno.makeTempDir();
+  if (resource) {
+    await Deno.writeTextFile(
+      join(dir, "pb.json"),
+      JSON.stringify({ projectId: "p1", resource }),
+    );
+  }
+  return dir;
+}
+
+Deno.test("resolveTargetToken: explicit id/name wins over any binding", async () => {
+  const dir = await withBinding({ kind: "frontends", id: "fe1", name: "web" });
+  try {
+    assertEquals(await resolveTargetToken({ id: "x" }, "frontends", dir), {
+      id: "x",
+      fromBinding: false,
+    });
+    assertEquals(await resolveTargetToken({ name: "y" }, "frontends", dir), {
+      name: "y",
+      fromBinding: false,
+    });
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test("resolveTargetToken: falls back to a kind-matched binding", async () => {
+  const dir = await withBinding({ kind: "frontends", id: "fe1", name: "web" });
+  try {
+    assertEquals(await resolveTargetToken({}, "frontends", dir), {
+      id: "fe1",
+      fromBinding: true,
+    });
+    // A binding of a different kind is ignored.
+    assertEquals(await resolveTargetToken({}, "backends", dir), {
+      fromBinding: false,
+    });
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test("resolveTargetToken: no flags and no binding yields nothing", async () => {
+  const dir = await withBinding(null);
+  try {
+    assertEquals(await resolveTargetToken({}, "frontends", dir), {
+      fromBinding: false,
+    });
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test("deployResource errors on a stale binding and runs onStale", async () => {
+  const c = createMockCloudClient();
+  let cleared = false;
+  await assertRejects(
+    () =>
+      deployResource(c, "frontends", "p1", {
+        id: "gone",
+        data: { project: "p1" },
+        requireExisting: true,
+        onStale: () => {
+          cleared = true;
+          return Promise.resolve();
+        },
+      }),
+    Error,
+    "no longer exists",
+  );
+  assertEquals(cleared, true);
+  assertEquals(c.calls.createResource.length, 0);
 });
 
 Deno.test("pollStatus stops at terminal state", async () => {

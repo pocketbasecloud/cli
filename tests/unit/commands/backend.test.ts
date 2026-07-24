@@ -20,7 +20,7 @@ Deno.test("backend deploy sends runtime and start command", async () => {
     requireAuth: () => Promise.resolve({ client, config, auth: config.cloud! }),
     loadConfig: () => Promise.resolve(config),
     saveConfig: () => Promise.resolve(),
-    cwd: () => "/tmp",
+    cwd: () => Deno.makeTempDirSync(),
   });
   const code = await cmds["cloud backend deploy"]({
     args: [],

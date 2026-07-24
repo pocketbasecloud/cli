@@ -3,7 +3,7 @@ import type { CloudCmdDeps } from "./project.ts";
 import type { ResourceKind } from "../clients/types.ts";
 import { CliError } from "../errors.ts";
 import { resolveProject } from "../resolve/project.ts";
-import { resolveExisting } from "./deploy-helper.ts";
+import { resolveExisting, resolveTargetToken } from "./deploy-helper.ts";
 
 export async function streamToWriter(
   body: ReadableStream<Uint8Array>,
@@ -37,13 +37,17 @@ export function makeLogsCommands(deps: CloudCmdDeps): Record<string, Handler> {
       flagProject: ctx.flags.project,
       noInput: ctx.flags.noInput,
     });
-    const token = {
-      id: ctx.raw.id as string | undefined,
-      name: ctx.raw.name as string | undefined,
-    };
+    const target = await resolveTargetToken(
+      {
+        id: ctx.raw.id as string | undefined,
+        name: ctx.raw.name as string | undefined,
+      },
+      kind,
+      deps.cwd(),
+    );
     const found = await resolveExisting(
       await client.listResources(kind, p.id),
-      token,
+      { id: target.id, name: target.name },
       {
         label: which === "pb" ? "PocketBase" : "backend",
         interactive: ctx.flags.interactive,

@@ -3,7 +3,7 @@ import type { CloudCmdDeps } from "./project.ts";
 import type { ResourceKind } from "../clients/types.ts";
 import { CliError } from "../errors.ts";
 import { resolveProject } from "../resolve/project.ts";
-import { resolveExisting } from "./deploy-helper.ts";
+import { resolveExisting, resolveTargetToken } from "./deploy-helper.ts";
 
 export function parseDotenv(text: string): Record<string, string> {
   const out: Record<string, string> = {};
@@ -39,13 +39,17 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
       noInput: ctx.flags.noInput,
     });
     const { kind, type } = targetOf(ctx);
-    const token = {
-      id: ctx.raw.id as string | undefined,
-      name: ctx.raw.name as string | undefined,
-    };
+    const target = await resolveTargetToken(
+      {
+        id: ctx.raw.id as string | undefined,
+        name: ctx.raw.name as string | undefined,
+      },
+      kind,
+      deps.cwd(),
+    );
     const found = await resolveExisting(
       await client.listResources(kind, p.id),
-      token,
+      { id: target.id, name: target.name },
       {
         label: type,
         interactive: ctx.flags.interactive,

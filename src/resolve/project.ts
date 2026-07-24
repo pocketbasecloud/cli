@@ -59,7 +59,7 @@ export async function resolveProject(ctx: ResolveCtx): Promise<Project> {
   }
   if (ctx.noInput) {
     throw new CliError(
-      "No project selected. Pass --project, run `pb cloud link`, or `pb cloud project use`.",
+      "No project selected. Pass --project or run `pb cloud project use`.",
       2,
     );
   }

@@ -92,12 +92,54 @@ pb records ls posts                      # list records
 pb settings backup create                # back it up
 ```
 
+## Linking local ↔ cloud
+
+Give each PocketBase, frontend, or backend its own directory, and link that
+directory to its cloud resource once. Afterwards `deploy`, `info`, `rm`, `logs`,
+and `env` run there with no `--name`/`--id`:
+
+```sh
+cd frontend
+pb cloud link frontend web   # bind ./ to the frontend named "web"
+pb cloud frontend deploy     # no flags — redeploys the bound frontend
+pb cloud logs                # no flags — tails it
+pb cloud unlink              # detach (the cloud resource is untouched)
+```
+
+`pb cloud link` never creates or changes anything in the cloud — it only writes
+the binding. Run it with no arguments to pick from every resource in the
+project, or with a kind (`pb`, `frontend`, `backend`) to narrow the list:
+
+```sh
+pb cloud link                # pick from all resources
+pb cloud link frontend       # pick from frontends only
+```
+
+Deploying also records the binding, so the first deploy of a new resource links
+the directory too, and `pb cloud frontend rm` clears it.
+
+The binding lives in `pb.json`. Each file holds one resource and carries its own
+`projectId`, so directories stay independent — and every `pb cloud …` command
+run under one resolves to that project automatically (the file is found by
+walking up parent directories):
+
+```jsonc
+// frontend/pb.json
+{
+  "projectId": "dhs4xnprgplurvo",
+  "resource": { "kind": "frontends", "id": "…", "name": "web" }
+}
+```
+
+To set a default project for directories that aren't linked, use
+`pb cloud project use <name|id>`.
+
 ## What you can do
 
 Run `pb --help`, or `pb <command> --help` for details on any command.
 
-- **Local** — `init`, `install`, `versions`, `which`: manage a pinned
-  PocketBase binary and scaffold projects.
+- **Local** — `init`, `install`, `versions`, `which`: manage a pinned PocketBase
+  binary and scaffold projects.
 - **Instance** (`pb use <url>`) — `collections`, `records`, `rules`, `auth`,
   `settings` (incl. `mail`/`s3`/`backup`), `cron`, `logs`: operate any
   PocketBase instance.

@@ -65,9 +65,27 @@ export const COMMANDS: Record<string, CommandSpec> = {
     flags: [],
   },
   "cloud link": {
-    usage: "pb cloud link [<name|id>] [--no-input]",
-    summary: "Link this directory to a project.",
-    args: [{ name: "name|id", required: false }],
+    usage: "pb cloud link [<pb|frontend|backend>] [<name|id>]",
+    summary: "Link this directory to a cloud resource.",
+    details:
+      "Records the resource in ./pb.json so deploy, info, rm, logs, and env\n" +
+      "need no --name/--id when run here. Never creates or changes the cloud\n" +
+      "resource itself.\n\n" +
+      "With no arguments, pick from every resource in the project; with a kind\n" +
+      "only, pick from that kind.",
+    args: [
+      { name: "kind", required: false },
+      { name: "name|id", required: false },
+    ],
+    flags: [],
+  },
+  "cloud unlink": {
+    usage: "pb cloud unlink",
+    summary: "Remove this directory's resource link.",
+    details:
+      "Clears the resource from ./pb.json only — the cloud resource is left\n" +
+      "untouched, as are the file's projectId and pocketbaseVersion.",
+    args: [],
     flags: [],
   },
 

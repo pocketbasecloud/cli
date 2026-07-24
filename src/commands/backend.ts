@@ -4,10 +4,12 @@ import { CliError } from "../errors.ts";
 import { printResult } from "../ui/output.ts";
 import { confirm } from "../ui/prompt.ts";
 import { resolveProject } from "../resolve/project.ts";
+import { clearResourceLink, upsertResourceLink } from "../config.ts";
 import {
   deployResource,
   pollStatus,
   resolveExisting,
+  resolveTargetToken,
 } from "./deploy-helper.ts";
 
 export function makeBackendCommands(
@@ -27,13 +29,12 @@ export function makeBackendCommands(
 
   const deploy: Handler = async (ctx: CmdCtx) => {
     const { client, project: p } = await ctxProject(ctx);
+    const cwd = deps.cwd();
     const name = (ctx.raw.name as string) ?? ctx.args[0];
     const id = ctx.raw.id as string | undefined;
-    if (!name && !id) {
-      throw new CliError(
-        "Usage: pb cloud backend deploy --name <name> --runtime <deno|bun|nodejs> [--start <cmd>] [--zip <file>]",
-        2,
-      );
+    const target = await resolveTargetToken({ id, name }, "backends", cwd);
+    if (!target.id && !target.name) {
+      throw new CliError("Pass --name to create the first backend.", 2);
     }
     const data: Record<string, unknown> = { project: p.id };
     if (name) data.name = name;
@@ -44,8 +45,19 @@ export function makeBackendCommands(
       client,
       "backends",
       p.id,
-      { id, name, data },
+      {
+        id: target.id,
+        name: target.name,
+        data,
+        requireExisting: target.fromBinding,
+        onStale: () => clearResourceLink(cwd),
+      },
     );
+    await upsertResourceLink(cwd, p.id, {
+      kind: "backends",
+      id: resource.id,
+      name: resource.name,
+    });
     if (!ctx.flags.json) {
       console.log(`${created ? "Creating" : "Redeploying"} ${resource.name}…`);
     }
@@ -74,40 +86,33 @@ export function makeBackendCommands(
     return 0;
   };
 
-  const info: Handler = async (ctx: CmdCtx) => {
+  async function resolveOne(ctx: CmdCtx) {
     const { client, project: p } = await ctxProject(ctx);
-    const token = {
+    const base = {
       id: ctx.raw.id as string | undefined,
       name: (ctx.raw.name as string) ?? ctx.args[0],
     };
+    const target = await resolveTargetToken(base, "backends", deps.cwd());
     const found = await resolveExisting(
       await client.listResources("backends", p.id),
-      token,
+      { id: target.id, name: target.name },
       {
         label: "backend",
         interactive: ctx.flags.interactive,
         noInput: ctx.flags.noInput,
       },
     );
+    return { client, found };
+  }
+
+  const info: Handler = async (ctx: CmdCtx) => {
+    const { found } = await resolveOne(ctx);
     console.log(JSON.stringify(found, null, 2));
     return 0;
   };
 
   const rm: Handler = async (ctx: CmdCtx) => {
-    const { client, project: p } = await ctxProject(ctx);
-    const token = {
-      id: ctx.raw.id as string | undefined,
-      name: (ctx.raw.name as string) ?? ctx.args[0],
-    };
-    const found = await resolveExisting(
-      await client.listResources("backends", p.id),
-      token,
-      {
-        label: "backend",
-        interactive: ctx.flags.interactive,
-        noInput: ctx.flags.noInput,
-      },
-    );
+    const { client, found } = await resolveOne(ctx);
     if (
       !await confirm(`Delete backend ${found.name}?`, {
         noInput: ctx.flags.noInput,
@@ -118,6 +123,7 @@ export function makeBackendCommands(
       return 0;
     }
     await client.updateResource("backends", found.id, { status: "deleted" });
+    await clearResourceLink(deps.cwd());
     console.log(
       ctx.flags.json ? JSON.stringify({ ok: true }) : `Deleting ${found.name}.`,
     );

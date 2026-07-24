@@ -4,10 +4,12 @@ import { CliError } from "../errors.ts";
 import { printResult } from "../ui/output.ts";
 import { confirm } from "../ui/prompt.ts";
 import { resolveProject } from "../resolve/project.ts";
+import { clearResourceLink, upsertResourceLink } from "../config.ts";
 import {
   deployResource,
   pollStatus,
   resolveExisting,
+  resolveTargetToken,
 } from "./deploy-helper.ts";
 
 export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
@@ -25,13 +27,12 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
 
   const deploy: Handler = async (ctx: CmdCtx) => {
     const { client, project: p } = await project(ctx);
+    const cwd = deps.cwd();
     const name = (ctx.raw.name as string) ?? ctx.args[0];
     const id = ctx.raw.id as string | undefined;
-    if (!name && !id) {
-      throw new CliError(
-        "Usage: pb cloud pb deploy --name <name> [--location <loc>] [--server <id>]",
-        2,
-      );
+    const target = await resolveTargetToken({ id, name }, "pocketbases", cwd);
+    if (!target.id && !target.name) {
+      throw new CliError("Pass --name to create the first PocketBase.", 2);
     }
     const data: Record<string, unknown> = { project: p.id };
     if (name) data.name = name;
@@ -42,11 +43,18 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
       "pocketbases",
       p.id,
       {
-        id,
-        name,
+        id: target.id,
+        name: target.name,
         data,
+        requireExisting: target.fromBinding,
+        onStale: () => clearResourceLink(cwd),
       },
     );
+    await upsertResourceLink(cwd, p.id, {
+      kind: "pocketbases",
+      id: resource.id,
+      name: resource.name,
+    });
     if (!ctx.flags.json) {
       console.log(`${created ? "Creating" : "Redeploying"} ${resource.name}…`);
     }
@@ -77,40 +85,33 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
     return 0;
   };
 
-  const info: Handler = async (ctx: CmdCtx) => {
+  async function resolveOne(ctx: CmdCtx) {
     const { client, project: p } = await project(ctx);
-    const token = {
+    const base = {
       id: ctx.raw.id as string | undefined,
       name: (ctx.raw.name as string) ?? ctx.args[0],
     };
+    const target = await resolveTargetToken(base, "pocketbases", deps.cwd());
     const found = await resolveExisting(
       await client.listResources("pocketbases", p.id),
-      token,
+      { id: target.id, name: target.name },
       {
         label: "PocketBase",
         interactive: ctx.flags.interactive,
         noInput: ctx.flags.noInput,
       },
     );
+    return { client, found };
+  }
+
+  const info: Handler = async (ctx: CmdCtx) => {
+    const { found } = await resolveOne(ctx);
     console.log(JSON.stringify(found, null, 2));
     return 0;
   };
 
   const rm: Handler = async (ctx: CmdCtx) => {
-    const { client, project: p } = await project(ctx);
-    const token = {
-      id: ctx.raw.id as string | undefined,
-      name: (ctx.raw.name as string) ?? ctx.args[0],
-    };
-    const found = await resolveExisting(
-      await client.listResources("pocketbases", p.id),
-      token,
-      {
-        label: "PocketBase",
-        interactive: ctx.flags.interactive,
-        noInput: ctx.flags.noInput,
-      },
-    );
+    const { client, found } = await resolveOne(ctx);
     if (
       !await confirm(`Delete PocketBase ${found.name}?`, {
         noInput: ctx.flags.noInput,
@@ -122,6 +123,7 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
     }
     // Deletion is an update to status="deleted", which triggers teardown via hooks.
     await client.updateResource("pocketbases", found.id, { status: "deleted" });
+    await clearResourceLink(deps.cwd());
     console.log(
       ctx.flags.json ? JSON.stringify({ ok: true }) : `Deleting ${found.name}.`,
     );

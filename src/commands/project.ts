@@ -1,11 +1,17 @@
 import type { CmdCtx, Handler } from "../router.ts";
 import type { CloudAuth, Config } from "../config.ts";
-import { writeLinkFile } from "../config.ts";
+import {
+  clearResourceLink,
+  readOwnResourceLink,
+  upsertResourceLink,
+} from "../config.ts";
 import type { ICloudClient } from "../clients/cloud.ts";
 import { CliError } from "../errors.ts";
 import { printResult } from "../ui/output.ts";
 import { confirm } from "../ui/prompt.ts";
+import type { PromptIO } from "../ui/prompt.ts";
 import { resolveProject } from "../resolve/project.ts";
+import { kindLabel, resolveLinkTarget } from "../resolve/link.ts";
 
 export type CloudCmdDeps = {
   requireAuth: () => Promise<
@@ -14,6 +20,8 @@ export type CloudCmdDeps = {
   loadConfig: () => Promise<Config>;
   saveConfig: (c: Config) => Promise<void>;
   cwd: () => string;
+  /** Prompt transport; unset in production so prompts use real stdin. */
+  io?: PromptIO;
 };
 
 export function makeProjectCommands(
@@ -98,23 +106,54 @@ export function makeProjectCommands(
   };
 
   const link: Handler = async (ctx: CmdCtx) => {
-    const token = ctx.args[0];
-    const { client, config, auth } = await deps.requireAuth();
+    const { client, config } = await deps.requireAuth();
+    const cwd = deps.cwd();
     const p = await resolveProject({
       client,
       config,
-      cwd: deps.cwd(),
-      flagProject: token,
+      cwd,
+      flagProject: ctx.flags.project,
       noInput: ctx.flags.noInput,
     });
-    await writeLinkFile(deps.cwd(), {
+    const { kind, resource } = await resolveLinkTarget({
+      client,
       projectId: p.id,
-      backendUrl: auth.backendUrl,
+      kindToken: ctx.args[0],
+      nameToken: ctx.args[1],
+      noInput: ctx.flags.noInput,
+      io: deps.io,
+    });
+    await upsertResourceLink(cwd, p.id, {
+      kind,
+      id: resource.id,
+      name: resource.name,
     });
     console.log(
       ctx.flags.json
-        ? JSON.stringify({ linked: p.id })
-        : `Linked this directory to ${p.name}.`,
+        ? JSON.stringify({
+          linked: { kind, id: resource.id, name: resource.name },
+        })
+        : `Linked ./ to ${kindLabel(kind)} "${resource.name}".`,
+    );
+    return 0;
+  };
+
+  const unlink: Handler = async (ctx: CmdCtx) => {
+    const cwd = deps.cwd();
+    const bound = await readOwnResourceLink(cwd);
+    if (!bound) {
+      console.log(
+        ctx.flags.json
+          ? JSON.stringify({ unlinked: null })
+          : "Nothing linked here.",
+      );
+      return 0;
+    }
+    await clearResourceLink(cwd);
+    console.log(
+      ctx.flags.json
+        ? JSON.stringify({ unlinked: bound })
+        : `Unlinked ./ from ${kindLabel(bound.kind)} "${bound.name}".`,
     );
     return 0;
   };
@@ -125,5 +164,6 @@ export function makeProjectCommands(
     "cloud project use": use,
     "cloud project rm": rm,
     "cloud link": link,
+    "cloud unlink": unlink,
   };
 }

@@ -35,6 +35,8 @@ export function createMockCloudClient(
   };
   let seq = 0;
   const id = () => `mock${++seq}`;
+  /** Resource id -> kind, so listResources can filter by kind like the real API. */
+  const kinds = new Map<string, ResourceKind>();
 
   const base: ICloudClient = {
     whoami: () =>
@@ -57,8 +59,12 @@ export function createMockCloudClient(
       return Promise.resolve(p);
     },
     deleteProject: () => Promise.resolve(),
-    listResources: (_k, projectId) =>
-      Promise.resolve(state.resources.filter((r) => r.project === projectId)),
+    listResources: (kind, projectId) =>
+      Promise.resolve(
+        state.resources.filter((r) =>
+          r.project === projectId && kinds.get(r.id) === kind
+        ),
+      ),
     createResource: (kind, data) => {
       calls.createResource.push([kind, data]);
       const r: Resource = {
@@ -69,6 +75,7 @@ export function createMockCloudClient(
         createdBy: "u1",
       };
       state.resources.push(r);
+      kinds.set(r.id, kind);
       return Promise.resolve(r);
     },
     updateResource: (kind, rid, data) => {
