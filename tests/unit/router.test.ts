@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { dispatch, parseGlobal } from "../../src/router.ts";
+import { dispatch, nearestCommand, parseGlobal } from "../../src/router.ts";
 import type { CommandSpec } from "../../src/usage.ts";
 import type { PromptIO } from "../../src/ui/prompt.ts";
 
@@ -220,4 +220,56 @@ Deno.test("--interactive with --no-input errors and skips the handler", async ()
   }
   assertEquals(code, 2);
   assertEquals(hit, false);
+});
+
+const REGISTRY_KEYS = [
+  "cloud pb ls",
+  "cloud pb deploy",
+  "cloud pb rm",
+  "cloud project ls",
+  "cloud frontend deploy",
+  "cloud frontend ls",
+];
+
+Deno.test("nearestCommand suggests the closest key for a synonym", () => {
+  assertEquals(nearestCommand("cloud pb list", REGISTRY_KEYS), "cloud pb ls");
+  assertEquals(
+    nearestCommand("cloud pb delete", REGISTRY_KEYS),
+    "cloud pb deploy",
+  );
+});
+
+Deno.test("nearestCommand suggests the closest key for a typo", () => {
+  assertEquals(
+    nearestCommand("cloud porject ls", REGISTRY_KEYS),
+    "cloud project ls",
+  );
+  assertEquals(
+    nearestCommand("cloud frontend deploj", REGISTRY_KEYS),
+    "cloud frontend deploy",
+  );
+});
+
+Deno.test("nearestCommand returns null when nothing is close", () => {
+  assertEquals(nearestCommand("wibble", REGISTRY_KEYS), null);
+  assertEquals(nearestCommand("", REGISTRY_KEYS), null);
+});
+
+Deno.test("dispatch prints a suggestion for an unknown command", async () => {
+  const errs: string[] = [];
+  const origErr = console.error;
+  console.error = (s: string) => errs.push(s);
+  let code: number;
+  try {
+    code = await dispatch({ "cloud pb ls": () => Promise.resolve(0) }, [
+      "cloud",
+      "pb",
+      "list",
+    ]);
+  } finally {
+    console.error = origErr;
+  }
+  assertEquals(code, 1);
+  assertEquals(errs.length, 1);
+  assertEquals(errs[0].includes("Did you mean `pb cloud pb ls`?"), true);
 });

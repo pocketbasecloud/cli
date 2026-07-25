@@ -4,6 +4,32 @@ import { CliError } from "../../errors.ts";
 import { printResult } from "../../ui/output.ts";
 import { confirm } from "../../ui/prompt.ts";
 
+/**
+ * A collection definition passed as JSON. Rejecting a bad body here, with the
+ * parser's own reason, beats letting the instance answer with a generic
+ * "Failed to create collection."
+ */
+function parseDefinition(json: string): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch (e) {
+    throw new CliError(
+      `Not valid JSON: ${e instanceof Error ? e.message : String(e)}`,
+      2,
+    );
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new CliError("A collection definition must be a JSON object.", 2);
+  }
+  const body = parsed as Record<string, unknown>;
+  if (typeof body.name !== "string" || body.name.length === 0) {
+    throw new CliError('The definition needs a "name".', 2);
+  }
+  body.type ??= "base";
+  return body;
+}
+
 export function makeCollectionsCommands(
   deps: AdminCmdDeps,
 ): Record<string, Handler> {
@@ -27,16 +53,23 @@ export function makeCollectionsCommands(
   };
 
   const create: Handler = async (ctx: CmdCtx) => {
-    const name = ctx.args[0];
-    if (!name) {
+    const arg = ctx.args[0] ?? (ctx.raw.data as string | undefined);
+    if (!arg) {
       throw new CliError(
-        "Usage: pb collections create <name> [--type base|auth|view]",
+        "Usage: pb collections create <name> [--type base|auth|view]\n" +
+          "       pb collections create '<json>'   (full definition, with fields)",
         2,
       );
     }
     const { client } = await deps.requireAdmin();
-    const type = (ctx.raw.type as string) ?? "base";
-    const c = await client.createCollection({ name, type });
+    // A name alone creates an empty collection, which then needs a second
+    // `collections update` to gain any fields. Accepting the same JSON body
+    // `update` takes makes the one-step form possible — and it is what gets
+    // tried first, since a bare name that happens to be JSON is never valid.
+    const body = arg.trimStart().startsWith("{")
+      ? parseDefinition(arg)
+      : { name: arg, type: (ctx.raw.type as string) ?? "base" };
+    const c = await client.createCollection(body);
     console.log(
       ctx.flags.json
         ? JSON.stringify(c)

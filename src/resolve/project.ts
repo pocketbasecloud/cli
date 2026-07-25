@@ -3,7 +3,7 @@ import type { Project } from "../clients/types.ts";
 import type { Config } from "../config.ts";
 import { readLinkFile } from "../config.ts";
 import { CliError } from "../errors.ts";
-import { select } from "../ui/prompt.ts";
+import { canPrompt, select } from "../ui/prompt.ts";
 import type { PromptIO } from "../ui/prompt.ts";
 
 export type ResolveCtx = {
@@ -57,14 +57,21 @@ export async function resolveProject(ctx: ResolveCtx): Promise<Project> {
       2,
     );
   }
-  if (ctx.noInput) {
+  // Not just --no-input: a menu on a non-TTY (a pipe, CI) or under --json (its
+  // caller folds that into noInput) would hang or corrupt the output, so give
+  // the actionable usage error rather than letting `select` throw its generic
+  // "input required" one.
+  const promptOpts = { noInput: ctx.noInput, io: ctx.io };
+  if (!canPrompt(promptOpts)) {
     throw new CliError(
       "No project selected. Pass --project or run `pb cloud project use`.",
       2,
     );
   }
-  return select("Select a project:", projects, (p) => `${p.name} (${p.id})`, {
-    noInput: ctx.noInput,
-    io: ctx.io,
-  });
+  return select(
+    "Select a project:",
+    projects,
+    (p) => `${p.name} (${p.id})`,
+    promptOpts,
+  );
 }

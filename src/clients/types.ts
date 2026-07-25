@@ -25,3 +25,20 @@ export type Org = {
   role: "owner" | "developer";
 };
 export type User = { id: string; email: string; plan: string };
+
+/**
+ * A compute host. Deploys pick one automatically on every plan except Pro,
+ * where `cloud pb deploy --server` names one — so the ids have to be listable.
+ */
+export type Server = {
+  id: string;
+  name: string;
+  status: string;
+  location: string;
+  ownership: string;
+  cores?: number;
+  memory?: number;
+  disk?: number;
+  availableToFreeUsers?: boolean;
+  agentInstalled?: boolean;
+};

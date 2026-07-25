@@ -33,7 +33,7 @@ export function makeOrgCommands(deps: CloudCmdDeps): Record<string, Handler> {
     const { client } = await deps.requireAuth();
     if (
       !await confirm(`Delete org ${id}?`, {
-        noInput: ctx.flags.noInput,
+        noInput: ctx.flags.noInput || ctx.flags.json,
         yes: ctx.flags.yes,
       })
     ) {
@@ -48,12 +48,21 @@ export function makeOrgCommands(deps: CloudCmdDeps): Record<string, Handler> {
   };
 
   const membersLs: Handler = async (ctx: CmdCtx) => {
-    const orgId = ctx.args[0];
+    // `org share` takes --org, so accept it here too: one noun, one convention.
+    const orgId = ctx.args[0] ?? (ctx.raw.org as string | undefined);
     if (!orgId) {
       throw new CliError("Usage: pb cloud org members ls <orgId>", 2);
     }
     const { client } = await deps.requireAuth();
-    printResult(await client.listMembers(orgId), [
+    const members = await client.listMembers(orgId);
+    // The owner is not a row in org_members, so a healthy org with no invited
+    // developers printed an empty table — indistinguishable from a failed call.
+    const org = (await client.listOrgs()).find((o) => o.id === orgId);
+    const rows =
+      org?.role === "owner" && !members.some((m) => m.role === "owner")
+        ? [{ email: (await client.whoami()).email, role: "owner" }, ...members]
+        : members;
+    printResult(rows, [
       { header: "EMAIL", get: (m) => m.email },
       { header: "ROLE", get: (m) => m.role },
     ], ctx.flags.json);
@@ -61,9 +70,15 @@ export function makeOrgCommands(deps: CloudCmdDeps): Record<string, Handler> {
   };
 
   const membersAdd: Handler = async (ctx: CmdCtx) => {
-    const [orgId, email] = ctx.args;
+    const flagOrg = ctx.raw.org as string | undefined;
+    const [a, b] = ctx.args;
+    const orgId = flagOrg ?? a;
+    const email = flagOrg ? a : b;
     if (!orgId || !email) {
-      throw new CliError("Usage: pb cloud org members add <orgId> <email>", 2);
+      throw new CliError(
+        "Usage: pb cloud org members add <orgId> <email>  (or --org <id> <email>)",
+        2,
+      );
     }
     const { client } = await deps.requireAuth();
     await client.addMember(orgId, email);
@@ -76,9 +91,15 @@ export function makeOrgCommands(deps: CloudCmdDeps): Record<string, Handler> {
   };
 
   const membersRm: Handler = async (ctx: CmdCtx) => {
-    const [orgId, email] = ctx.args;
+    const flagOrg = ctx.raw.org as string | undefined;
+    const [a, b] = ctx.args;
+    const orgId = flagOrg ?? a;
+    const email = flagOrg ? a : b;
     if (!orgId || !email) {
-      throw new CliError("Usage: pb cloud org members rm <orgId> <email>", 2);
+      throw new CliError(
+        "Usage: pb cloud org members rm <orgId> <email>  (or --org <id> <email>)",
+        2,
+      );
     }
     const { client } = await deps.requireAuth();
     await client.removeMember(orgId, email);

@@ -31,10 +31,19 @@ export const runShell: CommandRunner = async (command, cwd) => {
   const child = new Deno.Command(exe, {
     args: [flag, command],
     cwd,
-    stdout: "inherit",
+    // The build tool's own chatter must not land on our stdout: under --json a
+    // deploy prints one JSON object there and nothing else, so a caller can
+    // pipe it straight to a parser. Capture stdout and forward it to our
+    // stderr, where the user still sees build progress but a pipe reading
+    // stdout does not. (Deno has no direct "send stdout to stderr" mode.)
+    stdout: "piped",
     stderr: "inherit",
   }).spawn();
+  const forwarding = child.stdout.pipeTo(Deno.stderr.writable, {
+    preventClose: true,
+  });
   const { code } = await child.status;
+  await forwarding;
   return { code };
 };
 

@@ -1,9 +1,11 @@
-import { assertEquals, assertThrows } from "@std/assert";
+import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import {
   assertConfigured,
+  chooseEnvironment,
   entryFor,
   resolveEnvironmentName,
 } from "../../src/resolve/environment.ts";
+import type { PromptIO } from "../../src/ui/prompt.ts";
 import { CliError } from "../../src/errors.ts";
 import type { LinkFile } from "../../src/config.ts";
 
@@ -133,4 +135,81 @@ Deno.test("an invalid name from PB_ENV is rejected too", () => {
   } finally {
     Deno.env.delete("PB_ENV");
   }
+});
+
+function fakeIO(inputs: string[]): PromptIO {
+  const q = [...inputs];
+  return {
+    read: () => Promise.resolve(q.shift() ?? null),
+    write: () => {},
+    isTTY: true,
+  };
+}
+
+const NONE = { name: "production", explicit: false, configured: false };
+
+Deno.test("chooseEnvironment asks when the directory names none", async () => {
+  const got = await chooseEnvironment(NONE, null, {
+    noInput: false,
+    io: fakeIO(["staging"]),
+  });
+  assertEquals(got, { name: "staging", explicit: false, configured: false });
+});
+
+Deno.test("chooseEnvironment takes an empty answer as the default", async () => {
+  const got = await chooseEnvironment(NONE, {}, {
+    noInput: false,
+    io: fakeIO([""]),
+  });
+  assertEquals(got, NONE);
+});
+
+Deno.test("chooseEnvironment does not ask when the file already answers", async () => {
+  // Configured environments...
+  assertEquals(
+    await chooseEnvironment(
+      { name: "production", explicit: false, configured: true },
+      TWO,
+      { noInput: false, io: fakeIO(["staging"]) },
+    ),
+    { name: "production", explicit: false, configured: true },
+  );
+  // ...or just a recorded default, as `init` writes.
+  assertEquals(
+    (await chooseEnvironment(NONE, { defaultEnvironment: "qa" }, {
+      noInput: false,
+      io: fakeIO(["staging"]),
+    })).name,
+    "production",
+  );
+});
+
+Deno.test("chooseEnvironment leaves an explicit --env alone", async () => {
+  const explicit = { name: "preview", explicit: true, configured: false };
+  assertEquals(
+    await chooseEnvironment(explicit, null, {
+      noInput: false,
+      io: fakeIO(["staging"]),
+    }),
+    explicit,
+  );
+});
+
+Deno.test("chooseEnvironment keeps the unattended default", async () => {
+  assertEquals(
+    await chooseEnvironment(NONE, null, { noInput: true, io: fakeIO(["x"]) }),
+    NONE,
+  );
+});
+
+Deno.test("chooseEnvironment rejects an unusable name", async () => {
+  await assertRejects(
+    () =>
+      chooseEnvironment(NONE, null, {
+        noInput: false,
+        io: fakeIO(["two words"]),
+      }),
+    CliError,
+    "Invalid environment name",
+  );
 });

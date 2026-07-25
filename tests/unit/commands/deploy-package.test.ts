@@ -59,6 +59,9 @@ async function zipOf(data: Record<string, unknown>): Promise<Uint8Array> {
   return new Uint8Array(await file.arrayBuffer());
 }
 
+/** A deno backend must declare how it starts, or deploy refuses to create it. */
+const START_TASK = JSON.stringify({ tasks: { start: "deno run -A main.ts" } });
+
 Deno.test("frontend deploy uploads the built bundle as a file", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
@@ -251,7 +254,11 @@ Deno.test("an explicit --start beats the packager's suggestion", async () => {
 });
 
 Deno.test("backend deploy pushes the .env by default and --skip-env opts out", async () => {
-  const cwd = seed({ "deno.json": "{}", "main.ts": "x", ".env": "A=1\nB=2\n" });
+  const cwd = seed({
+    "deno.json": START_TASK,
+    "main.ts": "x",
+    ".env": "A=1\nB=2\n",
+  });
 
   const client = createMockCloudClient();
   const p = await client.createProject("app");
@@ -262,7 +269,7 @@ Deno.test("backend deploy pushes the .env by default and --skip-env opts out", a
     raw: { name: "api" },
   });
   const push = client.calls.ext.find(([path]) => path === "/api/env/bulk-set");
-  assertEquals((push?.[1] as { vars: Record<string, string> }).vars, {
+  assertEquals((push?.[1] as { variables: Record<string, string> }).variables, {
     A: "1",
     B: "2",
   });
@@ -286,7 +293,7 @@ Deno.test("no dotenv file means no env push and no error", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   runningNow(client);
-  const cwd = seed({ "deno.json": "{}", "main.ts": "x" });
+  const cwd = seed({ "deno.json": START_TASK, "main.ts": "x" });
 
   const code = await makeBackendCommands(deps(client, p.id, cwd))[
     "cloud backend deploy"
@@ -303,7 +310,7 @@ Deno.test("--env-file naming a missing file is an error", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   runningNow(client);
-  const cwd = seed({ "deno.json": "{}", "main.ts": "x" });
+  const cwd = seed({ "deno.json": START_TASK, "main.ts": "x" });
 
   await assertRejects(
     () =>
@@ -380,14 +387,17 @@ Deno.test("pb redeploy pushes hooks instead of an archive the platform ignores",
   const [, id, data] = client.calls.updateResource[0];
   assertEquals(id, pb.id);
   assertEquals(data.zipFile, undefined);
-  // Hooks went up the one route that reaches a running instance.
-  const push = client.calls.ext.find(([path]) =>
+  // Hooks went up the one route that reaches a running instance, aimed at the
+  // instance itself rather than the project.
+  const push = client.calls.pbApi.find(([path]) =>
     path === "/api/hooks/bulk-write"
   );
-  assertEquals(
-    (push?.[1] as { files: { filename: string }[] }).files[0].filename,
-    "main.pb.js",
-  );
+  const body = push?.[1] as {
+    pocketbase_id: string;
+    hooks: { filename: string }[];
+  };
+  assertEquals(body.pocketbase_id, pb.id);
+  assertEquals(body.hooks[0].filename, "main.pb.js");
 });
 
 Deno.test("pb redeploy refuses --zip rather than uploading it silently", async () => {

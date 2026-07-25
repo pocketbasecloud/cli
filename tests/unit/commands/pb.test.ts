@@ -7,6 +7,7 @@ import {
   readLinkFile,
 } from "../../../src/config.ts";
 import type { CloudCmdDeps } from "../../../src/commands/project.ts";
+import { FALLBACK_VERSIONS } from "../../../src/local/releases.ts";
 
 function deps(
   client = createMockCloudClient(),
@@ -32,6 +33,19 @@ function deps(
       loadConfig: () => Promise.resolve(config),
       saveConfig: () => Promise.resolve(),
       cwd: () => cwd,
+      // Deploy resolves the newest release when nothing is pinned. Stubbed so
+      // the unit suite never touches the network.
+      fetch: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify([
+              { tag_name: "v0.39.9", draft: false, prerelease: false },
+              { tag_name: "v0.39.8", draft: false, prerelease: false },
+            ]),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+        ),
+      env: () => undefined,
     },
   };
 }
@@ -66,6 +80,8 @@ Deno.test("pb deploy creates then reaches running, recording the binding", async
   });
   assertEquals(code, 0);
   assertEquals(client.calls.createResource.length, 1);
+  // `user` is required by the collection and is what the slot check reads.
+  assertEquals(client.calls.createResource[0][1].user, "u1");
   // Deploy recorded the new resource in the directory's pb.json, under the
   // environment it created and made the default.
   const link = await readLinkFile(cwd);
@@ -222,4 +238,118 @@ Deno.test("pb deploy --env on an unconfigured environment demands --name", async
     Error,
     'Environment "staging" is not configured — pass --name to create it.',
   );
+});
+
+Deno.test("pb deploy sends admin credentials, which the platform will not invent", async () => {
+  // PocketBaseService.handleAfterCreateHook fails the deploy outright when
+  // either is blank, and nothing on the platform fills them in.
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d, config, cwd } = deps(client);
+  config.currentProject = p.id;
+  Deno.writeTextFileSync(
+    `${cwd}/pb.json`,
+    JSON.stringify({ pocketbaseVersion: "0.39.3" }),
+  );
+  runningNow(client);
+  await d.requireAuth();
+  const code = await makePbCommands(d)["cloud pb deploy"]({
+    args: [],
+    flags: flags({ project: p.id }),
+    raw: { name: "db1" },
+  });
+  assertEquals(code, 0);
+  const [, data] = client.calls.createResource[0];
+  assertEquals(data.adminUsername, "u@e.com");
+  assertEquals(String(data.adminPassword).length, 20);
+  // The directory's pin says which build was developed against.
+  assertEquals(data.version, "0.39.3");
+});
+
+Deno.test("pb deploy honours explicit admin flags and rejects an unusable password", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d, config } = deps(client);
+  config.currentProject = p.id;
+  runningNow(client);
+  await makePbCommands(d)["cloud pb deploy"]({
+    args: [],
+    flags: flags({ project: p.id }),
+    raw: {
+      name: "db1",
+      "admin-email": "ops@e.com",
+      "admin-password": "correcthorsebattery",
+    },
+  });
+  const [, data] = client.calls.createResource[0];
+  assertEquals(data.adminUsername, "ops@e.com");
+  assertEquals(data.adminPassword, "correcthorsebattery");
+
+  const two = deps(client);
+  two.config.currentProject = p.id;
+  await assertRejects(
+    () =>
+      makePbCommands(two.d)["cloud pb deploy"]({
+        args: [],
+        flags: flags({ project: p.id }),
+        raw: { name: "db2", "admin-password": "short" },
+      }),
+    Error,
+    "--admin-password must be 12 to 20 characters.",
+  );
+});
+
+Deno.test("pb deploy always sends a version, even with nothing pinned", async () => {
+  // An empty `version` reaches the agent as "install PocketBase ''", which
+  // strands the instance in `creating` forever with no error status. The
+  // create path must never send one.
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d, config } = deps(client);
+  config.currentProject = p.id;
+  runningNow(client);
+  const cmds = makePbCommands(d);
+  const code = await cmds["cloud pb deploy"]({
+    args: [],
+    flags: flags({ project: p.id }),
+    raw: { name: "db1" }, // no --pb-version, and the cwd has no pb.json pin
+  });
+  assertEquals(code, 0);
+  const sent = client.calls.createResource[0][1].version;
+  assertEquals(typeof sent, "string");
+  assertEquals((sent as string).length > 0, true);
+});
+
+Deno.test("an explicit --pb-version still wins over the resolved default", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d, config } = deps(client);
+  config.currentProject = p.id;
+  runningNow(client);
+  const cmds = makePbCommands(d);
+  await cmds["cloud pb deploy"]({
+    args: [],
+    flags: flags({ project: p.id }),
+    raw: { name: "db1", "pb-version": "0.30.0" },
+  });
+  assertEquals(client.calls.createResource[0][1].version, "0.30.0");
+});
+
+Deno.test("pb deploy falls back to a built-in version when the releases API is down", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d, config } = deps(client);
+  config.currentProject = p.id;
+  d.fetch = () => Promise.reject(new Error("offline"));
+  runningNow(client);
+  const cmds = makePbCommands(d);
+  const code = await cmds["cloud pb deploy"]({
+    args: [],
+    flags: flags({ project: p.id }),
+    raw: { name: "db1" },
+  });
+  assertEquals(code, 0);
+  // Not asserting a specific number — only that no network means no empty
+  // version, which is the failure that strands the instance.
+  assertEquals(client.calls.createResource[0][1].version, FALLBACK_VERSIONS[0]);
 });

@@ -32,6 +32,28 @@ Deno.test("confirm reads y/n", async () => {
   );
 });
 
+Deno.test("confirm under no-input points at --yes, not --no-input", async () => {
+  const err = await assertRejects(() =>
+    confirm("Delete?", { noInput: true, yes: false })
+  );
+  assertEquals((err as Error).message.includes("--yes"), true);
+  assertEquals((err as Error).message.includes("--no-input"), false);
+});
+
+Deno.test("confirm on a non-TTY points at --yes without prompting", async () => {
+  const noTty: PromptIO = {
+    read: () => {
+      throw new Error("should not read");
+    },
+    write: () => {},
+    isTTY: false,
+  };
+  const err = await assertRejects(() =>
+    confirm("Delete?", { noInput: false, yes: false, io: noTty })
+  );
+  assertEquals((err as Error).message.includes("--yes"), true);
+});
+
 Deno.test("select picks by index", async () => {
   const r = await select("pick", ["a", "b", "c"], (x) => x, {
     noInput: false,

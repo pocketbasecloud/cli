@@ -145,3 +145,43 @@ Deno.test("pocketbase inference errors when none of the three exist", async () =
     "nothing to deploy",
   );
 });
+
+Deno.test("backend inference reads the project's own start task/script", async () => {
+  // A backend that ships source needs a start command, and the project already
+  // declares one. Not reading it is what makes the first deploy fail.
+  assertEquals(
+    (await inferBuild(
+      dir({
+        "deno.json": JSON.stringify({ tasks: { start: "deno run -A m.ts" } }),
+      }),
+      "backends",
+    )).startCommand,
+    "deno task start",
+  );
+  assertEquals(
+    (await inferBuild(
+      dir({ "package.json": pkg({ start: "node s.js" }) }),
+      "backends",
+    ))
+      .startCommand,
+    "npm run start",
+  );
+  assertEquals(
+    (await inferBuild(
+      dir({ "package.json": pkg({ start: "bun s.ts" }), "bun.lockb": "" }),
+      "backends",
+    )).startCommand,
+    "bun run start",
+  );
+});
+
+Deno.test("backend inference leaves startCommand unset when nothing declares one", async () => {
+  assertEquals(
+    (await inferBuild(dir({ "deno.json": "{}" }), "backends")).startCommand,
+    undefined,
+  );
+  assertEquals(
+    (await inferBuild(dir({ "package.json": pkg() }), "backends")).startCommand,
+    undefined,
+  );
+});

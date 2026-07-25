@@ -16,6 +16,7 @@ Deno.test("whoami prints user when authenticated", async () => {
     login: () => Promise.resolve(saved.cloud!),
     portalUrl: "https://portal",
     backendUrl: "https://backend",
+    extUrl: "https://backend-ext",
   });
   const code = await cmds["cloud whoami"]({
     args: [],
@@ -38,6 +39,7 @@ Deno.test("logout clears cloud auth", async () => {
     login: () => Promise.resolve(saved.cloud!),
     portalUrl: "https://portal",
     backendUrl: "https://backend",
+    extUrl: "https://backend-ext",
   });
   await cmds["cloud logout"]({
     args: [],

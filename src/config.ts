@@ -1,8 +1,21 @@
 import { dirname, join } from "@std/path";
 import type { ResourceKind } from "./clients/types.ts";
 
+export const DEFAULT_BACKEND_URL = "https://backend.pocketbasecloud.com";
+/**
+ * backend-extension is a separate service from PocketBase, on its own host. It
+ * serves the deploy-side routes PocketBase has none of — logs, custom domains,
+ * bulk env, export — and the CLI calls it directly with the user's token.
+ */
+export const DEFAULT_EXT_URL = "https://backend-ext.pocketbasecloud.com";
+
 export type CloudAuth = {
   backendUrl: string;
+  /**
+   * backend-extension base URL. Optional because configs written before the
+   * CLI knew about the second host have none; `resolveCloudAuth` fills it in.
+   */
+  extUrl?: string;
   userToken: string;
   userId: string;
 };
@@ -37,6 +50,12 @@ export type BuildConfig = {
   outputDir?: string;
   /** Backends only. Mirrors --runtime; selects the packaging strategy. */
   runtime?: "deno" | "bun" | "nodejs" | "nextjs";
+  /**
+   * Backends only. Mirrors --start; the command the platform runs to boot the
+   * container. Inferred from the project's own start task/script, because a
+   * backend that ships source cannot start without one.
+   */
+  startCommand?: string;
   /** Extra exclude globs, on top of the built-in denylist. */
   exclude?: string[];
   /** Which dotenv file --push-env reads. Defaults to ".env". */
@@ -104,8 +123,21 @@ export function resolveCloudAuth(
 ): CloudAuth | null {
   const token = env["PB_TOKEN"];
   const url = env["PB_BACKEND_URL"];
-  if (token && url) return { backendUrl: url, userToken: token, userId: "" };
-  return c.cloud;
+  const ext = env["PB_BACKEND_EXT_URL"];
+  if (token && url) {
+    return {
+      backendUrl: url,
+      // Pointed at a non-default backend, the extension host is not derivable
+      // from it — leave it unset so a call that needs one says so plainly
+      // rather than reaching for production.
+      extUrl: ext ??
+        (url === DEFAULT_BACKEND_URL ? DEFAULT_EXT_URL : undefined),
+      userToken: token,
+      userId: "",
+    };
+  }
+  if (!c.cloud) return null;
+  return { ...c.cloud, extUrl: ext ?? c.cloud.extUrl ?? DEFAULT_EXT_URL };
 }
 
 export async function readLinkFile(cwd: string): Promise<LinkFile | null> {
@@ -275,4 +307,18 @@ export async function upsertBuildConfig(
 ): Promise<void> {
   const existing = await readOwnPbJson(cwd);
   await writePbJson(cwd, { ...existing, build });
+}
+
+/**
+ * Record which environment this directory deploys to by default, before any
+ * resource is bound to it. `upsertEnvironment` sets the same field when it
+ * writes the first entry; this is for `init`, which sets up the file without
+ * touching the cloud.
+ */
+export async function setDefaultEnvironment(
+  cwd: string,
+  environment: string,
+): Promise<void> {
+  const existing = await readOwnPbJson(cwd);
+  await writePbJson(cwd, { ...existing, defaultEnvironment: environment });
 }

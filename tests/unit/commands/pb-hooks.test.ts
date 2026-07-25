@@ -9,6 +9,10 @@ Deno.test("hooks push reads dir and calls bulk-write", async () => {
   await Deno.writeTextFile(join(dir, "main.pb.js"), "routerAdd()");
   const client = createMockCloudClient();
   const p = await client.createProject("app");
+  const pb = await client.createResource("pocketbases", {
+    name: "db1",
+    project: p.id,
+  });
   const config: Config = {
     ...defaultConfig(),
     cloud: { backendUrl: "u", userToken: "t", userId: "u1" },
@@ -29,8 +33,17 @@ Deno.test("hooks push reads dir and calls bulk-write", async () => {
       interactive: false,
       project: p.id,
     },
-    raw: {},
+    raw: { name: "db1" },
   });
   assertEquals(code, 0);
-  assertEquals(client.calls.ext[0][0], "/api/hooks/bulk-write");
+  // Service-key guarded on backend-extension, so it goes via PocketBase.
+  const [path, body] = client.calls.pbApi[0];
+  assertEquals(path, "/api/hooks/bulk-write");
+  assertEquals((body as { pocketbase_id: string }).pocketbase_id, pb.id);
+  const hook = (body as { hooks: { filename: string; active: boolean }[] })
+    .hooks[0];
+  assertEquals(hook.filename, "main.pb.js");
+  // Sent explicitly: the service records `active` verbatim, so an omitted flag
+  // lands in the database as false and the portal shows a live hook disabled.
+  assertEquals(hook.active, true);
 });

@@ -1,5 +1,6 @@
 import type { EnvEntry, LinkFile } from "../config.ts";
 import { CliError } from "../errors.ts";
+import { canPrompt, prompt, type PromptIO } from "../ui/prompt.ts";
 
 /** The environment a first deploy records when the file names none. */
 export const DEFAULT_ENVIRONMENT = "production";
@@ -71,6 +72,33 @@ export function resolveEnvironmentName(
     }). Pass --env <name>.`,
     2,
   );
+}
+
+/**
+ * Ask which environment to record, for the commands that write the first one
+ * into a directory — `deploy`, `link`, `init`. Everywhere else the answer is
+ * already in the file.
+ *
+ * Left alone: an explicit `--env`/`PB_ENV`, a file that already names an
+ * environment, and anything non-interactive (`--no-input`, `--json`, no TTY),
+ * which keeps "production" as the unattended default it has always been.
+ */
+export async function chooseEnvironment(
+  choice: EnvironmentChoice,
+  link: Partial<LinkFile> | null,
+  opts: { noInput: boolean; io?: PromptIO },
+): Promise<EnvironmentChoice> {
+  const named = Object.keys(link?.environments ?? {}).length > 0 ||
+    Boolean(link?.defaultEnvironment);
+  if (choice.explicit || named || !canPrompt(opts)) return choice;
+  const answer = await prompt(
+    `Environment to deploy [${DEFAULT_ENVIRONMENT}]:`,
+    opts,
+  );
+  const name = answer.trim();
+  if (name.length === 0) return choice;
+  assertValidName(name);
+  return { name, explicit: false, configured: false };
 }
 
 /**

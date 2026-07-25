@@ -275,6 +275,134 @@ pb cloud backend deploy --env-file .env.prod # pushes a different file
 
 Frontends have no cloud env store — their variables are baked in at build time.
 
+## Common tasks
+
+### Ship a full-stack app
+
+One directory per resource, each linked once. They can all live in the same repo
+and the same cloud project:
+
+```sh
+pb cloud login
+pb cloud project create my-app
+pb cloud project use my-app
+
+cd db  && pb cloud pb deploy --name my-app-db        # PocketBase + hooks + migrations
+cd ../api && pb cloud backend deploy --name my-app-api  # Pro plan only
+cd ../web && pb cloud frontend deploy --name my-app-web
+```
+
+Each deploy prints what it packaged, records the binding in that directory's
+`pb.json`, and pushes a neighbouring `.env`. From then on a bare
+`pb cloud <kind> deploy` in the same directory redeploys it.
+
+### Promote staging to production
+
+```sh
+cd web
+pb cloud frontend deploy --name web-staging --env staging  # first deploy creates + links
+pb cloud environments                                      # show what this directory targets
+pb cloud frontend deploy --env production                  # ship the same directory to prod
+```
+
+### Update hooks on a running instance
+
+A PocketBase archive is read only when the instance is created, so a redeploy
+pushes hooks rather than replacing the whole instance:
+
+```sh
+cd db
+pb cloud pb deploy            # pushes pb_hooks/*.pb.js to the linked instance
+pb cloud pb hooks ls          # what the instance has
+pb cloud pb hooks rm old.pb.js
+```
+
+### Work with data on a deployed instance
+
+`pb use` points the instance commands at any PocketBase, cloud-hosted or not:
+
+```sh
+pb cloud pb info --name my-app-db          # URL + generated superuser login
+pb use https://<id>.<key>.pocketbasecloud.com
+pb login                                    # superuser
+
+pb collections create '{"name":"tasks","fields":[
+  {"name":"title","type":"text","required":true},
+  {"name":"done","type":"bool"}]}'
+pb records create tasks '{"title":"first"}'
+pb rules set tasks --list-rule '@request.auth.id != ""'
+```
+
+### Back up, export, restore
+
+```sh
+pb settings backup create              # snapshot on the instance
+pb settings backup ls
+pb settings backup download <key> --out backup.zip
+pb cloud data export --name my-app-db --out data.zip   # via the platform
+```
+
+### Manage environment variables
+
+```sh
+pb cloud env ls --target backend --name my-app-api
+pb cloud env set API_KEY=secret --target backend --name my-app-api
+pb cloud env import .env.production --target backend --name my-app-api
+```
+
+Names only are listed — the platform stores values encrypted and never returns
+them in plaintext.
+
+### Diagnose a deploy that went wrong
+
+```sh
+pb cloud pb ls                       # statuses at a glance
+pb cloud pb info --name my-app-db    # status, URL, server, admin login
+pb cloud logs backend --name my-app-api -f   # follow container logs
+```
+
+If a deploy times out, the resource was still created — the error names the
+`info` and `rm` commands for it. A newly created domain also needs a few minutes
+for its certificate before it answers, even once the status reads `running`.
+
+### Share a project with a team
+
+```sh
+pb cloud org create acme
+pb cloud org share my-app --org <orgId>
+pb cloud org members add <orgId> teammate@example.com
+pb cloud org share my-app --none          # stop sharing
+```
+
+### Run in CI (no browser, no prompts)
+
+Authenticate with a token instead of `pb cloud login`, and make every command
+fail rather than ask:
+
+```sh
+export PB_TOKEN=…            # a PocketBase Cloud user token
+export PB_BACKEND_URL=https://backend.pocketbasecloud.com
+
+pb cloud whoami --json                       # preflight
+pb cloud frontend deploy --no-input --json   # never prompts; JSON on stdout
+```
+
+`--json` prints machine-readable output on stdout and keeps build output on
+stderr, so `pb … --json | jq` is safe. Errors are `{"error":"…"}` on stderr with
+a non-zero exit: `2` usage, `3` not permitted (plan or slot limits), `4` not
+authenticated, `5` timed out, `6` the resource finished in a failed state, `7`
+your build command failed.
+
+### Pin a PocketBase version
+
+Deploys use the newest published release unless told otherwise. Pin one to keep
+cloud and local identical:
+
+```sh
+pb install 0.39.9                       # local binary + records the pin in pb.json
+pb cloud pb deploy --pb-version 0.39.9  # or set it per deploy
+```
+
 ## What you can do
 
 Run `pb --help`, or `pb <command> --help` for details on any command.
@@ -285,8 +413,8 @@ Run `pb --help`, or `pb <command> --help` for details on any command.
   `settings` (incl. `mail`/`s3`/`backup`), `cron`, `logs`: operate any
   PocketBase instance.
 - **Cloud** (`pb cloud ...`) — `init`, `project`, `pb`, `backend`, `frontend`,
-  `env`, `logs`, `org`, `data` import/export, custom domains: manage your
-  PocketBase Cloud account and deployments.
+  `env`, `logs`, `org`, `server ls`, `data` import/export, custom domains:
+  manage your PocketBase Cloud account and deployments.
 
 ## Supported platforms
 

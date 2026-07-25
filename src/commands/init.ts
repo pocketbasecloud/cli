@@ -1,9 +1,18 @@
 import type { CmdCtx, Handler } from "../router.ts";
 import type { ResourceKind } from "../clients/types.ts";
 import { CliError } from "../errors.ts";
-import { readOwnPbJson, upsertBuildConfig } from "../config.ts";
+import {
+  readOwnPbJson,
+  setDefaultEnvironment,
+  upsertBuildConfig,
+} from "../config.ts";
 import { parseKind } from "../resolve/link.ts";
+import type { PromptIO } from "../ui/prompt.ts";
 import { describeBuild, inferBuild } from "../build/detect.ts";
+import {
+  chooseEnvironment,
+  resolveEnvironmentName,
+} from "../resolve/environment.ts";
 
 export const INIT_USAGE = "Usage: pb cloud init [pb|frontend|backend]";
 
@@ -14,7 +23,7 @@ export const INIT_USAGE = "Usage: pb cloud init [pb|frontend|backend]";
  * guess reviewable — and editable — before anything ships.
  */
 export function makeCloudInitCommands(
-  deps: { cwd: () => string },
+  deps: { cwd: () => string; io?: PromptIO },
 ): Record<string, Handler> {
   const init: Handler = async (ctx: CmdCtx) => {
     const cwd = deps.cwd();
@@ -53,12 +62,23 @@ export function makeCloudInitCommands(
 
     const build = await inferBuild(cwd, kind);
     await upsertBuildConfig(cwd, build);
+    // Setting the directory up is also where it decides what it deploys to, so
+    // the first deploy has nothing left to ask.
+    const environment = (await chooseEnvironment(
+      resolveEnvironmentName(own, { flag: ctx.raw.env as string | undefined }),
+      own,
+      { noInput: ctx.flags.noInput || ctx.flags.json, io: deps.io },
+    )).name;
+    await setDefaultEnvironment(cwd, environment);
     if (ctx.flags.json) {
-      console.log(JSON.stringify({ build, written: true }));
+      console.log(JSON.stringify({ build, environment, written: true }));
     } else {
       console.log(`Inferred the build config for this ${token ?? kind}:`);
       for (const line of describeBuild(build)) console.log(line);
-      console.log(`Wrote it to pb.json. Edit it there, then run deploy.`);
+      console.log(
+        `Wrote it to pb.json (environment: ${environment}). Edit it there, ` +
+          `then run deploy.`,
+      );
     }
     return 0;
   };

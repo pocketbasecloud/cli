@@ -6,7 +6,10 @@ import {
   removeEnvironment,
   upsertEnvironment,
 } from "../config.ts";
-import { resolveEnvironmentName } from "../resolve/environment.ts";
+import {
+  chooseEnvironment,
+  resolveEnvironmentName,
+} from "../resolve/environment.ts";
 import { reportRemoval } from "./environments.ts";
 import type { ICloudClient } from "../clients/cloud.ts";
 import { CliError } from "../errors.ts";
@@ -25,6 +28,14 @@ export type CloudCmdDeps = {
   cwd: () => string;
   /** Prompt transport; unset in production so prompts use real stdin. */
   io?: PromptIO;
+  /**
+   * Network transport, used to resolve the newest PocketBase release when a
+   * deploy has no version pinned. Optional so tests can stay offline; unset in
+   * production, where it falls back to the global `fetch`.
+   */
+  fetch?: typeof fetch;
+  /** Env reader, so a GITHUB_TOKEN can lift the releases-API rate limit. */
+  env?: (k: string) => string | undefined;
 };
 
 export function makeProjectCommands(
@@ -94,7 +105,7 @@ export function makeProjectCommands(
     });
     if (
       !await confirm(`Delete project ${p.name}?`, {
-        noInput: ctx.flags.noInput,
+        noInput: ctx.flags.noInput || ctx.flags.json,
         yes: ctx.flags.yes,
       })
     ) {
@@ -136,9 +147,12 @@ export function makeProjectCommands(
         2,
       );
     }
-    const environment = resolveEnvironmentName(own, {
-      flag: ctx.raw.env as string | undefined,
-    }).name;
+    // link writes the first entry too, so it asks the same question deploy does.
+    const environment = (await chooseEnvironment(
+      resolveEnvironmentName(own, { flag: ctx.raw.env as string | undefined }),
+      own,
+      { noInput: ctx.flags.noInput || ctx.flags.json, io: deps.io },
+    )).name;
     await upsertEnvironment(cwd, {
       projectId: p.id,
       kind,

@@ -1,7 +1,9 @@
 import type { CmdCtx, Handler } from "../router.ts";
 import type { CloudAuth, Config } from "../config.ts";
+import { resolveCloudAuth } from "../config.ts";
 import type { ICloudClient } from "../clients/cloud.ts";
 import { CliError } from "../errors.ts";
+import { describePlan } from "../ui/output.ts";
 
 export type AuthDeps = {
   loadConfig: () => Promise<Config>;
@@ -10,6 +12,8 @@ export type AuthDeps = {
   login: (o: { portalUrl: string; backendUrl: string }) => Promise<CloudAuth>;
   portalUrl: string;
   backendUrl: string;
+  /** Stored with the token so a profile records both hosts it was made against. */
+  extUrl: string;
 };
 
 export function makeAuthCommands(deps: AuthDeps): Record<string, Handler> {
@@ -19,7 +23,7 @@ export function makeAuthCommands(deps: AuthDeps): Record<string, Handler> {
       backendUrl: deps.backendUrl,
     });
     const config = await deps.loadConfig();
-    config.cloud = auth;
+    config.cloud = { ...auth, extUrl: deps.extUrl };
     await deps.saveConfig(config);
     console.log(
       ctx.flags.json
@@ -39,14 +43,19 @@ export function makeAuthCommands(deps: AuthDeps): Record<string, Handler> {
 
   const whoami: Handler = async (ctx: CmdCtx) => {
     const config = await deps.loadConfig();
-    if (!config.cloud) {
+    // Every other cloud command authenticates through resolveCloudAuth, which
+    // also honours PB_TOKEN/PB_BACKEND_URL. whoami is the preflight probe an
+    // agent runs first, so it must accept the same token-based auth rather than
+    // only the saved config.cloud login.
+    const auth = resolveCloudAuth(config);
+    if (!auth) {
       throw new CliError("Not logged in. Run `pb cloud login`.", 4);
     }
-    const user = await deps.makeClient(config.cloud).whoami();
+    const user = await deps.makeClient(auth).whoami();
     console.log(
       ctx.flags.json
         ? JSON.stringify(user)
-        : `${user.email} — plan: ${user.plan}`,
+        : `${user.email} — plan: ${describePlan(user.plan)}`,
     );
     return 0;
   };

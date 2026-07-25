@@ -34,6 +34,15 @@ function resolveIO(opts: PromptOpts): PromptIO {
   return io;
 }
 
+/**
+ * Whether asking a question here would work — the non-throwing half of
+ * `resolveIO`, for callers that have a usable fallback when it would not.
+ */
+export function canPrompt(opts: PromptOpts): boolean {
+  if (opts.noInput) return false;
+  return (opts.io ?? stdinIO()).isTTY;
+}
+
 export async function prompt(
   question: string,
   opts: PromptOpts,
@@ -49,6 +58,15 @@ export async function confirm(
   opts: PromptOpts & { yes: boolean },
 ): Promise<boolean> {
   if (opts.yes) return true;
+  // A confirmation has an obvious non-interactive remedy the generic "input
+  // required" message hides: pass --yes. Say so rather than naming --no-input,
+  // which the caller of `rm --json` never set.
+  if (!canPrompt(opts)) {
+    throw new CliError(
+      "This action needs confirmation. Pass --yes to proceed.",
+      2,
+    );
+  }
   const io = resolveIO(opts);
   io.write(`${question} [y/N] `);
   const answer = (await io.read() ?? "").trim().toLowerCase();

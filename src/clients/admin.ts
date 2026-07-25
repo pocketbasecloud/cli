@@ -1,5 +1,5 @@
 import PocketBase, { ClientResponseError } from "pocketbase";
-import { CliError } from "../errors.ts";
+import { CliError, fieldErrors } from "../errors.ts";
 import type {
   AdminRecord,
   BackupInfo,
@@ -61,7 +61,14 @@ export function mapAdminError(e: unknown): CliError {
       );
     }
     const msg = e.response?.message ?? e.message;
-    return new CliError(`Instance error (${e.status}): ${msg}`, 1);
+    // "Failed to create collection." alone never says what was wrong with it;
+    // the reason is one entry per rejected field in `data`.
+    const { detail, fields } = fieldErrors(e.response?.data);
+    return new CliError(
+      `Instance error (${e.status}): ${msg}${detail ? ` — ${detail}` : ""}`,
+      1,
+      fields,
+    );
   }
   return new CliError(String(e), 1);
 }

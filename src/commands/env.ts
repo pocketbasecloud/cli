@@ -4,6 +4,23 @@ import type { ResourceKind } from "../clients/types.ts";
 import { CliError } from "../errors.ts";
 import { resolveProject } from "../resolve/project.ts";
 import { resolveExisting, resolveTarget } from "./deploy-helper.ts";
+import { printResult } from "../ui/output.ts";
+
+/**
+ * Pull the variable names out of the /api/env/list envelope. The route wraps
+ * them as `details.variables` — an object keyed by name — and the values are
+ * ciphertext the CLI has no key for, so only the names are worth surfacing. An
+ * older/flatter `{ variables }` shape is tolerated so the CLI need not move in
+ * lockstep with the platform.
+ */
+export function envKeysOf(body: unknown): string[] {
+  const b = (body ?? {}) as {
+    details?: { variables?: Record<string, unknown> };
+    variables?: Record<string, unknown>;
+  };
+  const vars = b.details?.variables ?? b.variables ?? {};
+  return Object.keys(vars).sort();
+}
 
 export function parseDotenv(text: string): Record<string, string> {
   const out: Record<string, string> = {};
@@ -37,7 +54,7 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
       config,
       cwd: deps.cwd(),
       flagProject: ctx.flags.project,
-      noInput: ctx.flags.noInput,
+      noInput: ctx.flags.noInput || ctx.flags.json,
     });
     const { kind, type } = targetOf(ctx);
     const target = await resolveTarget(
@@ -64,11 +81,19 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
 
   const ls: Handler = async (ctx: CmdCtx) => {
     const { client, targetId, type } = await resolveVarTarget(ctx);
-    const res = await client.ext("/api/env/list", {
+    const res = await client.pbApi("/api/env/list", {
       target_id: targetId,
       type,
     });
-    console.log(JSON.stringify(await res.json(), null, 2));
+    if (!res.ok) throw new CliError(`List failed (${res.status}).`, 1);
+    // Values come back encrypted, so `ls` reports names only — a table for
+    // humans, a flat [{ key }] array under --json to match every other `ls`.
+    const keys = envKeysOf(await res.json());
+    printResult(
+      keys.map((key) => ({ key })),
+      [{ header: "KEY", get: (r) => r.key }],
+      ctx.flags.json,
+    );
     return 0;
   };
 
@@ -83,7 +108,7 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
     const key = kv.slice(0, kv.indexOf("="));
     const value = kv.slice(kv.indexOf("=") + 1);
     const { client, targetId, type } = await resolveVarTarget(ctx);
-    const res = await client.ext("/api/env/set", {
+    const res = await client.pbApi("/api/env/set", {
       target_id: targetId,
       type,
       key,
@@ -103,7 +128,7 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
       );
     }
     const { client, targetId, type } = await resolveVarTarget(ctx);
-    const res = await client.ext("/api/env/delete", {
+    const res = await client.pbApi("/api/env/delete", {
       target_id: targetId,
       type,
       key,
@@ -125,10 +150,12 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
     }
     const vars = parseDotenv(await Deno.readTextFile(file));
     const { client, targetId, type } = await resolveVarTarget(ctx);
+    // The route validates with validateSetEnvRequest: the bulk field is
+    // `variables`, and anything else reads as "neither key+value nor bulk".
     const res = await client.ext("/api/env/bulk-set", {
       target_id: targetId,
       type,
-      vars,
+      variables: vars,
     });
     if (!res.ok) throw new CliError(`Import failed (${res.status}).`, 1);
     console.log(

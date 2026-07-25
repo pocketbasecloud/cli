@@ -3,6 +3,7 @@ import { join } from "@std/path";
 import { makeCloudInitCommands } from "../../../src/commands/init.ts";
 import { readOwnPbJson } from "../../../src/config.ts";
 import { CliError } from "../../../src/errors.ts";
+import type { PromptIO } from "../../../src/ui/prompt.ts";
 
 function seed(files: Record<string, string>): string {
   const root = Deno.makeTempDirSync();
@@ -23,6 +24,38 @@ function run(cwd: string, args: string[], raw: Record<string, unknown> = {}) {
     raw,
   });
 }
+
+function fakeIO(inputs: string[]): PromptIO {
+  const q = [...inputs];
+  return {
+    read: () => Promise.resolve(q.shift() ?? null),
+    write: () => {},
+    isTTY: true,
+  };
+}
+
+/** Interactive run: init asks which environment the directory deploys to. */
+function runAsking(cwd: string, answers: string[], args: string[] = []) {
+  return makeCloudInitCommands({ cwd: () => cwd, io: fakeIO(answers) })[
+    "cloud init"
+  ]({
+    args,
+    flags: { ...flags, json: false, noInput: false },
+    raw: {},
+  });
+}
+
+Deno.test("cloud init records the environment it asked for", async () => {
+  const cwd = seed({ "deno.json": "{}", "main.ts": "x" });
+  assertEquals(await runAsking(cwd, ["staging"], ["backend"]), 0);
+  assertEquals((await readOwnPbJson(cwd)).defaultEnvironment, "staging");
+});
+
+Deno.test("cloud init falls back to production on an empty answer", async () => {
+  const cwd = seed({ "deno.json": "{}", "main.ts": "x" });
+  assertEquals(await runAsking(cwd, [""], ["backend"]), 0);
+  assertEquals((await readOwnPbJson(cwd)).defaultEnvironment, "production");
+});
 
 Deno.test("cloud init writes the inferred block for an explicit kind", async () => {
   const cwd = seed({ "deno.json": "{}", "main.ts": "x" });

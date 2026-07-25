@@ -4,6 +4,7 @@ import type {
   Project,
   Resource,
   ResourceKind,
+  Server,
   User,
 } from "../../src/clients/types.ts";
 
@@ -13,10 +14,12 @@ export type MockCloudClient = ICloudClient & {
     updateResource: [ResourceKind, string, Record<string, unknown>][];
     shareProject: [string, string | null][];
     ext: [string, unknown][];
+    pbApi: [string, unknown][];
   };
   projects: Project[];
   resources: Resource[];
   orgs: Org[];
+  servers: Server[];
 };
 
 export function createMockCloudClient(
@@ -27,11 +30,13 @@ export function createMockCloudClient(
     updateResource: [],
     shareProject: [],
     ext: [],
+    pbApi: [],
   };
   const state = {
     projects: [] as Project[],
     resources: [] as Resource[],
     orgs: [] as Org[],
+    servers: [] as Server[],
   };
   let seq = 0;
   const id = () => `mock${++seq}`;
@@ -62,7 +67,10 @@ export function createMockCloudClient(
     listResources: (kind, projectId) =>
       Promise.resolve(
         state.resources.filter((r) =>
-          r.project === projectId && kinds.get(r.id) === kind
+          r.project === projectId && kinds.get(r.id) === kind &&
+          // The real client filters tombstones out, so a deleted resource
+          // must not be findable by name here either.
+          r.status !== "deleted"
         ),
       ),
     createResource: (kind, data) => {
@@ -106,6 +114,7 @@ export function createMockCloudClient(
             createdBy: "u1",
           },
       ),
+    listServers: () => Promise.resolve(state.servers),
     listOrgs: () => Promise.resolve(state.orgs),
     createOrg: (name) => {
       const o: Org = { id: id(), name, owner: "u1", role: "owner" };
@@ -120,8 +129,15 @@ export function createMockCloudClient(
       calls.shareProject.push([pid, orgId]);
       return Promise.resolve();
     },
+    fileToken: () => Promise.resolve("filetoken"),
     ext: (path, body) => {
       calls.ext.push([path, body]);
+      return Promise.resolve(
+        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      );
+    },
+    pbApi: (path, body) => {
+      calls.pbApi.push([path, body]);
       return Promise.resolve(
         new Response(JSON.stringify({ ok: true }), { status: 200 }),
       );

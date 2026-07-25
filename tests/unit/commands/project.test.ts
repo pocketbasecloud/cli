@@ -119,6 +119,23 @@ Deno.test("link binds the named resource to the directory", async () => {
   }
 });
 
+Deno.test("link asks which environment when the directory names none", async () => {
+  const f = await linkFixture(fakeIO(["staging"]));
+  try {
+    const code = await f.cmds["cloud link"]({
+      args: ["frontend", "web"],
+      flags: { ...FLAGS, json: false, noInput: false },
+      raw: {},
+    });
+    assertEquals(code, 0);
+    const file = await f.read();
+    assertEquals(Object.keys(file.environments), ["staging"]);
+    assertEquals(file.defaultEnvironment, "staging");
+  } finally {
+    await f.cleanup();
+  }
+});
+
 Deno.test("link accepts both pb and pocketbase for the same kind", async () => {
   for (const word of ["pb", "pocketbase"]) {
     const f = await linkFixture();

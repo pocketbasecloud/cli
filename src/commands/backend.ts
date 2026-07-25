@@ -13,10 +13,11 @@ import {
   attachZip,
   buildBundle,
   deployResource,
-  missingTargetMessage,
+  ensureTarget,
   pollStatus,
   pushEnvFile,
   resolveExisting,
+  resolveOwnerId,
   resolveTarget,
 } from "./deploy-helper.ts";
 import { reportRemoval } from "./environments.ts";
@@ -25,30 +26,36 @@ export function makeBackendCommands(
   deps: CloudCmdDeps,
 ): Record<string, Handler> {
   async function ctxProject(ctx: CmdCtx) {
-    const { client, config } = await deps.requireAuth();
+    const { client, config, auth } = await deps.requireAuth();
     const p = await resolveProject({
       client,
       config,
       cwd: deps.cwd(),
       flagProject: ctx.flags.project,
-      noInput: ctx.flags.noInput,
+      noInput: ctx.flags.noInput || ctx.flags.json,
     });
-    return { client, project: p };
+    return { client, project: p, auth };
   }
 
   const deploy: Handler = async (ctx: CmdCtx) => {
-    const { client, project: p } = await ctxProject(ctx);
+    const { client, project: p, auth } = await ctxProject(ctx);
     const cwd = deps.cwd();
     const name = (ctx.raw.name as string) ?? ctx.args[0];
     const id = ctx.raw.id as string | undefined;
-    const target = await resolveTarget({ id, name }, "backends", cwd, {
-      envFlag: ctx.raw.env as string | undefined,
-      allowNewEnvironment: true,
-      strictKind: true,
-    });
-    if (!target.id && !target.name) {
-      throw new CliError(missingTargetMessage(target, "backend"), 2);
-    }
+    const target = await ensureTarget(
+      await resolveTarget({ id, name }, "backends", cwd, {
+        envFlag: ctx.raw.env as string | undefined,
+        allowNewEnvironment: true,
+        strictKind: true,
+        askEnvironment: { noInput: ctx.flags.noInput || ctx.flags.json },
+      }),
+      {
+        label: "backend",
+        cwd,
+        list: () => client.listResources("backends", p.id),
+        noInput: ctx.flags.noInput || ctx.flags.json,
+      },
+    );
     const log = ctx.flags.json ? () => {} : (m: string) => console.log(m);
     const bundle = await buildBundle({
       cwd,
@@ -68,11 +75,31 @@ export function makeBackendCommands(
       );
     }
     const data: Record<string, unknown> = { project: p.id, runtime };
-    if (name) data.name = name;
-    // The packager knows how a Next.js standalone bundle starts; an explicit
-    // --start still wins.
-    const start = ctx.raw.start ?? bundle.startCommand;
+    if (target.name) data.name = target.name;
+    // Backends are Pro-only, and a Pro account's compute is `ownership: "user"`
+    // — which the platform's auto-selection, filtered to platform servers,
+    // never picks. Without this the deploy lands in the shared pool or fails
+    // outright, so the portal names the compute explicitly and so must we.
+    if (ctx.raw.server) data.server = ctx.raw.server;
+    // An explicit --start wins, then the directory's own start task/script,
+    // then the packager (which knows how a Next.js standalone bundle boots).
+    const start = ctx.raw.start ?? bundle.build.startCommand ??
+      bundle.startCommand;
     if (start) data.startCommand = start;
+    // deno/bun/nodejs ship source, so without a start command the platform has
+    // nothing to run: it accepts the record and then reports deploymentFailed,
+    // leaving a dead backend the user has to find and delete. Refuse up front
+    // and say where the command can come from.
+    if (!start && !target.id) {
+      throw new CliError(
+        `No start command for this ${runtime} backend. Add a "start" ` +
+          `${
+            runtime === "deno" ? "task to deno.json" : "script to package.json"
+          }, ` +
+          `set build.startCommand in pb.json, or pass --start "<command>".`,
+        2,
+      );
+    }
     attachZip(data, bundle);
     const { resource, created } = await deployResource(
       client,
@@ -82,6 +109,10 @@ export function makeBackendCommands(
         id: target.id,
         name: target.name,
         data,
+        createData: async () => ({
+          user: await resolveOwnerId(client, auth),
+          status: "pending",
+        }),
         // backend.service.ts only redeploys a record whose status says a new
         // archive is waiting.
         updateData: { status: "uploading" },
@@ -118,6 +149,8 @@ export function makeBackendCommands(
       terminal: ["running", "error", "failed"],
       timeoutMs: 300_000,
       intervalMs: 3_000,
+      label: "backend",
+      checkCommand: "backend",
       onTick: ctx.flags.json ? undefined : (s) => console.log(`  status: ${s}`),
     });
     console.log(
@@ -170,7 +203,7 @@ export function makeBackendCommands(
     const { client, found, environment } = await resolveOne(ctx);
     if (
       !await confirm(`Delete backend ${found.name}?`, {
-        noInput: ctx.flags.noInput,
+        noInput: ctx.flags.noInput || ctx.flags.json,
         yes: ctx.flags.yes,
       })
     ) {

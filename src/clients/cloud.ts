@@ -1,12 +1,25 @@
 import PocketBase, { ClientResponseError } from "pocketbase";
 import type { CloudAuth } from "../config.ts";
-import { CliError } from "../errors.ts";
-import type { Org, Project, Resource, ResourceKind, User } from "./types.ts";
+import { CliError, fieldErrors } from "../errors.ts";
+import type {
+  Org,
+  Project,
+  Resource,
+  ResourceKind,
+  Server,
+  User,
+} from "./types.ts";
 
 export interface ICloudClient {
   whoami(): Promise<User>;
   listProjects(orgId?: string): Promise<Project[]>;
   createProject(name: string): Promise<Project>;
+  /**
+   * Marks the project deleted. Never a hard delete: the collection's
+   * deleteRule is null, and the platform's teardown runs off the status
+   * change. Rejects while the project still has live resources, which the
+   * teardown does not cascade to.
+   */
   deleteProject(id: string): Promise<void>;
   listResources(kind: ResourceKind, projectId: string): Promise<Resource[]>;
   createResource(
@@ -19,6 +32,8 @@ export interface ICloudClient {
     data: Record<string, unknown>,
   ): Promise<Resource>;
   getResource(kind: ResourceKind, id: string): Promise<Resource>;
+  /** Servers visible to this account: platform pool plus any dedicated compute. */
+  listServers(): Promise<Server[]>;
   listOrgs(): Promise<Org[]>;
   createOrg(name: string): Promise<Org>;
   deleteOrg(id: string): Promise<void>;
@@ -26,14 +41,37 @@ export interface ICloudClient {
   addMember(orgId: string, email: string): Promise<void>;
   removeMember(orgId: string, email: string): Promise<void>;
   shareProject(projectId: string, orgId: string | null): Promise<void>;
-  ext(path: string, body: unknown): Promise<Response>;
+  /** Short-lived token for downloading a protected file from PocketBase. */
+  fileToken(): Promise<string>;
+  /** Call a backend-extension route directly. */
+  ext(path: string, body?: unknown, opts?: ApiOpts): Promise<Response>;
+  /**
+   * Call a custom route on PocketBase. Used for the routes backend-extension
+   * guards with the service API key: PocketBase holds that key and forwards,
+   * which is the only way a user token can reach them — the CLI must never
+   * carry the service key itself.
+   */
+  pbApi(path: string, body?: unknown, opts?: ApiOpts): Promise<Response>;
 }
+
+export type ApiOpts = {
+  method?: "GET" | "POST";
+  query?: Record<string, string>;
+};
 
 export function mapPbError(e: unknown): CliError {
   if (e instanceof ClientResponseError) {
     if (e.status === 403) {
+      // The platform's own 403s name the actual fix ("No available PocketBase
+      // slots — buy more from the Plan page.", "Backend deployments require a
+      // Pro plan…"). Those are far better than anything we can guess, so they
+      // win; the org-rights hint is only for a 403 that arrived with no
+      // message at all.
+      const reason = e.response?.message;
       return new CliError(
-        "Permission denied. This action may require organization owner rights.",
+        reason && reason.length > 0
+          ? reason
+          : "Permission denied. This action may require organization owner rights.",
         3,
       );
     }
@@ -41,13 +79,24 @@ export function mapPbError(e: unknown): CliError {
       return new CliError("Not authenticated. Run `pb cloud login`.", 4);
     }
     const msg = e.response?.message ?? e.message;
-    return new CliError(`Platform error (${e.status}): ${msg}`, 1);
+    // "Failed to create record." on its own says nothing; the reason is always
+    // in `data`, one entry per rejected field.
+    const { detail, fields } = fieldErrors(e.response?.data);
+    return new CliError(
+      `Platform error (${e.status}): ${msg}${detail ? ` — ${detail}` : ""}`,
+      1,
+      fields,
+    );
   }
   return new CliError(String(e), 1);
 }
 
+/** Every collection here tombstones instead of hard-deleting. */
+const NOT_DELETED = 'status != "deleted"';
+
 export class PocketBaseCloudClient implements ICloudClient {
   private pb: PocketBase;
+  private cachedUserId?: string;
   constructor(private auth: CloudAuth) {
     this.pb = new PocketBase(auth.backendUrl);
     this.pb.authStore.save(auth.userToken, null);
@@ -57,8 +106,21 @@ export class PocketBaseCloudClient implements ICloudClient {
     try {
       return await fn();
     } catch (e) {
+      // A CliError raised inside is already the message we want the user to
+      // see; only platform failures need mapping.
+      if (e instanceof CliError) throw e;
       throw mapPbError(e);
     }
+  }
+
+  /**
+   * The record owner to send. Token-based auth (PB_TOKEN/PB_URL) carries no
+   * id, so ask the platform; the answer is cached for the process.
+   */
+  private async ownerId(): Promise<string> {
+    if (this.auth.userId) return this.auth.userId;
+    this.cachedUserId ??= (await this.whoami()).id;
+    return this.cachedUserId;
   }
 
   whoami(): Promise<User> {
@@ -75,7 +137,10 @@ export class PocketBaseCloudClient implements ICloudClient {
 
   listProjects(orgId?: string): Promise<Project[]> {
     return this.guard(async () => {
-      const filter = orgId ? `organization = "${orgId}"` : "";
+      const filter = [
+        NOT_DELETED,
+        orgId ? `organization = "${orgId}"` : "",
+      ].filter(Boolean).join(" && ");
       const recs = await this.pb.collection("projects").getFullList({ filter });
       return recs as unknown as Project[];
     });
@@ -85,20 +150,37 @@ export class PocketBaseCloudClient implements ICloudClient {
     return this.guard(async () =>
       await this.pb.collection("projects").create({
         name,
+        // `user` is not required by the schema and no hook fills it in for a
+        // personal project, but every list/view/update rule keys off it — a
+        // project created without one is invisible to its own creator.
+        user: await this.ownerId(),
       }) as unknown as Project
     );
   }
 
   deleteProject(id: string): Promise<void> {
     return this.guard(async () => {
-      await this.pb.collection("projects").delete(id);
+      // Teardown decrements the slot counter; it does not cascade to the
+      // project's resources, so leaving them would strand running containers.
+      const live: string[] = [];
+      for (const kind of ["pocketbases", "backends", "frontends"] as const) {
+        const n = (await this.listResources(kind, id)).length;
+        if (n > 0) live.push(`${n} ${kind}`);
+      }
+      if (live.length > 0) {
+        throw new CliError(
+          `Project still has ${live.join(", ")}. Delete them first.`,
+          2,
+        );
+      }
+      await this.pb.collection("projects").update(id, { status: "deleted" });
     });
   }
 
   listResources(kind: ResourceKind, projectId: string): Promise<Resource[]> {
     return this.guard(async () =>
       await this.pb.collection(kind).getFullList({
-        filter: `project = "${projectId}"`,
+        filter: `project = "${projectId}" && ${NOT_DELETED}`,
       }) as unknown as Resource[]
     );
   }
@@ -126,6 +208,15 @@ export class PocketBaseCloudClient implements ICloudClient {
     return this.guard(async () =>
       await this.pb.collection(kind).getOne(id) as unknown as Resource
     );
+  }
+
+  listServers(): Promise<Server[]> {
+    return this.guard(async () => {
+      const recs = await this.pb.collection("servers").getFullList({
+        filter: NOT_DELETED,
+      });
+      return recs as unknown as Server[];
+    });
   }
 
   listOrgs(): Promise<Org[]> {
@@ -174,9 +265,12 @@ export class PocketBaseCloudClient implements ICloudClient {
 
   addMember(orgId: string, email: string): Promise<void> {
     return this.guard(async () => {
+      // `email` is an extra body field, not a column: the before-create hook
+      // looks the user up by it and fills in user/userEmail/userName/role/
+      // addedBy. Sending userEmail directly is rejected outright.
       await this.pb.collection("org_members").create({
         organization: orgId,
-        userEmail: email,
+        email,
       });
     });
   }
@@ -198,14 +292,45 @@ export class PocketBaseCloudClient implements ICloudClient {
     });
   }
 
-  ext(path: string, body: unknown): Promise<Response> {
-    return fetch(`${this.auth.backendUrl}${path}`, {
-      method: "POST",
+  fileToken(): Promise<string> {
+    return this.guard(() => this.pb.files.getToken());
+  }
+
+  ext(path: string, body?: unknown, opts: ApiOpts = {}): Promise<Response> {
+    if (!this.auth.extUrl) {
+      throw new CliError(
+        `"${path}" is served by backend-extension, and PB_BACKEND_URL points ` +
+          `at a non-default backend — set PB_BACKEND_EXT_URL to match.`,
+        2,
+      );
+    }
+    return this.send(this.auth.extUrl, path, body, opts);
+  }
+
+  pbApi(path: string, body?: unknown, opts: ApiOpts = {}): Promise<Response> {
+    return this.send(this.auth.backendUrl, path, body, opts);
+  }
+
+  private send(
+    base: string,
+    path: string,
+    body: unknown,
+    opts: ApiOpts,
+  ): Promise<Response> {
+    const method = opts.method ?? "POST";
+    const query = opts.query
+      ? `?${new URLSearchParams(opts.query).toString()}`
+      : "";
+    return fetch(`${base}${path}${query}`, {
+      method,
       headers: {
-        "Content-Type": "application/json",
-        "Authorization": this.auth.userToken,
+        // Both hosts want a scheme: PocketBase strips an optional "Bearer ",
+        // and backend-extension's authenticated middleware reads the token as
+        // the second whitespace-separated part, so a bare token reads as none.
+        "Authorization": `Bearer ${this.auth.userToken}`,
+        ...(method === "POST" ? { "Content-Type": "application/json" } : {}),
       },
-      body: JSON.stringify(body),
+      body: method === "POST" ? JSON.stringify(body ?? {}) : undefined,
     });
   }
 }

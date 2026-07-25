@@ -73,7 +73,9 @@ export const COMMANDS: Record<string, CommandSpec> = {
       "resource itself.\n\n" +
       "With no arguments, pick from every resource in the project; with a kind\n" +
       "only, pick from that kind.\n\n" +
-      "The link belongs to one environment — the file's default, or --env.\n" +
+      "The link belongs to one environment — the file's default, or --env. On\n" +
+      "a terminal, a directory that names no environment yet is asked which\n" +
+      "one to record, defaulting to production.\n\n" +
       "Link a second environment to give this directory a second target:\n" +
       "  pb cloud link frontend web-staging --env staging",
     args: [
@@ -123,7 +125,10 @@ optional — it just lets you see and edit the guess before anything ships.
 Nothing in the cloud is touched, and no login is needed.
 
 The kind comes from the argument, or from the directory's existing resource
-binding. An existing block is left alone unless --force is passed.`,
+binding. An existing block is left alone unless --force is passed.
+
+On a terminal it also asks which environment this directory deploys to, and
+records it as the default, so the first deploy has nothing left to ask.`,
     args: [{
       name: "kind",
       required: false,
@@ -140,7 +145,7 @@ binding. An existing block is left alone unless --force is passed.`,
   // PocketBase instances (cloud-managed)
   "cloud pb deploy": {
     usage:
-      "pb cloud pb deploy --name <name> [--location <loc>] [--server <id>] [--skip-env] [--project <id>]",
+      "pb cloud pb deploy [--name <name>] [--location <loc>] [--server <id>] [--admin-email <e>] [--admin-password <p>] [--pb-version <v>] [--skip-env] [--project <id>]",
     summary: "Create or redeploy a PocketBase instance.",
     details:
       `Packages pb_public, pb_hooks, and pb_migrations and ships them with the
@@ -151,14 +156,56 @@ The platform reads a PocketBase archive only when the instance is created, so
 a redeploy instead pushes pb_hooks/*.pb.js and reports that pb_public and
 pb_migrations were left untouched.
 
+A new instance gets a superuser account: your account email, and a generated
+password printed once when the deploy finishes (and readable afterwards with
+\`pb cloud pb info\`). Override either with --admin-email/--admin-password.
+
 A .env beside pb.json is pushed to the instance's env vars by default (merged,
 existing cloud-only keys kept). Pass --skip-env to leave them alone, or
---env-file to name a different file.`,
+--env-file to name a different file.
+
+With no --name and nothing bound in pb.json, deploy asks which instance to
+redeploy — or what to call a new one — the way it already asks which project
+to use. Pass --no-input (or --json) to get the usage error instead.`,
     args: [],
     flags: [
-      { name: "name", type: "string", required: true },
+      {
+        name: "name",
+        type: "string",
+        required: false,
+        description:
+          "Which PocketBase to deploy. Asked for when omitted and pb.json has no binding.",
+      },
       { name: "location", type: "string", required: false },
-      { name: "server", type: "string", required: false },
+      {
+        name: "server",
+        type: "string",
+        required: false,
+        description:
+          "Compute to deploy onto. Required on Pro, whose dedicated compute is " +
+          "never auto-selected.",
+      },
+      {
+        name: "admin-email",
+        type: "string",
+        required: false,
+        description:
+          "Superuser login for the new instance. Defaults to your account email.",
+      },
+      {
+        name: "admin-password",
+        type: "string",
+        required: false,
+        description:
+          "Superuser password, 12-20 characters. Generated and printed once when omitted.",
+      },
+      {
+        name: "pb-version",
+        type: "string",
+        required: false,
+        description:
+          "PocketBase release to install. Defaults to pocketbaseVersion in pb.json.",
+      },
       {
         name: "skip-build",
         type: "boolean",
@@ -218,28 +265,37 @@ existing cloud-only keys kept). Pass --skip-env to leave them alone, or
     ],
   },
   "cloud pb hooks push": {
-    usage: "pb cloud pb hooks push <dir> [--project <id>]",
+    usage: "pb cloud pb hooks push <dir> [--name <instance>] [--project <id>]",
     summary: "Upload every *.pb.js file in <dir> as a hook.",
+    details:
+      `Hooks belong to one PocketBase instance. Name it with --name/--id, or let
+the directory's pb.json binding pick it.`,
     args: [{ name: "dir", required: true }],
-    flags: [],
+    flags: [{ name: "name", type: "string", required: false }],
   },
   "cloud pb hooks ls": {
-    usage: "pb cloud pb hooks ls [--project <id>]",
+    usage: "pb cloud pb hooks ls [--name <instance>] [--project <id>]",
     summary: "List uploaded hook files.",
+    details:
+      "Lists hooks uploaded with `pb cloud pb hooks push`. Hooks shipped\n" +
+      "inside a deploy archive (pb_hooks/ packaged by `pb cloud pb deploy`)\n" +
+      "run on the instance but are not recorded here, so this can read empty\n" +
+      "while hooks are live. Push them to manage them from the CLI.",
     args: [],
-    flags: [],
+    flags: [{ name: "name", type: "string", required: false }],
   },
   "cloud pb hooks rm": {
-    usage: "pb cloud pb hooks rm <filename> [--project <id>]",
+    usage:
+      "pb cloud pb hooks rm <filename> [--name <instance>] [--project <id>]",
     summary: "Delete a hook file.",
     args: [{ name: "filename", required: true }],
-    flags: [],
+    flags: [{ name: "name", type: "string", required: false }],
   },
 
   // Frontends
   "cloud frontend deploy": {
     usage:
-      "pb cloud frontend deploy --name <name> [--skip-build] [--zip <file>] [--location <loc>]",
+      "pb cloud frontend deploy [--name <name>] [--subdomain <sub>] [--skip-build] [--zip <file>] [--location <loc>]",
     summary: "Build, package, and deploy a static site.",
     details:
       `Runs the build command, zips the output directory, and uploads it. Both
@@ -248,10 +304,27 @@ come from the "build" block in pb.json, which is inferred from the directory
 on the first deploy.
 
 Frontends have no cloud env store — build-time variables are baked into the
-bundle, so --env-file is rejected here.`,
+bundle, so --env-file is rejected here.
+
+With no --name and nothing bound in pb.json, deploy asks which frontend to
+redeploy — or what to call a new one — the way it already asks which project
+to use. Pass --no-input (or --json) to get the usage error instead.`,
     args: [],
     flags: [
-      { name: "name", type: "string", required: true },
+      {
+        name: "name",
+        type: "string",
+        required: false,
+        description:
+          "Which frontend to deploy. Asked for when omitted and pb.json has no binding.",
+      },
+      {
+        name: "subdomain",
+        type: "string",
+        required: false,
+        description:
+          "Address to serve the new site from. Defaults to the name; only used when creating.",
+      },
       {
         name: "zip",
         type: "string",
@@ -265,6 +338,14 @@ bundle, so --env-file is rejected here.`,
         description: "Package the output directory without rebuilding it.",
       },
       { name: "location", type: "string", required: false },
+      {
+        name: "server",
+        type: "string",
+        required: false,
+        description:
+          "Compute to deploy onto. Required on Pro, whose dedicated compute is " +
+          "never auto-selected.",
+      },
     ],
   },
   "cloud frontend ls": {
@@ -321,7 +402,7 @@ bundle, so --env-file is rejected here.`,
   // Backends
   "cloud backend deploy": {
     usage:
-      "pb cloud backend deploy --name <name> [--runtime <deno|bun|nodejs|nextjs>] [--start <cmd>] [--skip-env] [--zip <file>]",
+      "pb cloud backend deploy [--name <name>] [--runtime <deno|bun|nodejs|nextjs>] [--start <cmd>] [--skip-env] [--zip <file>]",
     summary: "Build, package, and deploy a backend.",
     details:
       `Runs the build command and uploads the result. The runtime, build command,
@@ -339,10 +420,20 @@ layout the runtime expects, defaulting the start command to "node server.js".
 
 A .env beside pb.json is pushed to the backend's env vars by default (merged,
 existing cloud-only keys kept). Pass --skip-env to leave them alone, or
---env-file to name a different file.`,
+--env-file to name a different file.
+
+With no --name and nothing bound in pb.json, deploy asks which backend to
+redeploy — or what to call a new one — the way it already asks which project
+to use. Pass --no-input (or --json) to get the usage error instead.`,
     args: [],
     flags: [
-      { name: "name", type: "string", required: true },
+      {
+        name: "name",
+        type: "string",
+        required: false,
+        description:
+          "Which backend to deploy. Asked for when omitted and pb.json has no binding.",
+      },
       {
         name: "runtime",
         type: "string",
@@ -351,6 +442,14 @@ existing cloud-only keys kept). Pass --skip-env to leave them alone, or
         description: "Defaults to build.runtime in pb.json, else inferred.",
       },
       { name: "start", type: "string", required: false },
+      {
+        name: "server",
+        type: "string",
+        required: false,
+        description:
+          "Compute to deploy onto. Required on Pro, whose dedicated compute is " +
+          "never auto-selected.",
+      },
       {
         name: "zip",
         type: "string",
@@ -414,6 +513,10 @@ existing cloud-only keys kept). Pass --skip-env to leave them alone, or
   "cloud env ls": {
     usage: "pb cloud env ls --target pb|backend --name <n>",
     summary: "List environment variables.",
+    details:
+      "Names only. The platform stores values encrypted and its list endpoint\n" +
+      "never returns plaintext, so there is nothing for the CLI to show —\n" +
+      "read a value from the app itself, or overwrite it with `env set`.",
     args: [],
     flags: [
       {
@@ -470,30 +573,62 @@ existing cloud-only keys kept). Pass --skip-env to leave them alone, or
 
   // Data
   "cloud data export": {
-    usage: "pb cloud data export [--out <file.zip>] [--project <id>]",
-    summary: "Export project data.",
+    usage:
+      "pb cloud data export [--name <instance>] [--out <file.zip>] [--project <id>]",
+    summary: "Export a PocketBase instance's data.",
+    details:
+      `The platform builds the archive and hands back a link; the CLI downloads
+it. Defaults to the file name the platform chose, in the current directory.`,
     args: [],
-    flags: [{ name: "out", type: "string", required: false }],
+    flags: [
+      { name: "name", type: "string", required: false },
+      { name: "out", type: "string", required: false },
+    ],
   },
   "cloud data import": {
-    usage: "pb cloud data import <file.zip> [--project <id>]",
-    summary: "Import project data.",
-    args: [{ name: "file.zip", required: true }],
+    usage: "pb cloud data import <file>",
+    summary: "Not implemented — use the portal's import dialog.",
+    details:
+      `The platform's import needs a target collection and a per-field mapping,
+which this command has no way to ask for yet. It reports that rather than
+sending a request that cannot succeed.`,
+    args: [{ name: "file", required: true }],
     flags: [],
   },
 
   // Logs (cloud)
   "cloud logs": {
-    usage: "pb cloud logs <pb|backend> --name <n> [-f] [--project <id>]",
+    usage:
+      "pb cloud logs <pb|backend> --name <n> [-f] [--lines <n>] [--project <id>]",
     summary: "Stream logs for a PocketBase instance or backend.",
+    details:
+      `Prints the last --lines entries (50 by default, 1000 max) and stops. With
+--follow it keeps printing until interrupted, since the platform tails the
+container for as long as the connection is open.`,
     args: [{ name: "pb|backend", required: true }],
     flags: [
       { name: "name", type: "string", required: true },
       { name: "follow", type: "boolean", required: false },
+      {
+        name: "lines",
+        type: "string",
+        required: false,
+        description: "How much history to print first. 1-1000, default 50.",
+      },
     ],
   },
 
   // Orgs
+  "cloud server ls": {
+    usage: "pb cloud server ls",
+    summary: "List the servers your account can deploy to.",
+    details:
+      "Servers are provisioned by the platform, not the CLI. This lists the\n" +
+      "ids `pb cloud pb deploy --server <id>` accepts; on every plan except\n" +
+      "Pro the platform picks one for you and the flag is unnecessary.",
+    args: [],
+    flags: [],
+  },
   "cloud org ls": {
     usage: "pb cloud org ls",
     summary: "List organizations.",
@@ -918,6 +1053,7 @@ existing cloud-only keys kept). Pass --skip-env to leave them alone, or
  * in fifteen flag arrays, which is how one of them ends up out of step.
  */
 const ENV_AWARE = [
+  "cloud init",
   "cloud link",
   "cloud unlink",
   "cloud pb deploy",

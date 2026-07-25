@@ -53,6 +53,31 @@ async function inferCommand(dir: string): Promise<string | undefined> {
   return `${await detectPackageManager(dir)} run build`;
 }
 
+/** True when package.json declares a non-empty `start` script. */
+async function hasStartScript(dir: string): Promise<boolean> {
+  try {
+    const pkg = JSON.parse(await Deno.readTextFile(join(dir, "package.json")));
+    return typeof pkg?.scripts?.start === "string" &&
+      pkg.scripts.start.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** True when deno.json(c) declares a non-empty `start` task. */
+async function hasDenoStartTask(dir: string): Promise<boolean> {
+  for (const name of ["deno.json", "deno.jsonc"]) {
+    try {
+      const cfg = JSON.parse(await Deno.readTextFile(join(dir, name)));
+      const task = cfg?.tasks?.start;
+      if (typeof task === "string" && task.length > 0) return true;
+    } catch {
+      // Missing or unparseable: try the other name, then give up.
+    }
+  }
+  return false;
+}
+
 async function firstExisting(
   dir: string,
   candidates: string[],
@@ -90,20 +115,34 @@ async function inferBackend(dir: string): Promise<BuildConfig> {
   if (await hasConfig(dir, "next.config")) {
     return { command: await inferCommand(dir), runtime: "nextjs" };
   }
+  // These three ship source, so the platform needs a command to boot them.
+  // Deferring to the start task/script the project already declares keeps the
+  // deploy consistent with how the project runs locally.
   if (
     await exists(join(dir, "deno.json")) ||
     await exists(join(dir, "deno.jsonc"))
   ) {
-    return { runtime: "deno", outputDir: "." };
+    return {
+      runtime: "deno",
+      outputDir: ".",
+      startCommand: await hasDenoStartTask(dir) ? "deno task start" : undefined,
+    };
   }
   if (await exists(join(dir, "bun.lockb"))) {
-    return { runtime: "bun", outputDir: "." };
+    return {
+      runtime: "bun",
+      outputDir: ".",
+      startCommand: await hasStartScript(dir) ? "bun run start" : undefined,
+    };
   }
   if (await exists(join(dir, "package.json"))) {
     return {
       command: await inferCommand(dir),
       runtime: "nodejs",
       outputDir: ".",
+      startCommand: await hasStartScript(dir)
+        ? `${await detectPackageManager(dir)} run start`
+        : undefined,
     };
   }
   // Nothing recognisable: ship the directory as-is and let --runtime decide.
@@ -151,6 +190,7 @@ export function describeBuild(cfg: BuildConfig): string[] {
     v === undefined ? undefined : lines.push(`  ${k}: ${v}`);
   add("command", cfg.command);
   add("runtime", cfg.runtime);
+  add("startCommand", cfg.startCommand);
   add("outputDir", cfg.outputDir);
   add("pb_public", cfg.pbPublic);
   add("pb_hooks", cfg.pbHooks);

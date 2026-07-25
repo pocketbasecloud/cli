@@ -15,10 +15,15 @@ import {
   attachZip,
   buildBundle,
   deployResource,
-  missingTargetMessage,
+  ensureTarget,
+  isSubdomain,
   pollStatus,
   resolveExisting,
+  resolveOwnerId,
   resolveTarget,
+  subdomainTaken,
+  suffixSubdomain,
+  toSubdomain,
 } from "./deploy-helper.ts";
 import { reportRemoval } from "./environments.ts";
 
@@ -26,15 +31,15 @@ export function makeFrontendCommands(
   deps: CloudCmdDeps,
 ): Record<string, Handler> {
   async function ctxProject(ctx: CmdCtx) {
-    const { client, config } = await deps.requireAuth();
+    const { client, config, auth } = await deps.requireAuth();
     const p = await resolveProject({
       client,
       config,
       cwd: deps.cwd(),
       flagProject: ctx.flags.project,
-      noInput: ctx.flags.noInput,
+      noInput: ctx.flags.noInput || ctx.flags.json,
     });
-    return { client, project: p };
+    return { client, project: p, auth };
   }
 
   async function requireOne(
@@ -63,18 +68,24 @@ export function makeFrontendCommands(
   }
 
   const deploy: Handler = async (ctx: CmdCtx) => {
-    const { client, project: p } = await ctxProject(ctx);
+    const { client, project: p, auth } = await ctxProject(ctx);
     const cwd = deps.cwd();
     const name = (ctx.raw.name as string) ?? ctx.args[0];
     const id = ctx.raw.id as string | undefined;
-    const target = await resolveTarget({ id, name }, "frontends", cwd, {
-      envFlag: ctx.raw.env as string | undefined,
-      allowNewEnvironment: true,
-      strictKind: true,
-    });
-    if (!target.id && !target.name) {
-      throw new CliError(missingTargetMessage(target, "frontend"), 2);
-    }
+    const target = await ensureTarget(
+      await resolveTarget({ id, name }, "frontends", cwd, {
+        envFlag: ctx.raw.env as string | undefined,
+        allowNewEnvironment: true,
+        strictKind: true,
+        askEnvironment: { noInput: ctx.flags.noInput || ctx.flags.json },
+      }),
+      {
+        label: "frontend",
+        cwd,
+        list: () => client.listResources("frontends", p.id),
+        noInput: ctx.flags.noInput || ctx.flags.json,
+      },
+    );
     const log = ctx.flags.json ? () => {} : (m: string) => console.log(m);
     const bundle = await buildBundle({
       cwd,
@@ -91,17 +102,38 @@ export function makeFrontendCommands(
       );
     }
     const data: Record<string, unknown> = { project: p.id };
-    if (name) data.name = name;
+    if (target.name) data.name = target.name;
     if (ctx.raw.location) data.location = ctx.raw.location;
+    // A Pro account's dedicated compute is `ownership: "user"`, which the
+    // platform's auto-selection (platform servers only) never picks — Pro
+    // deploys have to name it, exactly as the portal's create page does.
+    if (ctx.raw.server) data.server = ctx.raw.server;
     attachZip(data, bundle);
-    const { resource, created } = await deployResource(
-      client,
-      "frontends",
-      p.id,
-      {
+
+    // A frontend's subdomain is required, globally unique, and permanent: it is
+    // the DNS record the site is served from. Derived from the name unless
+    // --subdomain says otherwise, and only ever sent when creating — a redeploy
+    // must not move a live site to a new address.
+    const chosen = ctx.raw.subdomain as string | undefined;
+    if (chosen && !isSubdomain(chosen)) {
+      throw new CliError(
+        `Invalid --subdomain "${chosen}" — use lowercase letters, digits, and ` +
+          `dashes (max 63, no leading or trailing dash).`,
+        2,
+      );
+    }
+    const base = chosen ?? toSubdomain(target.name ?? "");
+    let subdomain = base;
+    const create = () =>
+      deployResource(client, "frontends", p.id, {
         id: target.id,
         name: target.name,
         data,
+        createData: async () => ({
+          user: await resolveOwnerId(client, auth),
+          subdomain,
+          status: "pending",
+        }),
         // frontend.service.ts only redeploys a record whose status says a new
         // archive is waiting.
         updateData: { status: "uploading" },
@@ -110,8 +142,25 @@ export function makeFrontendCommands(
         onStale: async () => {
           await removeEnvironment(cwd, target.environment);
         },
-      },
-    );
+      });
+
+    let outcome: Awaited<ReturnType<typeof create>>;
+    try {
+      outcome = await create();
+    } catch (e) {
+      if (!subdomainTaken(e)) throw e;
+      if (chosen) {
+        throw new CliError(
+          `Subdomain "${chosen}" is already taken — pass a different ` +
+            `--subdomain.`,
+          2,
+        );
+      }
+      subdomain = suffixSubdomain(base);
+      log(`Subdomain "${base}" is taken — using "${subdomain}".`);
+      outcome = await create();
+    }
+    const { resource, created } = outcome;
     await upsertEnvironment(cwd, {
       projectId: p.id,
       kind: "frontends",
@@ -128,6 +177,8 @@ export function makeFrontendCommands(
       terminal: ["running", "error", "failed"],
       timeoutMs: 300_000,
       intervalMs: 3_000,
+      label: "frontend",
+      checkCommand: "frontend",
       onTick: ctx.flags.json ? undefined : (s) => console.log(`  status: ${s}`),
     });
     console.log(
@@ -135,6 +186,21 @@ export function makeFrontendCommands(
         ? JSON.stringify({ ...final, environment: target.environment })
         : `Done: ${final.name} is ${final.status}.`,
     );
+    // A brand-new subdomain needs DNS and a certificate before it answers, and
+    // the platform reports `running` well before that. Saying so beats a user
+    // hitting 525 and concluding the deploy failed.
+    if (created && !ctx.flags.json && final.status === "running") {
+      const url = (final as unknown as Record<string, string>).baseUrl ??
+        ((final as unknown as Record<string, string>).domain
+          ? `https://${(final as unknown as Record<string, string>).domain}`
+          : undefined);
+      if (url) {
+        console.log(
+          `  ${url}\n  A new domain can take a few minutes to become ` +
+            `reachable while its certificate is issued.`,
+        );
+      }
+    }
     return final.status === "running" ? 0 : 6;
   };
 
@@ -160,7 +226,7 @@ export function makeFrontendCommands(
     const { client, found, environment } = await requireOne(ctx);
     if (
       !await confirm(`Delete frontend ${found.name}?`, {
-        noInput: ctx.flags.noInput,
+        noInput: ctx.flags.noInput || ctx.flags.json,
         yes: ctx.flags.yes,
       })
     ) {
@@ -190,7 +256,10 @@ export function makeFrontendCommands(
         );
       }
       const { client, found } = await requireOne(ctx);
-      const res = await client.ext(path, { frontendId: found.id, domain });
+      const res = await client.ext(path, {
+        frontend_id: found.id,
+        custom_domain: domain,
+      });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new CliError(

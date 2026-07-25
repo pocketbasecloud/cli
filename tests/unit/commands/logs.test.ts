@@ -6,18 +6,51 @@ import {
 import { createMockCloudClient } from "../../mocks/cloud.mock.ts";
 import { type Config, defaultConfig } from "../../../src/config.ts";
 
-Deno.test("streamToWriter forwards decoded chunks", async () => {
-  const stream = new ReadableStream<Uint8Array>({
+function sse(...frames: string[]): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
     start(c) {
-      c.enqueue(new TextEncoder().encode("line1\n"));
-      c.enqueue(new TextEncoder().encode("line2\n"));
+      for (const f of frames) c.enqueue(new TextEncoder().encode(f));
       c.close();
     },
   });
+}
+
+Deno.test("streamToWriter unwraps SSE data frames", async () => {
   let out = "";
-  await streamToWriter(stream, (s) => out += s);
+  await streamToWriter(
+    sse(
+      'data: {"line":"line1"}\n\n',
+      'data: {"message":"line2"}\n\n',
+    ),
+    (s) => out += s,
+  );
   assertStringIncludes(out, "line1");
   assertStringIncludes(out, "line2");
+  // Only the payloads, not the framing.
+  assertEquals(out.includes("data:"), false);
+});
+
+Deno.test("streamToWriter passes plain text through and labels errors", async () => {
+  let out = "";
+  await streamToWriter(
+    sse("not json\n", 'data: {"type":"error","message":"boom"}\n'),
+    (s) => out += s,
+  );
+  assertEquals(out, "not json\nError: boom\n");
+});
+
+Deno.test("streamToWriter stops at the limit, since the tail never ends", async () => {
+  let out = "";
+  const stream = new ReadableStream<Uint8Array>({
+    start(c) {
+      for (let i = 0; i < 100; i++) {
+        c.enqueue(new TextEncoder().encode(`data: {"line":"L${i}"}\n`));
+      }
+      // Deliberately left open, like the real endpoint.
+    },
+  });
+  await streamToWriter(stream, (s) => out += s, { limit: 3 });
+  assertEquals(out, "L0\nL1\nL2\n");
 });
 
 Deno.test("logs posts to logs/stream with type and id", async () => {
@@ -62,7 +95,7 @@ Deno.test("logs posts to logs/stream with type and id", async () => {
   assertEquals(code, 0);
   assertEquals(client.calls.ext[0][0], "/api/logs/stream");
   assertEquals(
-    (client.calls.ext[0][1] as { targetId: string }).targetId,
+    (client.calls.ext[0][1] as { target_id: string }).target_id,
     pbRes.id,
   );
 });
@@ -120,13 +153,13 @@ Deno.test("logs --env streams that environment's instance", async () => {
   };
   await cmds["cloud logs"]({ args: ["pb"], flags, raw: { env: "staging" } });
   assertEquals(
-    (client.calls.ext[0][1] as { targetId: string }).targetId,
+    (client.calls.ext[0][1] as { target_id: string }).target_id,
     staging.id,
   );
   // And with no --env, the file's default.
   await cmds["cloud logs"]({ args: ["pb"], flags, raw: {} });
   assertEquals(
-    (client.calls.ext[1][1] as { targetId: string }).targetId,
+    (client.calls.ext[1][1] as { target_id: string }).target_id,
     prod.id,
   );
   await Deno.remove(cwd, { recursive: true });

@@ -49,9 +49,14 @@ export function parseGlobal(argv: string[]): { path: string[]; ctx: CmdCtx } {
       "target",
       "location",
       "server",
+      "admin-email",
+      "admin-password",
+      "pb-version",
       "runtime",
       "start",
       "zip",
+      "subdomain",
+      "lines",
       "env",
       "env-file",
       "out",
@@ -153,8 +158,53 @@ export async function dispatch(
       }
     }
   }
+  const attempted = path.join(" ");
+  const suggestion = nearestCommand(attempted, Object.keys(registry));
   console.error(
-    `Unknown command: ${path.join(" ") || "(none)"}. Try \`pb --help\`.`,
+    `Unknown command: ${attempted || "(none)"}.` +
+      (suggestion ? ` Did you mean \`pb ${suggestion}\`?` : "") +
+      " Try `pb --help`.",
   );
   return 1;
+}
+
+/** Levenshtein distance, capped work — command lists are short. */
+function editDistance(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const curr = [i];
+    for (let j = 1; j <= n; j++) {
+      curr[j] = a[i - 1] === b[j - 1]
+        ? prev[j - 1]
+        : 1 + Math.min(prev[j - 1], prev[j], curr[j - 1]);
+    }
+    prev = curr;
+  }
+  return prev[n];
+}
+
+/**
+ * The registered command closest to what was typed, or null when nothing is
+ * close enough to be worth suggesting. Agents and people reach for synonyms
+ * (`list`/`delete`/`remove`) and typos; the registry keys are the ground truth
+ * to steer them back to, and the threshold scales with length so a short word
+ * needs a near-exact match while a long path tolerates a couple of slips.
+ */
+export function nearestCommand(
+  attempted: string,
+  keys: string[],
+): string | null {
+  if (!attempted) return null;
+  let best: string | null = null;
+  let bestDist = Infinity;
+  for (const key of keys) {
+    const d = editDistance(attempted, key);
+    if (d < bestDist) {
+      bestDist = d;
+      best = key;
+    }
+  }
+  const threshold = Math.max(2, Math.floor(attempted.length / 3));
+  return best !== null && bestDist <= threshold ? best : null;
 }

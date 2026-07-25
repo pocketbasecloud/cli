@@ -54,3 +54,19 @@ Deno.test("resolveProject errors under no-input with no context", async () => {
     })
   );
 });
+
+Deno.test("resolveProject on a non-TTY gives the actionable message, not the generic one", async () => {
+  const client = createMockCloudClient();
+  await client.createProject("app");
+  const err = await assertRejects(() =>
+    resolveProject({
+      client,
+      config: defaultConfig(),
+      cwd: "/tmp/none",
+      // noInput false, but stdin is not a terminal — a menu would hang.
+      noInput: false,
+      io: { read: () => Promise.resolve(null), write: () => {}, isTTY: false },
+    })
+  );
+  assertEquals((err as Error).message.includes("No project selected"), true);
+});
