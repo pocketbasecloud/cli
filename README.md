@@ -1,8 +1,7 @@
 # @pocketbasecloud/cli
 
-The `pb` command-line tool for [PocketBase Cloud](https://pocketbasecloud.com) —
-and for working with **any** PocketBase instance, local or remote, from your
-terminal.
+The `pb` command-line tool for working with **any** PocketBase instance, local/remote -
+and [PocketBase Cloud](https://pocketbasecloud.com), from your terminal.
 
 One binary takes a project from `pb init` on your laptop to a deployed instance
 in the cloud, and manages everything in between: collections, records, API
@@ -35,9 +34,6 @@ npm i -g @pocketbasecloud/cli
 pb --help
 ```
 
-npm downloads only the ~28 MB binary for your platform (via
-`optionalDependencies`), not all of them.
-
 ### npx (no install)
 
 ```sh
@@ -56,13 +52,17 @@ installs to `/usr/local/bin` (or `~/.local/bin`). Override the location with
 
 ### From source (Deno)
 
-For platforms without a prebuilt binary. Clone the repo so `deno.json` (the
-import map) resolves, then install from the local path:
+For platforms without a prebuilt binary. Install from a clone, pointing `-c` at
+the repo's `deno.json` — `deno install -g` otherwise runs the entry point with
+`--no-config`, and the import map it holds would not resolve:
 
 ```sh
 git clone https://github.com/pocketbasecloud/cli
-deno install -A -n pb ./cli/main.ts
+cd cli
+deno install -g -A -c deno.json -n pb ./main.ts
 ```
+
+The shim refers to the clone by absolute path, so keep it where it is.
 
 ## Quick start
 
@@ -76,10 +76,11 @@ pb init            # download PocketBase + scaffold a project here
 **Deploy to PocketBase Cloud:**
 
 ```sh
-pb cloud login              # authenticate via browser
-pb cloud project create     # create a project
-pb cloud pb deploy          # deploy a PocketBase instance
-pb cloud logs               # stream its logs
+pb cloud login                   # authenticate via browser
+pb cloud project create my-app   # create a project
+pb cloud project use my-app      # make it the current one
+pb cloud pb deploy               # deploy a PocketBase instance
+pb cloud logs pb                 # stream its logs
 ```
 
 **Manage any running instance:**
@@ -102,9 +103,13 @@ and `env` run there with no `--name`/`--id`:
 cd frontend
 pb cloud link frontend web   # bind ./ to the frontend named "web"
 pb cloud frontend deploy     # no flags — redeploys the bound frontend
-pb cloud logs                # no flags — tails it
+pb cloud frontend info       # no flags — describes it
 pb cloud unlink              # detach (the cloud resource is untouched)
 ```
+
+(`logs` still takes its kind — `pb cloud logs pb` or `pb cloud logs backend` —
+because it is one command over two resource types. Frontends are static files
+and have no logs.)
 
 `pb cloud link` never creates or changes anything in the cloud — it only writes
 the binding. Run it with no arguments to pick from every resource in the
@@ -214,9 +219,10 @@ and review the guess before anything ships:
 
 Edit that block whenever the guess is wrong; it is never overwritten. Useful
 extras: `exclude` (globs dropped from the zip) and `envFile` (which dotenv file
-to push). `.git`, `pb_data`, `node_modules`, `.env*`, and `*.log` are always
-excluded. An environment can override any of these — see
-[Environments](#environments).
+to push). `.git`, `pb_data`, `.DS_Store`, `.env`, `.env.*`, and `*.log` are
+always excluded, and so is `node_modules` — except in a Next.js standalone
+bundle, which needs the pruned copy Next produces. An environment can override
+any of these — see [Environments](#environments).
 
 Handy flags: `--skip-build` packages without rebuilding, and `--zip <file>`
 uploads an archive you built yourself.
@@ -302,7 +308,8 @@ Each deploy prints what it packaged, records the binding in that directory's
 cd web
 pb cloud frontend deploy --name web-staging --env staging  # first deploy creates + links
 pb cloud environments                                      # show what this directory targets
-pb cloud frontend deploy --env production                  # ship the same directory to prod
+pb cloud frontend deploy --name web --env production       # --name: production isn't linked yet
+pb cloud frontend deploy --env production                  # from now on, no flags
 ```
 
 ### Update hooks on a running instance
@@ -412,9 +419,12 @@ Run `pb --help`, or `pb <command> --help` for details on any command.
 - **Instance** (`pb use <url>`) — `collections`, `records`, `rules`, `auth`,
   `settings` (incl. `mail`/`s3`/`backup`), `cron`, `logs`: operate any
   PocketBase instance.
-- **Cloud** (`pb cloud ...`) — `init`, `project`, `pb`, `backend`, `frontend`,
-  `env`, `logs`, `org`, `server ls`, `data` import/export, custom domains:
-  manage your PocketBase Cloud account and deployments.
+- **Cloud** (`pb cloud ...`) — `login`, `whoami`, `init`, `link`/`unlink`,
+  `environments`, `project`, `pb`, `backend`, `frontend`, `env`, `logs`, `org`,
+  `server ls`, `data export`, `upgrade`, custom domains: manage your PocketBase
+  Cloud account and deployments. (`data import` is not implemented — the
+  platform's import needs a target collection and a field mapping, so use the
+  portal's import dialog.)
 
 ## Supported platforms
 
