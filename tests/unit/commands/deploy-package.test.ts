@@ -25,7 +25,7 @@ function seed(files: Record<string, string>): string {
 function deps(client: MockCloudClient, projectId: string, cwd: string) {
   const config: Config = {
     ...defaultConfig(),
-    cloud: { backendUrl: "u", userToken: "t", userId: "u1" },
+    cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
     currentProject: projectId,
   };
   const d: CloudCmdDeps = {

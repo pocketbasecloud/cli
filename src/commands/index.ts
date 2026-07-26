@@ -26,9 +26,8 @@ import { makeInstanceLogsCommands } from "./admin/logs.ts";
 import { PocketBaseAdminClient } from "../clients/admin.ts";
 import { activeProfileName } from "../resolve/profile.ts";
 import {
-  DEFAULT_BACKEND_URL,
-  DEFAULT_EXT_URL,
   loadConfig,
+  PORTAL_URL,
   resolveCloudAuth,
   saveConfig,
 } from "../config.ts";
@@ -36,10 +35,6 @@ import { PocketBaseCloudClient } from "../clients/cloud.ts";
 import { browserLogin } from "../auth/browser-login.ts";
 import { CliError } from "../errors.ts";
 
-const PORTAL_URL = Deno.env.get("PB_PORTAL_URL") ??
-  "https://portal.pocketbasecloud.com/login";
-const BACKEND_URL = Deno.env.get("PB_BACKEND_URL") ?? DEFAULT_BACKEND_URL;
-const EXT_URL = Deno.env.get("PB_BACKEND_EXT_URL") ?? DEFAULT_EXT_URL;
 const PORTAL_BASE = PORTAL_URL.replace(/\/login\/?$/, "");
 
 export function buildCloudDeps(): CloudCmdDeps {
@@ -114,8 +109,6 @@ export function registerCommands(registry: Record<string, Handler>): void {
       makeClient: (a) => new PocketBaseCloudClient(a),
       login: (o) => browserLogin(o),
       portalUrl: PORTAL_URL,
-      backendUrl: BACKEND_URL,
-      extUrl: EXT_URL,
     }),
     makeProjectCommands(cloud),
     makePbCommands(cloud),

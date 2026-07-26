@@ -1,7 +1,8 @@
 # @pocketbasecloud/cli
 
-The `pb` command-line tool for working with **any** PocketBase instance, local/remote -
-and [PocketBase Cloud](https://pocketbasecloud.com), from your terminal.
+The `pb` command-line tool for working with **any** PocketBase instance,
+local/remote - and [PocketBase Cloud](https://pocketbasecloud.com), from your
+terminal.
 
 One binary takes a project from `pb init` on your laptop to a deployed instance
 in the cloud, and manages everything in between: collections, records, API
@@ -388,11 +389,13 @@ fail rather than ask:
 
 ```sh
 export PB_TOKEN=…            # a PocketBase Cloud user token
-export PB_BACKEND_URL=https://backend.pocketbasecloud.com
 
 pb cloud whoami --json                       # preflight
 pb cloud frontend deploy --no-input --json   # never prompts; JSON on stdout
 ```
+
+`PB_TOKEN` is all a CI job sets: the CLI always talks to PocketBase Cloud's own
+hosts.
 
 `--json` prints machine-readable output on stdout and keeps build output on
 stderr, so `pb … --json | jq` is safe. Errors are `{"error":"…"}` on stderr with

@@ -1,8 +1,8 @@
 import { assertEquals } from "@std/assert";
 import {
+  BACKEND_EXT_URL,
+  BACKEND_URL,
   clearEnvironments,
-  DEFAULT_BACKEND_URL,
-  DEFAULT_EXT_URL,
   defaultConfig,
   readLinkFile,
   removeEnvironment,
@@ -12,50 +12,51 @@ import {
 } from "../../src/config.ts";
 import { join } from "@std/path";
 
-Deno.test("resolveCloudAuth prefers env over file", () => {
+Deno.test("resolveCloudAuth takes the token from the env over the file", () => {
   const c = {
     ...defaultConfig(),
-    cloud: { backendUrl: "https://file", userToken: "ft", userId: "u1" },
+    cloud: {
+      backendUrl: "https://file",
+      extUrl: "https://file-ext",
+      userToken: "ft",
+      userId: "u1",
+    },
   };
-  const auth = resolveCloudAuth(c, {
-    PB_TOKEN: "envtok",
-    PB_BACKEND_URL: "https://env",
-  });
+  const auth = resolveCloudAuth(c, { PB_TOKEN: "envtok" });
   assertEquals(auth, {
-    backendUrl: "https://env",
-    // A custom backend cannot imply an extension host, so none is guessed.
-    extUrl: undefined,
+    backendUrl: BACKEND_URL,
+    extUrl: BACKEND_EXT_URL,
     userToken: "envtok",
     userId: "",
   });
 });
 
-Deno.test("resolveCloudAuth pairs the two hosts from the environment", () => {
+Deno.test("resolveCloudAuth ignores any attempt to redirect the hosts", () => {
+  // The hosts are not the user's to choose: an overridable backend URL would
+  // send the token wherever the environment said.
   const auth = resolveCloudAuth(defaultConfig(), {
     PB_TOKEN: "envtok",
-    PB_BACKEND_URL: "http://localhost:8090",
-    PB_BACKEND_EXT_URL: "http://localhost:8041",
+    PB_BACKEND_URL: "http://evil.example",
+    PB_BACKEND_EXT_URL: "http://evil.example",
   });
-  assertEquals(auth?.extUrl, "http://localhost:8041");
-});
-
-Deno.test("resolveCloudAuth defaults the extension host for the default backend", () => {
-  const auth = resolveCloudAuth(defaultConfig(), {
-    PB_TOKEN: "envtok",
-    PB_BACKEND_URL: DEFAULT_BACKEND_URL,
-  });
-  assertEquals(auth?.extUrl, DEFAULT_EXT_URL);
+  assertEquals(auth?.backendUrl, BACKEND_URL);
+  assertEquals(auth?.extUrl, BACKEND_EXT_URL);
 });
 
 Deno.test("resolveCloudAuth falls back to file", () => {
   const c = {
     ...defaultConfig(),
-    cloud: { backendUrl: "https://file", userToken: "ft", userId: "u1" },
+    cloud: {
+      backendUrl: "https://file",
+      extUrl: "https://file-ext",
+      userToken: "ft",
+      userId: "u1",
+    },
   };
   assertEquals(resolveCloudAuth(c, {}), {
-    backendUrl: "https://file",
-    // Filled in for configs written before the CLI knew about the second host.
-    extUrl: DEFAULT_EXT_URL,
+    // Stamped over whatever an older config wrote to disk.
+    backendUrl: BACKEND_URL,
+    extUrl: BACKEND_EXT_URL,
     userToken: "ft",
     userId: "u1",
   });

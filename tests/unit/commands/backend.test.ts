@@ -21,7 +21,7 @@ Deno.test("backend deploy sends runtime and start command", async () => {
   });
   const config: Config = {
     ...defaultConfig(),
-    cloud: { backendUrl: "u", userToken: "t", userId: "u1" },
+    cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
     currentProject: p.id,
   };
   const cmds = makeBackendCommands({
@@ -66,7 +66,7 @@ Deno.test("backend rm keeps a binding it did not resolve", async () => {
   const cwd = seedSource();
   const config: Config = {
     ...defaultConfig(),
-    cloud: { backendUrl: "u", userToken: "t", userId: "u1" },
+    cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
     currentProject: p.id,
   };
   const d = {
@@ -116,7 +116,7 @@ Deno.test("backend deploy forwards --server, which Pro deploys cannot do without
   });
   const config: Config = {
     ...defaultConfig(),
-    cloud: { backendUrl: "u", userToken: "t", userId: "u1" },
+    cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
     currentProject: p.id,
   };
   await makeBackendCommands({
@@ -153,7 +153,7 @@ function backendDeps(
 ) {
   const config: Config = {
     ...defaultConfig(),
-    cloud: { backendUrl: "u", userToken: "t", userId: "u1" },
+    cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
     currentProject: projectId,
   };
   return {

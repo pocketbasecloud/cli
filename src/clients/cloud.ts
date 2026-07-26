@@ -114,7 +114,7 @@ export class PocketBaseCloudClient implements ICloudClient {
   }
 
   /**
-   * The record owner to send. Token-based auth (PB_TOKEN/PB_URL) carries no
+   * The record owner to send. Token-based auth (PB_TOKEN) carries no
    * id, so ask the platform; the answer is cached for the process.
    */
   private async ownerId(): Promise<string> {
@@ -297,13 +297,9 @@ export class PocketBaseCloudClient implements ICloudClient {
   }
 
   ext(path: string, body?: unknown, opts: ApiOpts = {}): Promise<Response> {
-    if (!this.auth.extUrl) {
-      throw new CliError(
-        `"${path}" is served by backend-extension, and PB_BACKEND_URL points ` +
-          `at a non-default backend — set PB_BACKEND_EXT_URL to match.`,
-        2,
-      );
-    }
+    // No fallback to the production host: `resolveCloudAuth` always stamps
+    // extUrl, so the only caller that could omit it is one pointing the client
+    // at a stub — and defaulting would send that stub's token to production.
     return this.send(this.auth.extUrl, path, body, opts);
   }
 

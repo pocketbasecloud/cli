@@ -15,7 +15,7 @@ function deps(
 ): { d: CloudCmdDeps; config: Config; cwd: string } {
   const config: Config = {
     ...defaultConfig(),
-    cloud: { backendUrl: "u", userToken: "t", userId: "u1" },
+    cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
     currentProject,
   };
   // An isolated cwd so resource-binding writes don't pollute a shared /tmp.

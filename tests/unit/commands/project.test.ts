@@ -19,7 +19,7 @@ function deps(opts: { cwd?: string; io?: PromptIO } = {}) {
   const client = createMockCloudClient();
   const config: Config = {
     ...defaultConfig(),
-    cloud: { backendUrl: "u", userToken: "t", userId: "u1" },
+    cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
   };
   return {
     client,

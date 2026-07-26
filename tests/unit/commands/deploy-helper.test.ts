@@ -390,7 +390,7 @@ Deno.test("subdomainTaken only matches the uniqueness code", () => {
 Deno.test("resolveOwnerId prefers the stored id and falls back to whoami", async () => {
   const c = createMockCloudClient();
   assertEquals(await resolveOwnerId(c, { userId: "u9" }), "u9");
-  // Token-only auth (PB_TOKEN/PB_URL) stores no id.
+  // Token-only auth (PB_TOKEN) stores no id.
   assertEquals(await resolveOwnerId(c, { userId: "" }), "u1");
 });
 

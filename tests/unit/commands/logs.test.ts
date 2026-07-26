@@ -72,7 +72,7 @@ Deno.test("logs posts to logs/stream with type and id", async () => {
   };
   const config: Config = {
     ...defaultConfig(),
-    cloud: { backendUrl: "u", userToken: "t", userId: "u1" },
+    cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
     currentProject: p.id,
   };
   const cmds = makeLogsCommands({
@@ -135,7 +135,7 @@ Deno.test("logs --env streams that environment's instance", async () => {
   );
   const config: Config = {
     ...defaultConfig(),
-    cloud: { backendUrl: "u", userToken: "t", userId: "u1" },
+    cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
     currentProject: p.id,
   };
   const cmds = makeLogsCommands({

@@ -7,7 +7,7 @@ import type { CloudCmdDeps } from "../../../src/commands/project.ts";
 function deps(client = createMockCloudClient()): CloudCmdDeps {
   const config: Config = {
     ...defaultConfig(),
-    cloud: { backendUrl: "u", userToken: "t", userId: "u1" },
+    cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
   };
   return {
     requireAuth: () => Promise.resolve({ client, config, auth: config.cloud! }),

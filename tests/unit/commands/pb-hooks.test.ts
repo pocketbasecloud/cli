@@ -15,7 +15,7 @@ Deno.test("hooks push reads dir and calls bulk-write", async () => {
   });
   const config: Config = {
     ...defaultConfig(),
-    cloud: { backendUrl: "u", userToken: "t", userId: "u1" },
+    cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
     currentProject: p.id,
   };
   const cmds = makePbCommands({

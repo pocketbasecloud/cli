@@ -26,7 +26,7 @@ Deno.test("env import posts bulk-set with parsed vars", async () => {
   });
   const config: Config = {
     ...defaultConfig(),
-    cloud: { backendUrl: "u", userToken: "t", userId: "u1" },
+    cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
     currentProject: p.id,
   };
   const cmds = makeEnvCommands({
@@ -84,7 +84,7 @@ Deno.test("env set --env writes to that environment's backend", async () => {
   );
   const config: Config = {
     ...defaultConfig(),
-    cloud: { backendUrl: "u", userToken: "t", userId: "u1" },
+    cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
     currentProject: p.id,
   };
   const cmds = makeEnvCommands({
@@ -149,7 +149,7 @@ Deno.test("env ls emits a flat [{key}] array under --json", async () => {
   });
   const config: Config = {
     ...defaultConfig(),
-    cloud: { backendUrl: "u", userToken: "t", userId: "u1" },
+    cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
     currentProject: p.id,
   };
   const logs: string[] = [];

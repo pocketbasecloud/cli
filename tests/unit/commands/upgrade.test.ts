@@ -7,7 +7,7 @@ Deno.test("upgrade prints plan and portal link", async () => {
   const client = createMockCloudClient(); // whoami → plan "pro"
   const config: Config = {
     ...defaultConfig(),
-    cloud: { backendUrl: "u", userToken: "t", userId: "u1" },
+    cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
   };
   let printed = "";
   const cmds = makeUpgradeCommands(

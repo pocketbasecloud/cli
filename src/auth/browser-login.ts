@@ -1,4 +1,4 @@
-import type { CloudAuth } from "../config.ts";
+import { BACKEND_EXT_URL, BACKEND_URL, type CloudAuth } from "../config.ts";
 import { CliError } from "../errors.ts";
 
 export function buildLoginUrl(
@@ -35,7 +35,6 @@ function openBrowser(url: string): void {
 
 export function browserLogin(opts: {
   portalUrl: string;
-  backendUrl: string;
   open?: (url: string) => void;
   port?: number;
 }): Promise<CloudAuth> {
@@ -54,7 +53,12 @@ export function browserLogin(opts: {
       }
       try {
         const { userToken, userId } = parseCallback(url, state);
-        resolve({ backendUrl: opts.backendUrl, userToken, userId });
+        resolve({
+          backendUrl: BACKEND_URL,
+          extUrl: BACKEND_EXT_URL,
+          userToken,
+          userId,
+        });
         queueMicrotask(() => server.shutdown());
         return new Response("Login complete. You can close this tab.", {
           status: 200,

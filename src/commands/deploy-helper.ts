@@ -159,7 +159,7 @@ export async function resolveOwnerId(
   client: ICloudClient,
   auth: { userId?: string },
 ): Promise<string> {
-  // Token-based auth (PB_TOKEN/PB_URL) carries no id, so ask the platform.
+  // Token-based auth (PB_TOKEN) carries no id, so ask the platform.
   return auth.userId || (await client.whoami()).id;
 }
 

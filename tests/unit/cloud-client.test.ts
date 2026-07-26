@@ -1,4 +1,4 @@
-import { assertEquals, assertThrows } from "@std/assert";
+import { assertEquals } from "@std/assert";
 import { createMockCloudClient } from "../mocks/cloud.mock.ts";
 import { mapPbError, PocketBaseCloudClient } from "../../src/clients/cloud.ts";
 import { ClientResponseError } from "pocketbase";
@@ -42,9 +42,13 @@ Deno.test("mapPbError leaves a detail-free error as it was", () => {
   assertEquals(e.fields, undefined);
 });
 
-/** Capture what the client would put on the wire. */
+/**
+ * Capture what the client would put on the wire. Both hosts are required —
+ * a stub that named only the backend used to have its token sent to the real
+ * backend-extension by the `ext()` fallback.
+ */
 async function capture(
-  auth: { backendUrl: string; extUrl?: string },
+  auth: { backendUrl: string; extUrl: string },
   call: (c: PocketBaseCloudClient) => Promise<Response>,
 ): Promise<{ url: string; method: string; headers: Headers; body: string }> {
   const original = globalThis.fetch;
@@ -106,19 +110,6 @@ Deno.test("a GET carries its query and no body", async () => {
   assertEquals(got.body, "");
 });
 
-Deno.test("ext without a paired host says so instead of guessing", () => {
-  const c = new PocketBaseCloudClient({
-    backendUrl: "http://localhost:8090",
-    userToken: "tok",
-    userId: "u1",
-  });
-  assertThrows(
-    () => c.ext("/api/logs/stream", {}),
-    Error,
-    "set PB_BACKEND_EXT_URL to match",
-  );
-});
-
 Deno.test("mapPbError keeps the auth and permission shortcuts", () => {
   assertEquals(mapPbError(pbError(401, "x")).exitCode, 4);
   assertEquals(mapPbError(pbError(403, "x")).exitCode, 3);
@@ -170,6 +161,7 @@ async function recordSdk(
     await call(
       new PocketBaseCloudClient({
         backendUrl: "https://pb.example",
+        extUrl: "https://ext.example",
         userToken: "tok",
         userId: "u1",
       }),
