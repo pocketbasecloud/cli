@@ -1,5 +1,4 @@
 import { join } from "@std/path";
-import { CliError } from "../errors.ts";
 import type { BuildConfig } from "../config.ts";
 import type { ResourceKind } from "../clients/types.ts";
 
@@ -151,20 +150,17 @@ async function inferBackend(dir: string): Promise<BuildConfig> {
   return { outputDir: "." };
 }
 
-/** The three PocketBase directories, each recorded only if it exists on disk. */
+/**
+ * The three PocketBase directories, each recorded only if it exists on disk.
+ * A directory with none of the three is not an error: the platform accepts a
+ * PocketBase create with no archive at all, so this deploys a bare instance.
+ */
 async function inferPocketBase(dir: string): Promise<BuildConfig> {
   const out: BuildConfig = {};
   if (await exists(join(dir, "pb_public"))) out.pbPublic = "pb_public";
   if (await exists(join(dir, "pb_hooks"))) out.pbHooks = "pb_hooks";
   if (await exists(join(dir, "pb_migrations"))) {
     out.pbMigrations = "pb_migrations";
-  }
-  if (!out.pbPublic && !out.pbHooks && !out.pbMigrations) {
-    throw new CliError(
-      `No pb_public, pb_hooks, or pb_migrations in ${dir} — nothing to deploy. ` +
-        `Add a "build" block to pb.json if they live elsewhere.`,
-      2,
-    );
   }
   return out;
 }

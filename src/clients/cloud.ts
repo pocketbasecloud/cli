@@ -2,6 +2,7 @@ import PocketBase, { ClientResponseError } from "pocketbase";
 import type { CloudAuth } from "../config.ts";
 import { CliError, fieldErrors } from "../errors.ts";
 import type {
+  DeployContext,
   Org,
   Project,
   Resource,
@@ -34,6 +35,12 @@ export interface ICloudClient {
   getResource(kind: ResourceKind, id: string): Promise<Resource>;
   /** Servers visible to this account: platform pool plus any dedicated compute. */
   listServers(): Promise<Server[]>;
+  /**
+   * The project owner's plan and compute. The only way to learn either for a
+   * project owned by someone else's organization, since both collections are
+   * unreadable to a developer.
+   */
+  deployContext(projectId: string): Promise<DeployContext>;
   listOrgs(): Promise<Org[]>;
   createOrg(name: string): Promise<Org>;
   deleteOrg(id: string): Promise<void>;
@@ -213,9 +220,36 @@ export class PocketBaseCloudClient implements ICloudClient {
   listServers(): Promise<Server[]> {
     return this.guard(async () => {
       const recs = await this.pb.collection("servers").getFullList({
-        filter: NOT_DELETED,
+        // The account's own compute only. The collection's list rule also
+        // exposes every platform host flagged `availableToFreeUsers`, which
+        // belongs to nobody here: the shared pool is auto-selected by capacity,
+        // so listing it would only offer ids `--compute` should never be given.
+        filter: `${NOT_DELETED} && createdBy = @request.auth.id`,
+        // Oldest-first, so "Compute N" numbers the same machine as the portal's
+        // picker (which reverses deploy-context's newest-first answer).
+        sort: "created",
       });
       return recs as unknown as Server[];
+    });
+  }
+
+  deployContext(projectId: string): Promise<DeployContext> {
+    return this.guard(async () => {
+      const res = await this.pbApi("/api/deploy-context", undefined, {
+        method: "GET",
+        query: { projectId },
+      });
+      if (!res.ok) {
+        await res.body?.cancel();
+        // Never guessed at: picking the wrong compute deploys the backend onto
+        // shared infrastructure, which is not something to do silently.
+        throw new CliError(
+          `Could not read this project's compute (deploy-context: ` +
+            `${res.status}). Pass --compute <id> to name it.`,
+          1,
+        );
+      }
+      return await res.json() as DeployContext;
     });
   }
 

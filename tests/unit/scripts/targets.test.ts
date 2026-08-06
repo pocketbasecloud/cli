@@ -2,8 +2,10 @@ import { assertEquals } from "@std/assert";
 import {
   assetName,
   DENO_TARGETS,
+  hostKey,
   hostMap,
   type Target,
+  targetForHost,
   TARGETS,
 } from "../../../scripts/targets.ts";
 
@@ -46,4 +48,30 @@ Deno.test("assetName is .tar.gz for Unix and .zip for win32", () => {
   const win = TARGETS.find((t) => t.key === "win32-x64") as Target;
   assertEquals(assetName(darwin, "0.1.0"), "pb_0.1.0_darwin_arm64.tar.gz");
   assertEquals(assetName(win, "0.1.0"), "pb_0.1.0_win32_x64.zip");
+});
+
+Deno.test("hostKey translates Deno's os/arch names to Node's", () => {
+  assertEquals(hostKey("linux", "x86_64"), "linux-x64");
+  assertEquals(hostKey("linux", "aarch64"), "linux-arm64");
+  assertEquals(hostKey("darwin", "aarch64"), "darwin-arm64");
+  assertEquals(hostKey("windows", "x86_64"), "win32-x64");
+});
+
+Deno.test("hostKey passes an unknown host through untranslated", () => {
+  assertEquals(hostKey("freebsd", "riscv64"), "freebsd-riscv64");
+});
+
+Deno.test("targetForHost resolves each supported host to its target", () => {
+  assertEquals(targetForHost("linux-x64")?.key, "linux-x64");
+  assertEquals(targetForHost("darwin-arm64")?.key, "darwin-arm64");
+});
+
+Deno.test("targetForHost maps win32-arm64 to the x64 target it emulates", () => {
+  const t = targetForHost("win32-arm64");
+  assertEquals(t?.key, "win32-x64");
+  assertEquals(t?.binName, "pb.exe");
+});
+
+Deno.test("targetForHost returns null for an unsupported host", () => {
+  assertEquals(targetForHost("freebsd-x64"), null);
 });

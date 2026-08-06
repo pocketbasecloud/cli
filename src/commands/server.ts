@@ -1,23 +1,36 @@
 import type { CmdCtx, Handler } from "../router.ts";
 import type { CloudCmdDeps } from "./project.ts";
 import { printResult } from "../ui/output.ts";
+import { computeLabel } from "../ui/compute.ts";
 
 /**
- * Servers are hidden infrastructure — the CLI never creates or deletes one.
- * Listing them exists because `cloud pb deploy --server <id>` needs an id, and
+ * Compute is hidden infrastructure — the CLI never creates or deletes any.
+ * Listing it exists because `cloud pb deploy --compute <id>` needs an id, and
  * without this the only place to find one was the portal.
+ *
+ * Only the account's own dedicated compute is listed; the shared platform pool
+ * is auto-selected by capacity and is not something to name.
+ *
+ * `cloud server ls` is kept as an alias: the platform's records are called
+ * servers, and that was this command's name before the user-facing vocabulary
+ * settled on "compute".
  */
 export function makeServerCommands(
   deps: CloudCmdDeps,
 ): Record<string, Handler> {
   const ls: Handler = async (ctx: CmdCtx) => {
     const { client } = await deps.requireAuth();
-    printResult(await client.listServers(), [
+    // Oldest-first, which is the order every compute picker numbers by — so
+    // "Compute 2" here is "Compute 2" in the portal and in a deploy's menu.
+    const computes = await client.listServers();
+    printResult(computes, [
       { header: "ID", get: (s) => s.id },
-      { header: "NAME", get: (s) => s.name },
+      {
+        header: "COMPUTE",
+        get: (s) => computeLabel(computes.indexOf(s), s.location),
+      },
       { header: "STATUS", get: (s) => s.status },
       { header: "LOCATION", get: (s) => s.location },
-      { header: "OWNERSHIP", get: (s) => s.ownership },
       {
         header: "SPEC",
         get: (s) => s.cores ? `${s.cores}c/${s.memory}GB` : "",
@@ -25,5 +38,5 @@ export function makeServerCommands(
     ], ctx.flags.json);
     return 0;
   };
-  return { "cloud server ls": ls };
+  return { "cloud compute ls": ls, "cloud server ls": ls };
 }

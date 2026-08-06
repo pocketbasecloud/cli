@@ -115,6 +115,20 @@ export function createMockCloudClient(
           },
       ),
     listServers: () => Promise.resolve(state.servers),
+    // Seeded servers stand in for a Pro owner's dedicated compute, which is
+    // the only case where the platform reports any: a free/starter owner has
+    // none. Override the whole method for the org-developer cases.
+    deployContext: () =>
+      Promise.resolve({
+        ownerPlan: state.servers.length > 0 ? "pro" : "free",
+        isOwner: true,
+        organization: "",
+        servers: state.servers.map((s) => ({
+          id: s.id,
+          name: s.name,
+          location: s.location,
+        })),
+      }),
     listOrgs: () => Promise.resolve(state.orgs),
     createOrg: (name) => {
       const o: Org = { id: id(), name, owner: "u1", role: "owner" };

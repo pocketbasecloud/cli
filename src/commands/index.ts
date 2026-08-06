@@ -13,7 +13,10 @@ import { makeServerCommands } from "./server.ts";
 import { makeUpgradeCommands } from "./upgrade.ts";
 import { makeCloudInitCommands } from "./init.ts";
 import { makeLocalCommands } from "./local.ts";
+import { makeSelfCommands } from "./self.ts";
 import type { LocalDeps } from "../local/deps.ts";
+import type { SelfDeps } from "../self/upgrade.ts";
+import { hostKey } from "../../scripts/targets.ts";
 import { type AdminCmdDeps } from "./admin/deps.ts";
 import { makeInstanceAuthCommands } from "./admin/auth.ts";
 import { makeCollectionsCommands } from "./admin/collections.ts";
@@ -98,6 +101,14 @@ export function buildLocalDeps(): LocalDeps {
   };
 }
 
+export function buildSelfDeps(): SelfDeps {
+  return {
+    ...buildLocalDeps(),
+    execPath: () => Deno.execPath(),
+    hostKey: () => hostKey(),
+  };
+}
+
 export function registerCommands(registry: Record<string, Handler>): void {
   const cloud = buildCloudDeps();
   const admin = buildAdminDeps();
@@ -123,6 +134,7 @@ export function registerCommands(registry: Record<string, Handler>): void {
     makeUpgradeCommands(cloud, PORTAL_BASE),
     makeCloudInitCommands({ cwd: cloud.cwd }),
     makeLocalCommands(buildLocalDeps()),
+    makeSelfCommands(buildSelfDeps()),
     makeInstanceAuthCommands(admin),
     makeCollectionsCommands(admin),
     makeRecordsCommands(admin),

@@ -13,16 +13,20 @@ import {
   removeEnvironmentFor,
   upsertEnvironment,
 } from "../config.ts";
-import { resolveBuildConfig } from "../build/config.ts";
 import { FALLBACK_VERSIONS, resolveLatest } from "../local/releases.ts";
 import {
   attachZip,
+  awaitReachable,
   buildBundle,
+  computeChooser,
+  computeFlag,
   deployResource,
   ensureTarget,
+  envFileEntry,
   pollStatus,
   pushEnvFile,
   resolveAdminCredentials,
+  resolveEnvFile,
   resolveExisting,
   resolveOwnerId,
   resolveTarget,
@@ -31,8 +35,10 @@ import { reportRemoval } from "./environments.ts";
 
 /**
  * Uploads every *.pb.js in `dir` and returns how many were sent. Shared by
- * `hooks push` and by `deploy`'s redeploy path, which is the only way a running
- * instance can be updated — its archive is read once, at creation.
+ * `hooks push` and by `deploy`'s redeploy path: hooks are stored in the
+ * platform's database (so the portal's editor stays in sync) and therefore
+ * never travel in the deploy archive, which carries pb_public and
+ * pb_migrations only.
  *
  * Hooks belong to one PocketBase instance, not to the project: `pocketbaseId`
  * is the instance record's id.
@@ -135,11 +141,54 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
     const data: Record<string, unknown> = { project: p.id };
     if (target.name) data.name = target.name;
     if (ctx.raw.location) data.location = ctx.raw.location;
-    if (ctx.raw.server) data.server = ctx.raw.server;
+    // A Pro account's dedicated compute is `ownership: "user"`, which the
+    // platform's auto-selection (platform pool only) never picks — so a Pro (or
+    // organization) deploy names it, exactly as the portal's create page does.
+    // Unset, the compute is chosen on the create path below.
+    const compute = computeFlag(ctx.raw);
+    if (compute) data.server = compute;
+    const askCompute = computeChooser(client, p.id, {
+      noInput: ctx.flags.noInput || ctx.flags.json,
+      log,
+    });
 
-    // The platform passes zip_url to the agent only from createPBInstance, so
-    // the archive is built on the create path and nowhere else.
-    let build: BuildConfig = {};
+    // Packaged on both paths: a new instance extracts the archive when it is
+    // created, and an existing one has it installed by the platform's
+    // upload-files route.
+    const bundle = await buildBundle({
+      cwd,
+      kind: "pocketbases",
+      zipPath,
+      skipBuild: ctx.raw["skip-build"] === true,
+      envFile: ctx.raw["env-file"] as string | undefined,
+      environment: target.environment,
+      log,
+    });
+    const build: BuildConfig = bundle.build;
+    // Resolved here, beside the packaging, so a named-but-missing env file
+    // fails before anything is provisioned rather than after.
+    const env = await resolveEnvFile({
+      cwd,
+      build,
+      environment: target.environment,
+      flag: ctx.raw["env-file"] as string | undefined,
+      skip: ctx.raw["skip-env"] === true,
+      noInput: ctx.flags.noInput || ctx.flags.json,
+    });
+    // The upload route installs pb_public and pb_migrations only — pb_hooks go
+    // through the hooks route, so an archive holding nothing else must not be
+    // sent: the platform would reject it and mark the instance errored.
+    const hasUploadableDirs = Boolean(
+      zipPath ?? build.pbPublic ?? build.pbMigrations,
+    );
+    const updateData: Record<string, unknown> = {};
+    if (hasUploadableDirs) {
+      attachZip(updateData, bundle);
+      // pocketbase.service.ts only installs an archive on a record whose
+      // status says a new one is waiting.
+      updateData.status = "uploading";
+    }
+
     let credentials: { adminUsername: string; adminPassword: string } | null =
       null;
     const { resource, created } = await deployResource(
@@ -150,17 +199,8 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
         id: target.id,
         name: target.name,
         data,
+        updateData,
         createData: async () => {
-          const bundle = await buildBundle({
-            cwd,
-            kind: "pocketbases",
-            zipPath,
-            skipBuild: ctx.raw["skip-build"] === true,
-            envFile: ctx.raw["env-file"] as string | undefined,
-            environment: target.environment,
-            log,
-          });
-          build = bundle.build;
           credentials = await resolveAdminCredentials(client, {
             username: ctx.raw["admin-email"] as string | undefined,
             password: ctx.raw["admin-password"] as string | undefined,
@@ -170,6 +210,12 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
             status: "creating",
             ...credentials,
           };
+          // Only on create, and only lazily: a redeploy must never move a
+          // running instance to another compute, and asking costs a request.
+          if (!data.server) {
+            const picked = await askCompute();
+            if (picked) extra.server = picked;
+          }
           // Which PocketBase build the agent installs. The directory's pin is
           // the right default: it is the version already developed against.
           extra.version = await resolveDeployVersion(
@@ -191,24 +237,14 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
       projectId: p.id,
       kind: "pocketbases",
       environment: target.environment,
-      entry: { id: resource.id, name: resource.name },
+      entry: {
+        id: resource.id,
+        name: resource.name,
+        ...await envFileEntry(cwd, target.environment, env, log),
+      },
     });
 
     if (!created) {
-      if (zipPath) {
-        throw new CliError(
-          "--zip cannot be applied to an existing PocketBase — the platform " +
-            "reads the archive only when the instance is created.",
-          2,
-        );
-      }
-      build = await resolveBuildConfig({
-        cwd,
-        kind: "pocketbases",
-        flags: { envFile: ctx.raw["env-file"] as string | undefined },
-        environment: target.environment,
-        log,
-      });
       if (build.pbHooks) {
         const n = await pushHooks(
           client,
@@ -218,18 +254,22 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
         log(`Pushed ${n} hook file(s).`);
       }
       log(
-        "Note: pb_public and pb_migrations were not applied. The platform " +
-          "extracts a PocketBase archive only when the instance is created.",
+        hasUploadableDirs
+          ? "Uploaded the archive: pb_migrations is merged into the instance " +
+            "and pb_public replaced. New migrations run on the restart that " +
+            "follows."
+          : "Note: no pb_public or pb_migrations directory to upload — only " +
+            "hooks were pushed.",
       );
     }
 
-    if (ctx.raw["skip-env"] !== true) {
+    if (env.push) {
       await pushEnvFile(client, {
         targetId: resource.id,
         type: "pocketbase",
-        cwd,
-        build,
-        explicit: ctx.raw["env-file"] !== undefined,
+        name: env.push.name,
+        vars: env.push.vars,
+        deleteMissing: ctx.raw["delete-missing"] === true,
         log,
       });
     }
@@ -252,29 +292,24 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
     const admin = credentials as
       | { adminUsername: string; adminPassword: string }
       | null;
-    console.log(
-      ctx.flags.json
-        ? JSON.stringify({
-          ...final,
-          environment: target.environment,
-          ...(admin ?? {}),
-        })
-        : `Done: ${final.name} is ${final.status}.`,
-    );
-    // A brand-new subdomain needs DNS and a certificate before it answers, and
-    // the platform reports `running` well before that. Saying so beats a user
-    // hitting 525 and concluding the deploy failed.
-    if (created && !ctx.flags.json && final.status === "running") {
-      const url = (final as unknown as Record<string, string>).baseUrl ??
-        ((final as unknown as Record<string, string>).domain
-          ? `https://${(final as unknown as Record<string, string>).domain}`
-          : undefined);
-      if (url) {
-        console.log(
-          `  ${url}\n  A new domain can take a few minutes to become ` +
-            `reachable while its certificate is issued.`,
-        );
-      }
+    if (!ctx.flags.json) console.log(`Done: ${final.name} is ${final.status}.`);
+    // The dashboard, not the API root: it is where a new instance is actually
+    // used, and the URL a user would otherwise have to know to append /_/ to.
+    const reachable = created && final.status === "running"
+      ? await awaitReachable(client, {
+        type: "pocketbase",
+        resource: final,
+        path: "/_/",
+        log,
+      })
+      : undefined;
+    if (ctx.flags.json) {
+      console.log(JSON.stringify({
+        ...final,
+        environment: target.environment,
+        ...(reachable === undefined ? {} : { reachable }),
+        ...(admin ?? {}),
+      }));
     }
     if (!ctx.flags.json && admin) {
       console.log(
@@ -327,7 +362,7 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
       { label: "STATUS", get: () => r.status },
       { label: "URL", get: () => r.baseUrl },
       { label: "VERSION", get: () => r.version },
-      { label: "SERVER", get: () => r.server },
+      { label: "COMPUTE", get: () => r.server },
       { label: "PROJECT", get: () => r.project },
       { label: "ADMIN", get: () => r.adminUsername },
       { label: "PASSWORD", get: () => r.adminPassword },

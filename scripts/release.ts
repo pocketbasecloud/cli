@@ -3,7 +3,7 @@
 import { dirname, fromFileUrl, join } from "@std/path";
 import { encodeHex } from "@std/encoding/hex";
 import { VERSION } from "../src/version.ts";
-import { assetName, hostMap, TARGETS } from "./targets.ts";
+import { assetName, hostKey, hostMap, TARGETS } from "./targets.ts";
 import {
   buildMainPackageJson,
   buildPlatformPackageJson,
@@ -119,18 +119,6 @@ async function packSizes() {
     await sh(["npm", "pack", "--dry-run", join(NPM_DIR, t.key)], NPM_DIR);
   }
   await sh(["npm", "pack", "--dry-run", join(NPM_DIR, "cli")], NPM_DIR);
-}
-
-function hostKey(): string {
-  const osMap: Record<string, string> = {
-    darwin: "darwin",
-    linux: "linux",
-    windows: "win32",
-  };
-  const archMap: Record<string, string> = { aarch64: "arm64", x86_64: "x64" };
-  const os = osMap[Deno.build.os] ?? Deno.build.os;
-  const arch = archMap[Deno.build.arch] ?? Deno.build.arch;
-  return `${os}-${arch}`;
 }
 
 async function selfVerifyShim() {

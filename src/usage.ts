@@ -145,28 +145,41 @@ records it as the default, so the first deploy has nothing left to ask.`,
   // PocketBase instances (cloud-managed)
   "cloud pb deploy": {
     usage:
-      "pb cloud pb deploy [--name <name>] [--location <loc>] [--server <id>] [--admin-email <e>] [--admin-password <p>] [--pb-version <v>] [--skip-env] [--project <id>]",
+      "pb cloud pb deploy [--name <name>] [--location <loc>] [--compute <id>] [--admin-email <e>] [--admin-password <p>] [--pb-version <v>] [--skip-env] [--project <id>]",
     summary: "Create or redeploy a PocketBase instance.",
     details:
       `Packages pb_public, pb_hooks, and pb_migrations and ships them with the
-new instance. Their locations come from the "build" block in pb.json, which
+instance. Their locations come from the "build" block in pb.json, which
 is inferred from the directory and written there on the first deploy.
 
-The platform reads a PocketBase archive only when the instance is created, so
-a redeploy instead pushes pb_hooks/*.pb.js and reports that pb_public and
-pb_migrations were left untouched.
+A redeploy ships them too: pb_hooks/*.pb.js go through the hooks route (which
+keeps the portal's editor in sync), and the archive's pb_migrations and
+pb_public are installed on the running instance — migrations merged with the
+ones already there, pb_public replaced wholesale. New migrations are applied
+by the restart that follows.
 
 A new instance gets a superuser account: your account email, and a generated
 password printed once when the deploy finishes (and readable afterwards with
 \`pb cloud pb info\`). Override either with --admin-email/--admin-password.
 
-A .env beside pb.json is pushed to the instance's env vars by default (merged,
-existing cloud-only keys kept). Pass --skip-env to leave them alone, or
---env-file to name a different file.
+Env vars are pushed only from the file you name — nothing is uploaded by
+default. Each environment has its own: the first deploy of an environment asks
+which dotenv file it uses (or none) and records the answer as envFile under
+that environment in pb.json, so it is asked once. --env-file names one outright
+and is recorded the same way when the environment has none yet. Pushing merges,
+keeping cloud-only keys; --delete-missing removes them so the file is the whole
+truth, and --skip-env pushes nothing for this run.
 
 With no --name and nothing bound in pb.json, deploy asks which instance to
 redeploy — or what to call a new one — the way it already asks which project
-to use. Pass --no-input (or --json) to get the usage error instead.`,
+to use. Pass --no-input (or --json) to get the usage error instead.
+
+Creating an instance also picks the compute it runs on, whenever there is a
+choice to make: on Pro, and in a project shared with an organization, where the
+compute is the owner's. One compute is used without asking, several are offered
+as a menu, and --compute settles it outright. On the free and starter plans the
+platform picks from the shared pool and the flag is unnecessary. A redeploy
+never moves an existing instance.`,
     args: [],
     flags: [
       {
@@ -176,14 +189,21 @@ to use. Pass --no-input (or --json) to get the usage error instead.`,
         description:
           "Which PocketBase to deploy. Asked for when omitted and pb.json has no binding.",
       },
-      { name: "location", type: "string", required: false },
       {
-        name: "server",
+        name: "location",
         type: "string",
         required: false,
         description:
-          "Compute to deploy onto. Required on Pro, whose dedicated compute is " +
-          "never auto-selected.",
+          "Region for the deploy, on Starter. Optional — without it the " +
+          "platform picks the region with the most free capacity.",
+      },
+      {
+        name: "compute",
+        type: "string",
+        required: false,
+        description:
+          "Compute to create the instance on. Asked for when the project owner " +
+          "has more than one; required under --no-input/--json.",
       },
       {
         name: "admin-email",
@@ -216,13 +236,22 @@ to use. Pass --no-input (or --json) to get the usage error instead.`,
         name: "skip-env",
         type: "boolean",
         required: false,
-        description: "Do not push the .env file to the instance.",
+        description:
+          "Push no env vars for this run, whatever pb.json configures.",
       },
       {
         name: "env-file",
         type: "string",
         required: false,
-        description: "Dotenv file to push (default .env).",
+        description:
+          "Dotenv file to push. Recorded in pb.json for this environment " +
+          "when it has none yet.",
+      },
+      {
+        name: "delete-missing",
+        type: "boolean",
+        required: false,
+        description: "Remove cloud env vars the pushed file does not list.",
       },
       {
         name: "zip",
@@ -295,7 +324,7 @@ the directory's pb.json binding pick it.`,
   // Frontends
   "cloud frontend deploy": {
     usage:
-      "pb cloud frontend deploy [--name <name>] [--subdomain <sub>] [--skip-build] [--zip <file>] [--location <loc>]",
+      "pb cloud frontend deploy [--name <name>] [--subdomain <sub>] [--skip-build] [--zip <file>] [--location <loc>] [--compute <id>]",
     summary: "Build, package, and deploy a static site.",
     details:
       `Runs the build command, zips the output directory, and uploads it. Both
@@ -308,7 +337,14 @@ bundle, so --env-file is rejected here.
 
 With no --name and nothing bound in pb.json, deploy asks which frontend to
 redeploy — or what to call a new one — the way it already asks which project
-to use. Pass --no-input (or --json) to get the usage error instead.`,
+to use. Pass --no-input (or --json) to get the usage error instead.
+
+Creating a site also picks the compute it runs on, whenever there is a choice to
+make: on Pro, and in a project shared with an organization, where the compute is
+the owner's. One compute is used without asking, several are offered as a menu,
+and --compute settles it outright. On the free and starter plans the platform
+picks from the shared pool and the flag is unnecessary. A redeploy never moves
+an existing site.`,
     args: [],
     flags: [
       {
@@ -337,14 +373,21 @@ to use. Pass --no-input (or --json) to get the usage error instead.`,
         required: false,
         description: "Package the output directory without rebuilding it.",
       },
-      { name: "location", type: "string", required: false },
       {
-        name: "server",
+        name: "location",
         type: "string",
         required: false,
         description:
-          "Compute to deploy onto. Required on Pro, whose dedicated compute is " +
-          "never auto-selected.",
+          "Region for the deploy, on Starter. Optional — without it the " +
+          "platform picks the region with the most free capacity.",
+      },
+      {
+        name: "compute",
+        type: "string",
+        required: false,
+        description:
+          "Compute to create the site on. Asked for when the project owner " +
+          "has more than one; required under --no-input/--json.",
       },
     ],
   },
@@ -402,7 +445,7 @@ to use. Pass --no-input (or --json) to get the usage error instead.`,
   // Backends
   "cloud backend deploy": {
     usage:
-      "pb cloud backend deploy [--name <name>] [--runtime <deno|bun|nodejs|nextjs>] [--start <cmd>] [--skip-env] [--zip <file>]",
+      "pb cloud backend deploy [--name <name>] [--runtime <deno|bun|nodejs|nextjs>] [--start <cmd>] [--compute <id>] [--skip-env] [--zip <file>]",
     summary: "Build, package, and deploy a backend.",
     details:
       `Runs the build command and uploads the result. The runtime, build command,
@@ -414,17 +457,31 @@ deno, bun, and nodejs ship their source — the platform installs dependencies o
 start, so node_modules is excluded.
 
 nextjs ships a prebuilt bundle: the platform does not run next build (it
-exhausts memory on a shared host). Set output: "standalone" in next.config.*,
-and the CLI assembles .next/standalone, .next/static, and public into the
-layout the runtime expects, defaulting the start command to "node server.js".
+exhausts memory on a shared host). That bundle only exists when the build asks
+for it, so deploy adds output: "standalone" to next.config.* before building
+(creating the file if the project has none) and says so — the CLI then
+assembles .next/standalone, .next/static, and public into the layout the
+runtime expects, defaulting the start command to "node server.js". A config
+that already sets output is left alone; output: "export" is a static site, so
+deploy it with "pb cloud frontend deploy" instead.
 
-A .env beside pb.json is pushed to the backend's env vars by default (merged,
-existing cloud-only keys kept). Pass --skip-env to leave them alone, or
---env-file to name a different file.
+Env vars are pushed only from the file you name — nothing is uploaded by
+default. Each environment has its own: the first deploy of an environment asks
+which dotenv file it uses (or none) and records the answer as envFile under
+that environment in pb.json, so it is asked once. --env-file names one outright
+and is recorded the same way when the environment has none yet. Pushing merges,
+keeping cloud-only keys; --delete-missing removes them so the file is the whole
+truth, and --skip-env pushes nothing for this run.
 
 With no --name and nothing bound in pb.json, deploy asks which backend to
 redeploy — or what to call a new one — the way it already asks which project
-to use. Pass --no-input (or --json) to get the usage error instead.`,
+to use. Pass --no-input (or --json) to get the usage error instead.
+
+Creating a backend also picks the compute it runs on: the project owner's, so
+a developer in a shared organization project deploys onto the owner's Pro
+compute (and against the owner's plan) without needing to see it. A single
+compute is used, several are offered as a menu, and --compute settles it
+outright. A redeploy never moves an existing backend.`,
     args: [],
     flags: [
       {
@@ -443,12 +500,12 @@ to use. Pass --no-input (or --json) to get the usage error instead.`,
       },
       { name: "start", type: "string", required: false },
       {
-        name: "server",
+        name: "compute",
         type: "string",
         required: false,
         description:
-          "Compute to deploy onto. Required on Pro, whose dedicated compute is " +
-          "never auto-selected.",
+          "Compute to create the backend on. Asked for when the project owner " +
+          "has more than one; required under --no-input/--json.",
       },
       {
         name: "zip",
@@ -466,13 +523,22 @@ to use. Pass --no-input (or --json) to get the usage error instead.`,
         name: "skip-env",
         type: "boolean",
         required: false,
-        description: "Do not push the .env file to the backend.",
+        description:
+          "Push no env vars for this run, whatever pb.json configures.",
       },
       {
         name: "env-file",
         type: "string",
         required: false,
-        description: "Dotenv file to push (default .env).",
+        description:
+          "Dotenv file to push. Recorded in pb.json for this environment " +
+          "when it has none yet.",
+      },
+      {
+        name: "delete-missing",
+        type: "boolean",
+        required: false,
+        description: "Remove cloud env vars the pushed file does not list.",
       },
     ],
   },
@@ -557,8 +623,14 @@ to use. Pass --no-input (or --json) to get the usage error instead.`,
     ],
   },
   "cloud env import": {
-    usage: "pb cloud env import <.env> --target pb|backend --name <n>",
+    usage:
+      "pb cloud env import <.env> --target pb|backend --name <n> [--delete-missing]",
     summary: "Bulk-import variables from a .env file.",
+    details:
+      `Merges by default: keys in the file are written, keys only in the cloud
+are left alone. Pass --delete-missing to make the file the whole truth — cloud
+variables it does not list are removed from the instance too, which asks for
+confirmation unless --yes or --no-input is given.`,
     args: [{ name: ".env", required: true }],
     flags: [
       {
@@ -568,6 +640,12 @@ to use. Pass --no-input (or --json) to get the usage error instead.`,
         choices: ["pb", "backend"],
       },
       { name: "name", type: "string", required: true },
+      {
+        name: "delete-missing",
+        type: "boolean",
+        required: false,
+        description: "Remove cloud variables the file does not list.",
+      },
     ],
   },
 
@@ -618,17 +696,28 @@ container for as long as the connection is open.`,
     ],
   },
 
-  // Orgs
-  "cloud server ls": {
-    usage: "pb cloud server ls",
-    summary: "List the servers your account can deploy to.",
+  // Compute
+  "cloud compute ls": {
+    usage: "pb cloud compute ls",
+    summary: "List the compute your account can deploy to.",
     details:
-      "Servers are provisioned by the platform, not the CLI. This lists the\n" +
-      "ids `pb cloud pb deploy --server <id>` accepts; on every plan except\n" +
-      "Pro the platform picks one for you and the flag is unnecessary.",
+      "Compute is provisioned by the platform, not the CLI. This lists your\n" +
+      "account's own dedicated compute — the ids `--compute <id>` accepts on a\n" +
+      "deploy. The shared pool is not listed: on every plan except Pro the\n" +
+      "platform picks from it by capacity and the flag is unnecessary.\n\n" +
+      "`pb cloud server ls` is the same command under its former name.",
     args: [],
     flags: [],
   },
+  "cloud server ls": {
+    usage: "pb cloud server ls",
+    summary:
+      "List the compute your account can deploy to (alias of compute ls).",
+    args: [],
+    flags: [],
+  },
+
+  // Orgs
   "cloud org ls": {
     usage: "pb cloud org ls",
     summary: "List organizations.",
@@ -684,6 +773,8 @@ container for as long as the connection is open.`,
   "cloud upgrade": {
     usage: "pb cloud upgrade",
     summary: "Show the current plan and the upgrade link.",
+    details: "Upgrades your account's plan. To update the pb binary itself, " +
+      "see `pb upgrade`.",
     args: [],
     flags: [],
   },
@@ -1031,6 +1122,47 @@ container for as long as the connection is open.`,
     summary: "Show the installed PocketBase binary and its pinned version.",
     args: [],
     flags: [{ name: "dir", type: "string", required: false }],
+  },
+
+  // The CLI itself
+  "upgrade": {
+    usage: "pb upgrade [<version>] [--check] [--force] [--json]",
+    summary: "Update pb itself to the latest release.",
+    details:
+      "Downloads the release archive for this OS and CPU, verifies its\n" +
+      "SHA-256 against the release's checksums.txt, and replaces the running\n" +
+      "binary. Nothing is changed unless the checksum matches.\n\n" +
+      "Pass a <version> to install a specific release, including an older one\n" +
+      "to roll back. --check reports what is available without installing;\n" +
+      "--force reinstalls the version you already have.\n\n" +
+      "Only a standalone binary (the `curl | sh` installer, or a release\n" +
+      "archive) can be replaced in place. An npm install must be updated with\n" +
+      "npm, and a from-source install by updating its clone; in both cases\n" +
+      "`pb upgrade` prints the exact command and exits non-zero.\n\n" +
+      "pb also looks for a newer release once a day on its own and mentions\n" +
+      "one on stderr after a command finishes. Set PB_NO_UPDATE_CHECK to turn\n" +
+      "that off; it is already skipped under --json, CI, and redirected\n" +
+      "output.\n\n" +
+      "To change your plan, see `pb cloud upgrade` instead.",
+    args: [{
+      name: "version",
+      required: false,
+      description: "Release to install, e.g. 0.2.4. Defaults to the latest.",
+    }],
+    flags: [
+      {
+        name: "check",
+        type: "boolean",
+        required: false,
+        description: "Report the available version without installing it",
+      },
+      {
+        name: "force",
+        type: "boolean",
+        required: false,
+        description: "Reinstall even when already on the target version",
+      },
+    ],
   },
 
   // Instance logs

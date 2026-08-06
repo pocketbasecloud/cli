@@ -11,11 +11,16 @@ import {
 } from "../config.ts";
 import {
   attachZip,
+  awaitReachable,
   buildBundle,
+  computeChooser,
+  computeFlag,
   deployResource,
   ensureTarget,
+  envFileEntry,
   pollStatus,
   pushEnvFile,
+  resolveEnvFile,
   resolveExisting,
   resolveOwnerId,
   resolveTarget,
@@ -67,6 +72,16 @@ export function makeBackendCommands(
       environment: target.environment,
       log,
     });
+    // Resolved here, beside the packaging, so a named-but-missing env file
+    // fails before anything is provisioned rather than after.
+    const env = await resolveEnvFile({
+      cwd,
+      build: bundle.build,
+      environment: target.environment,
+      flag: ctx.raw["env-file"] as string | undefined,
+      skip: ctx.raw["skip-env"] === true,
+      noInput: ctx.flags.noInput || ctx.flags.json,
+    });
     const runtime = ctx.raw.runtime ?? bundle.build.runtime;
     if (!runtime) {
       throw new CliError(
@@ -80,7 +95,9 @@ export function makeBackendCommands(
     // — which the platform's auto-selection, filtered to platform servers,
     // never picks. Without this the deploy lands in the shared pool or fails
     // outright, so the portal names the compute explicitly and so must we.
-    if (ctx.raw.server) data.server = ctx.raw.server;
+    // Unset, the compute is chosen on the create path below.
+    const compute = computeFlag(ctx.raw);
+    if (compute) data.server = compute;
     // An explicit --start wins, then the directory's own start task/script,
     // then the packager (which knows how a Next.js standalone bundle boots).
     const start = ctx.raw.start ?? bundle.build.startCommand ??
@@ -101,6 +118,10 @@ export function makeBackendCommands(
       );
     }
     attachZip(data, bundle);
+    const askCompute = computeChooser(client, p.id, {
+      noInput: ctx.flags.noInput || ctx.flags.json,
+      log,
+    });
     const { resource, created } = await deployResource(
       client,
       "backends",
@@ -109,10 +130,19 @@ export function makeBackendCommands(
         id: target.id,
         name: target.name,
         data,
-        createData: async () => ({
-          user: await resolveOwnerId(client, auth),
-          status: "pending",
-        }),
+        createData: async () => {
+          const fields: Record<string, unknown> = {
+            user: await resolveOwnerId(client, auth),
+            status: "pending",
+          };
+          // Only on create, and only lazily: a redeploy must never move a
+          // running backend to another compute, and asking costs a request.
+          if (!data.server) {
+            const picked = await askCompute();
+            if (picked) fields.server = picked;
+          }
+          return fields;
+        },
         // backend.service.ts only redeploys a record whose status says a new
         // archive is waiting.
         updateData: { status: "uploading" },
@@ -127,15 +157,19 @@ export function makeBackendCommands(
       projectId: p.id,
       kind: "backends",
       environment: target.environment,
-      entry: { id: resource.id, name: resource.name },
+      entry: {
+        id: resource.id,
+        name: resource.name,
+        ...await envFileEntry(cwd, target.environment, env, log),
+      },
     });
-    if (ctx.raw["skip-env"] !== true) {
+    if (env.push) {
       await pushEnvFile(client, {
         targetId: resource.id,
         type: "backend",
-        cwd,
-        build: bundle.build,
-        explicit: ctx.raw["env-file"] !== undefined,
+        name: env.push.name,
+        vars: env.push.vars,
+        deleteMissing: ctx.raw["delete-missing"] === true,
         log,
       });
     }
@@ -153,11 +187,21 @@ export function makeBackendCommands(
       checkCommand: "backend",
       onTick: ctx.flags.json ? undefined : (s) => console.log(`  status: ${s}`),
     });
-    console.log(
-      ctx.flags.json
-        ? JSON.stringify({ ...final, environment: target.environment })
-        : `Done: ${final.name} is ${final.status}.`,
-    );
+    if (!ctx.flags.json) console.log(`Done: ${final.name} is ${final.status}.`);
+    const reachable = created && final.status === "running"
+      ? await awaitReachable(client, {
+        type: "backend",
+        resource: final,
+        log,
+      })
+      : undefined;
+    if (ctx.flags.json) {
+      console.log(JSON.stringify({
+        ...final,
+        environment: target.environment,
+        ...(reachable === undefined ? {} : { reachable }),
+      }));
+    }
     return final.status === "running" ? 0 : 6;
   };
 

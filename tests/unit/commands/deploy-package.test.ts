@@ -253,7 +253,9 @@ Deno.test("an explicit --start beats the packager's suggestion", async () => {
   assertEquals(data.startCommand, "node server.js --port 3000");
 });
 
-Deno.test("backend deploy pushes the .env by default and --skip-env opts out", async () => {
+Deno.test("backend deploy pushes nothing when no env file is configured", async () => {
+  // A .env sitting in the directory is not an instruction to deploy it, and
+  // under --json/--no-input there is nobody to ask.
   const cwd = seed({
     "deno.json": START_TASK,
     "main.ts": "x",
@@ -268,21 +270,82 @@ Deno.test("backend deploy pushes the .env by default and --skip-env opts out", a
     flags: flags(p.id),
     raw: { name: "api" },
   });
+  assertEquals(
+    client.calls.ext.some(([path]) => path === "/api/env/bulk-set"),
+    false,
+  );
+  // …and nothing was recorded in pb.json either.
+  const file = JSON.parse(Deno.readTextFileSync(join(cwd, "pb.json")));
+  assertEquals(file.environments.production.build, undefined);
+});
+
+Deno.test("backend deploy pushes --env-file and records it for the environment", async () => {
+  const cwd = seed({
+    "deno.json": START_TASK,
+    "main.ts": "x",
+    ".env.prod": "A=1\nB=2\n",
+  });
+
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  runningNow(client);
+  await makeBackendCommands(deps(client, p.id, cwd))["cloud backend deploy"]({
+    args: [],
+    flags: flags(p.id),
+    raw: { name: "api", "env-file": ".env.prod", env: "prod" },
+  });
+
   const push = client.calls.ext.find(([path]) => path === "/api/env/bulk-set");
   assertEquals((push?.[1] as { variables: Record<string, string> }).variables, {
     A: "1",
     B: "2",
   });
   assertEquals((push?.[1] as { type: string }).type, "backend");
+  const file = JSON.parse(Deno.readTextFileSync(join(cwd, "pb.json")));
+  assertEquals(file.environments.prod.build.envFile, ".env.prod");
+});
 
+Deno.test("backend deploy pushes the environment's configured file, and --skip-env opts out", async () => {
+  const files = {
+    "deno.json": START_TASK,
+    "main.ts": "x",
+    ".env.prod": "A=1\n",
+    "pb.json": JSON.stringify({
+      projectId: "ignored",
+      kind: "backends",
+      defaultEnvironment: "prod",
+      build: { runtime: "deno", startCommand: "deno run -A main.ts" },
+      environments: {
+        prod: { id: "", name: "api", build: { envFile: ".env.prod" } },
+      },
+    }),
+  };
+
+  const cwd = seed(files);
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  runningNow(client);
+  await makeBackendCommands(deps(client, p.id, cwd))["cloud backend deploy"]({
+    args: [],
+    flags: flags(p.id),
+    raw: { name: "api" },
+  });
+  const push = client.calls.ext.find(([path]) => path === "/api/env/bulk-set");
+  assertEquals((push?.[1] as { variables: Record<string, string> }).variables, {
+    A: "1",
+  });
+
+  const cwd2 = seed(files);
   const client2 = createMockCloudClient();
   const p2 = await client2.createProject("app");
   runningNow(client2);
-  await makeBackendCommands(deps(client2, p2.id, cwd))["cloud backend deploy"]({
-    args: [],
-    flags: flags(p2.id),
-    raw: { name: "api", "skip-env": true },
-  });
+  await makeBackendCommands(deps(client2, p2.id, cwd2))["cloud backend deploy"](
+    {
+      args: [],
+      flags: flags(p2.id),
+      raw: { name: "api", "skip-env": true },
+    },
+  );
   assertEquals(
     client2.calls.ext.some(([path]) => path === "/api/env/bulk-set"),
     false,
@@ -306,7 +369,7 @@ Deno.test("no dotenv file means no env push and no error", async () => {
   );
 });
 
-Deno.test("--env-file naming a missing file is an error", async () => {
+Deno.test("a named env file that is missing fails before anything is created", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   runningNow(client);
@@ -322,6 +385,39 @@ Deno.test("--env-file naming a missing file is an error", async () => {
     CliError,
     "Env file not found",
   );
+  // The point of resolving env before the first cloud call: a typo'd path must
+  // not leave a provisioned backend behind.
+  assertEquals(client.calls.createResource.length, 0);
+});
+
+Deno.test("a pb.json-configured env file that is missing fails the same way", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  runningNow(client);
+  const cwd = seed({
+    "deno.json": START_TASK,
+    "main.ts": "x",
+    "pb.json": JSON.stringify({
+      projectId: "ignored",
+      kind: "backends",
+      defaultEnvironment: "prod",
+      environments: {
+        prod: { id: "", name: "api", build: { envFile: ".env.prod" } },
+      },
+    }),
+  });
+
+  await assertRejects(
+    () =>
+      makeBackendCommands(deps(client, p.id, cwd))["cloud backend deploy"]({
+        args: [],
+        flags: flags(p.id),
+        raw: { name: "api" },
+      }),
+    CliError,
+    "Env file not found: .env.prod",
+  );
+  assertEquals(client.calls.createResource.length, 0);
 });
 
 Deno.test("pb deploy packages the three directories on create", async () => {
@@ -360,7 +456,7 @@ Deno.test("pb deploy packages the three directories on create", async () => {
   );
 });
 
-Deno.test("pb redeploy pushes hooks instead of an archive the platform ignores", async () => {
+Deno.test("pb redeploy uploads the archive and pushes hooks", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   const pb = await client.createResource("pocketbases", {
@@ -371,6 +467,7 @@ Deno.test("pb redeploy pushes hooks instead of an archive the platform ignores",
   const cwd = seed({
     "pb_hooks/main.pb.js": "// hook",
     "pb_public/index.html": "x",
+    "pb_migrations/1_init.js": "// migration",
   });
   client.calls.createResource.length = 0;
   const cmds = makePbCommands(deps(client, p.id, cwd));
@@ -383,12 +480,21 @@ Deno.test("pb redeploy pushes hooks instead of an archive the platform ignores",
 
   assertEquals(code, 0);
   assertEquals(client.calls.createResource.length, 0);
-  // No archive on the update — the platform would never read it.
+  // The archive rides on the update, with the status the platform keys the
+  // install off.
   const [, id, data] = client.calls.updateResource[0];
   assertEquals(id, pb.id);
-  assertEquals(data.zipFile, undefined);
-  // Hooks went up the one route that reaches a running instance, aimed at the
-  // instance itself rather than the project.
+  assertEquals((data.zipFile as File).name, "data.zip");
+  assertEquals(data.status, "uploading");
+  const dec = new TextDecoder();
+  assertEquals(
+    dec.decode(
+      await extractEntry(await zipOf(data), "pb_migrations/1_init.js"),
+    ),
+    "// migration",
+  );
+  // Hooks still go through their own route: the platform's upload endpoint
+  // installs pb_public and pb_migrations only.
   const push = client.calls.pbApi.find(([path]) =>
     path === "/api/hooks/bulk-write"
   );
@@ -400,7 +506,29 @@ Deno.test("pb redeploy pushes hooks instead of an archive the platform ignores",
   assertEquals(body.hooks[0].filename, "main.pb.js");
 });
 
-Deno.test("pb redeploy refuses --zip rather than uploading it silently", async () => {
+Deno.test("pb redeploy of a hooks-only directory sends no archive", async () => {
+  // An archive with neither pb_public nor pb_migrations has nothing the
+  // platform's upload route accepts — sending it would error the instance.
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  await client.createResource("pocketbases", { name: "db", project: p.id });
+  runningNow(client);
+  const cwd = seed({ "pb_hooks/main.pb.js": "// hook" });
+  const cmds = makePbCommands(deps(client, p.id, cwd));
+
+  const code = await cmds["cloud pb deploy"]({
+    args: [],
+    flags: flags(p.id),
+    raw: { name: "db" },
+  });
+
+  assertEquals(code, 0);
+  const [, , data] = client.calls.updateResource[0];
+  assertEquals(data.zipFile, undefined);
+  assertEquals(data.status, undefined);
+});
+
+Deno.test("pb redeploy uploads an explicit --zip", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   await client.createResource("pocketbases", { name: "db", project: p.id });
@@ -408,14 +536,14 @@ Deno.test("pb redeploy refuses --zip rather than uploading it silently", async (
   const cwd = seed({ "pb_hooks/main.pb.js": "//", "old.zip": "x" });
   const cmds = makePbCommands(deps(client, p.id, cwd));
 
-  await assertRejects(
-    () =>
-      cmds["cloud pb deploy"]({
-        args: [],
-        flags: flags(p.id),
-        raw: { name: "db", zip: join(cwd, "old.zip") },
-      }),
-    CliError,
-    "only when the instance is created",
-  );
+  const code = await cmds["cloud pb deploy"]({
+    args: [],
+    flags: flags(p.id),
+    raw: { name: "db", zip: join(cwd, "old.zip") },
+  });
+
+  assertEquals(code, 0);
+  const [, , data] = client.calls.updateResource[0];
+  assertEquals((data.zipFile as File).name, "old.zip");
+  assertEquals(data.status, "uploading");
 });

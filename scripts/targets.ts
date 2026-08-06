@@ -1,6 +1,11 @@
 // Single source of truth for the platform matrix. The shim's PACKAGE_FOR_HOST,
-// the six package.json files, the release archives, and install.sh all derive
-// from TARGETS via the pure functions below.
+// the six package.json files, the release archives, install.sh, and the
+// self-upgrade command all derive from TARGETS via the pure functions below.
+//
+// This module is build tooling that `src/self/` also imports at runtime — the
+// alternative is a second copy of the matrix that drifts from this one, which
+// is the exact failure the file exists to prevent. Keep it free of side
+// effects and of imports outside this directory.
 
 export type Target = {
   /** npm package suffix and directory name, e.g. "darwin-arm64". */
@@ -83,4 +88,43 @@ export function hostMap(targets: Target[]): Record<string, string> {
 export function assetName(target: Target, version: string): string {
   const ext = target.os === "win32" ? "zip" : "tar.gz";
   return `pb_${version}_${target.os}_${target.cpu[0]}.${ext}`;
+}
+
+// Deno names the host differently from Node, and TARGETS is written in Node's
+// vocabulary because that is what the npm packages must declare.
+const OS_FROM_DENO: Record<string, string> = {
+  darwin: "darwin",
+  linux: "linux",
+  windows: "win32",
+};
+const ARCH_FROM_DENO: Record<string, string> = {
+  aarch64: "arm64",
+  x86_64: "x64",
+};
+
+/**
+ * This machine as a `${process.platform}-${process.arch}` key — the same shape
+ * `hostMap` is keyed by. Unknown values pass through untranslated so the caller
+ * reports the real host rather than a silently wrong one.
+ */
+export function hostKey(
+  denoOs: string = Deno.build.os,
+  denoArch: string = Deno.build.arch,
+): string {
+  return `${OS_FROM_DENO[denoOs] ?? denoOs}-${
+    ARCH_FROM_DENO[denoArch] ?? denoArch
+  }`;
+}
+
+/**
+ * The target serving a host key, or null when nothing does. Goes through
+ * `hostMap`, so win32-arm64 resolves to the win32-x64 target it emulates —
+ * the host key and the target key are not always equal.
+ */
+export function targetForHost(
+  key: string,
+  targets: Target[] = TARGETS,
+): Target | null {
+  const pkgKey = hostMap(targets)[key];
+  return targets.find((t) => t.key === pkgKey) ?? null;
 }

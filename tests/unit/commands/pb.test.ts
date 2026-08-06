@@ -353,3 +353,125 @@ Deno.test("pb deploy falls back to a built-in version when the releases API is d
   // version, which is the failure that strands the instance.
   assertEquals(client.calls.createResource[0][1].version, FALLBACK_VERSIONS[0]);
 });
+
+/** A mock whose deploy-context reports the project owner's compute. */
+function withComputes(
+  client: ReturnType<typeof createMockCloudClient>,
+  computes: { id: string; name: string; location: string }[],
+  context: { ownerPlan?: string; organization?: string } = {},
+) {
+  client.deployContext = () =>
+    Promise.resolve({
+      ownerPlan: context.ownerPlan ?? "pro",
+      isOwner: true,
+      organization: context.organization ?? "",
+      servers: computes,
+    });
+}
+
+Deno.test("pb deploy creates on the owner's Pro compute, which is never auto-selected", async () => {
+  // The platform's auto-selection only considers the shared platform pool, so
+  // a Pro instance created without a compute lands on shared infrastructure.
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d, config } = deps(client);
+  config.currentProject = p.id;
+  runningNow(client);
+  withComputes(client, [{ id: "srv9", name: "pro-1", location: "GRA" }]);
+  const code = await makePbCommands(d)["cloud pb deploy"]({
+    args: [],
+    flags: flags({ project: p.id }),
+    raw: { name: "db1" },
+  });
+  assertEquals(code, 0);
+  assertEquals(client.calls.createResource[0][1].server, "srv9");
+});
+
+Deno.test("pb deploy in an org project uses the organization's compute", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d, config } = deps(client);
+  config.currentProject = p.id;
+  runningNow(client);
+  withComputes(client, [{ id: "org-srv", name: "org-1", location: "GRA" }], {
+    ownerPlan: "starter",
+    organization: "org1",
+  });
+  const code = await makePbCommands(d)["cloud pb deploy"]({
+    args: [],
+    flags: flags({ project: p.id }),
+    raw: { name: "db1" },
+  });
+  assertEquals(code, 0);
+  assertEquals(client.calls.createResource[0][1].server, "org-srv");
+});
+
+Deno.test("pb deploy refuses to guess between two computes under --json", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d, config } = deps(client);
+  config.currentProject = p.id;
+  runningNow(client);
+  withComputes(client, [
+    { id: "srv1", name: "pro-1", location: "GRA" },
+    { id: "srv2", name: "pro-2", location: "SBG" },
+  ]);
+  await assertRejects(
+    () =>
+      makePbCommands(d)["cloud pb deploy"]({
+        args: [],
+        flags: flags({ project: p.id }),
+        raw: { name: "db1" },
+      }),
+    Error,
+    "--compute",
+  );
+  assertEquals(client.calls.createResource.length, 0);
+});
+
+Deno.test("pb deploy forwards --compute, and the old --server still works", async () => {
+  for (
+    const raw of [{ name: "db1", compute: "srv1" }, {
+      name: "db1",
+      server: "srv1",
+    }]
+  ) {
+    const client = createMockCloudClient();
+    const p = await client.createProject("app");
+    const { d, config } = deps(client);
+    config.currentProject = p.id;
+    runningNow(client);
+    client.deployContext = () => {
+      throw new Error("a named compute must not be second-guessed");
+    };
+    const code = await makePbCommands(d)["cloud pb deploy"]({
+      args: [],
+      flags: flags({ project: p.id }),
+      raw: { ...raw, project: p.id },
+    });
+    assertEquals(code, 0);
+    assertEquals(client.calls.createResource[0][1].server, "srv1");
+  }
+});
+
+Deno.test("pb redeploy never re-picks the compute", async () => {
+  // Moving a running instance to another host would change its URL and leave
+  // its data behind — so the context is not even consulted.
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  await client.createResource("pocketbases", { name: "db1", project: p.id });
+  client.calls.createResource.length = 0; // seeding is not the deploy's doing
+  const { d, config } = deps(client);
+  config.currentProject = p.id;
+  runningNow(client);
+  client.deployContext = () => {
+    throw new Error("deploy-context must not be called on a redeploy");
+  };
+  const code = await makePbCommands(d)["cloud pb deploy"]({
+    args: [],
+    flags: flags({ project: p.id }),
+    raw: { name: "db1" },
+  });
+  assertEquals(code, 0);
+  assertEquals(client.calls.createResource.length, 0);
+});

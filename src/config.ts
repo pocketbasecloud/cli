@@ -77,7 +77,12 @@ export type BuildConfig = {
   startCommand?: string;
   /** Extra exclude globs, on top of the built-in denylist. */
   exclude?: string[];
-  /** Which dotenv file --push-env reads. Defaults to ".env". */
+  /**
+   * Which dotenv file a deploy pushes to the cloud env store. Unset means the
+   * question has not been answered for this environment yet — deploy asks once
+   * and records the answer here. An empty string is that answer meaning "none",
+   * which is why it is not the same as unset. See `envFileOf`.
+   */
   envFile?: string;
   /** PocketBase only. Paths relative to the resource directory. */
   pbPublic?: string;
@@ -117,6 +122,16 @@ export function configPath(
   const home = env["HOME"] ?? env["USERPROFILE"] ?? ".";
   const base = xdg && xdg.length > 0 ? xdg : join(home, ".config");
   return join(base, "pb", "config.json");
+}
+
+/**
+ * Where the background update check remembers its last look. Kept beside the
+ * config rather than inside it: it is a cache, and losing it costs one request.
+ */
+export function updateCheckPath(
+  env: Record<string, string | undefined> = Deno.env.toObject(),
+): string {
+  return join(dirname(configPath(env)), "update-check.json");
 }
 
 export async function loadConfig(): Promise<Config> {
@@ -224,6 +239,10 @@ async function writePbJson(
  *
  * `kind` and `defaultEnvironment` are filled in on the way through: the first
  * environment recorded becomes the default, and later ones leave it alone.
+ *
+ * `entry.build` merges a key at a time rather than replacing the block: a
+ * caller recording one field (deploy records `envFile`) must not drop the
+ * environment's other overrides, which it never had in hand to begin with.
  */
 export async function upsertEnvironment(
   cwd: string,
@@ -236,9 +255,13 @@ export async function upsertEnvironment(
 ): Promise<void> {
   const existing = await readOwnPbJson(cwd);
   const environments = { ...existing.environments };
+  const prev = environments[opts.environment];
   environments[opts.environment] = {
-    ...environments[opts.environment],
+    ...prev,
     ...opts.entry,
+    ...(prev?.build || opts.entry.build
+      ? { build: { ...prev?.build, ...opts.entry.build } }
+      : {}),
   };
   await writePbJson(cwd, {
     ...existing,

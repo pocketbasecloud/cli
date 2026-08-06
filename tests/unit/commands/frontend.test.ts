@@ -425,3 +425,111 @@ Deno.test("frontend deploy refuses a directory bound to another kind", async () 
     "pb.json is bound to backends — deploy frontends from a different",
   );
 });
+
+/** A mock whose deploy-context reports the project owner's compute. */
+function withComputes(
+  client: ReturnType<typeof createMockCloudClient>,
+  computes: { id: string; name: string; location: string }[],
+  context: { ownerPlan?: string; organization?: string } = {},
+) {
+  client.deployContext = () =>
+    Promise.resolve({
+      ownerPlan: context.ownerPlan ?? "pro",
+      isOwner: true,
+      organization: context.organization ?? "",
+      servers: computes,
+    });
+}
+
+Deno.test("creating a frontend uses the owner's Pro compute", async () => {
+  // Auto-selection only considers the shared platform pool, so without this a
+  // Pro site lands on shared infrastructure instead of the compute paid for.
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const d = deps(client, p.id);
+  Deno.writeTextFileSync(`${d.cwd()}/index.html`, "<html></html>");
+  runningNow(client);
+  withComputes(client, [{ id: "srv9", name: "pro-1", location: "GRA" }]);
+  const code = await makeFrontendCommands(d)["cloud frontend deploy"]({
+    args: [],
+    flags: flags({ project: p.id }),
+    raw: { name: "web", "skip-build": true },
+  });
+  assertEquals(code, 0);
+  assertEquals(client.calls.createResource[0][1].server, "srv9");
+});
+
+Deno.test("creating a frontend in an org project uses the organization's compute", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const d = deps(client, p.id);
+  Deno.writeTextFileSync(`${d.cwd()}/index.html`, "<html></html>");
+  runningNow(client);
+  withComputes(client, [{ id: "org-srv", name: "org-1", location: "GRA" }], {
+    ownerPlan: "free",
+    organization: "org1",
+  });
+  const code = await makeFrontendCommands(d)["cloud frontend deploy"]({
+    args: [],
+    flags: flags({ project: p.id }),
+    raw: { name: "web", "skip-build": true },
+  });
+  assertEquals(code, 0);
+  assertEquals(client.calls.createResource[0][1].server, "org-srv");
+});
+
+Deno.test("a subdomain retry does not ask for the compute twice", async () => {
+  // create() runs again with a suffixed subdomain; a second deploy-context
+  // request — or a second identical menu — is not something to sit through.
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const d = deps(client, p.id);
+  Deno.writeTextFileSync(`${d.cwd()}/index.html`, "<html></html>");
+  runningNow(client);
+  let contexts = 0;
+  client.deployContext = () => {
+    contexts++;
+    return Promise.resolve({
+      ownerPlan: "pro",
+      isOwner: true,
+      organization: "",
+      servers: [{ id: "srv9", name: "pro-1", location: "GRA" }],
+    });
+  };
+  const create = client.createResource.bind(client);
+  let attempts = 0;
+  client.createResource = (kind, data) => {
+    if (++attempts === 1) return Promise.reject(taken());
+    return create(kind, data);
+  };
+  const code = await makeFrontendCommands(d)["cloud frontend deploy"]({
+    args: [],
+    flags: flags({ project: p.id }),
+    raw: { name: "web", "skip-build": true },
+  });
+  assertEquals(code, 0);
+  assertEquals(attempts, 2);
+  assertEquals(contexts, 1);
+  assertEquals(client.calls.createResource[0][1].server, "srv9");
+});
+
+Deno.test("a frontend redeploy never re-picks the compute", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  await client.createResource("frontends", { name: "web", project: p.id });
+  client.calls.createResource.length = 0; // seeding is not the deploy's doing
+  const d = deps(client, p.id);
+  Deno.writeTextFileSync(`${d.cwd()}/index.html`, "<html></html>");
+  runningNow(client);
+  client.deployContext = () => {
+    throw new Error("deploy-context must not be called on a redeploy");
+  };
+  const code = await makeFrontendCommands(d)["cloud frontend deploy"]({
+    args: [],
+    flags: flags({ project: p.id }),
+    raw: { name: "web", "skip-build": true },
+  });
+  assertEquals(code, 0);
+  assertEquals(client.calls.createResource.length, 0);
+  assertEquals(client.calls.updateResource[0][2].server, undefined);
+});

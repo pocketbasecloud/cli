@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import {
   formatSize,
@@ -236,6 +236,11 @@ Deno.test("pocketbase archives are named data.zip", async () => {
   assertEquals(packed.fileName, "data.zip");
 });
 
+Deno.test("pbdirs with no directories configured packages an empty archive rather than erroring", async () => {
+  const cwd = Deno.makeTempDirSync();
+  assertEquals(await names(cwd, "pocketbases", {}), []);
+});
+
 Deno.test("an empty package is refused rather than uploaded", async () => {
   const cwd = Deno.makeTempDirSync();
   Deno.mkdirSync(join(cwd, "dist"));
@@ -296,6 +301,61 @@ Deno.test("--skip-build packages without running the command", async () => {
     },
   });
   assertEquals(ran, false);
+});
+
+Deno.test("a nextjs build gets output: standalone before it runs", async () => {
+  const cwd = dir({
+    "next.config.mjs": "const nextConfig = {};\nexport default nextConfig;\n",
+    ".next/standalone/server.js": "x",
+  });
+  const seen: string[] = [];
+  const messages: string[] = [];
+  await packageResource({
+    cwd,
+    kind: "backends",
+    build: { command: "npm run build", runtime: "nextjs" },
+    skipBuild: false,
+    log: (m) => messages.push(m),
+    // Read at build time: the config must already say standalone by now,
+    // otherwise the build produces a bundle that cannot be packaged.
+    run: () => {
+      seen.push(Deno.readTextFileSync(join(cwd, "next.config.mjs")));
+      return Promise.resolve({ code: 0 });
+    },
+  });
+  assertEquals(seen.length, 1);
+  assertStringIncludes(seen[0], `output: "standalone"`);
+  assertStringIncludes(messages[0], `Added output: "standalone"`);
+});
+
+Deno.test("--skip-build leaves next.config alone", async () => {
+  const body = "export default {};\n";
+  const cwd = dir({
+    "next.config.js": body,
+    ".next/standalone/server.js": "x",
+  });
+  await packageResource({
+    cwd,
+    kind: "backends",
+    build: { command: "npm run build", runtime: "nextjs" },
+    skipBuild: true,
+    log: noop,
+  });
+  assertEquals(await Deno.readTextFile(join(cwd, "next.config.js")), body);
+});
+
+Deno.test("a non-nextjs backend's config is never touched", async () => {
+  const body = "export default {};\n";
+  const cwd = dir({ "next.config.js": body, "server.ts": "x" });
+  await packageResource({
+    cwd,
+    kind: "backends",
+    build: { command: "deno task build", runtime: "deno", outputDir: "." },
+    skipBuild: false,
+    log: noop,
+    run: () => Promise.resolve({ code: 0 }),
+  });
+  assertEquals(await Deno.readTextFile(join(cwd, "next.config.js")), body);
 });
 
 Deno.test("packaged entries are readable back out of the archive", async () => {

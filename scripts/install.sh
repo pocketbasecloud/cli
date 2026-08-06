@@ -71,6 +71,7 @@ fi
 mkdir -p "$install_dir"
 mv "$tmp/pb" "$install_dir/pb"
 echo "install.sh: installed pb to $install_dir/pb"
+echo "install.sh: update it later with \`pb upgrade\`."
 
 case ":$PATH:" in
   *":$install_dir:"*) ;;

@@ -34,6 +34,7 @@ export function parseGlobal(argv: string[]): { path: string[]; ctx: CmdCtx } {
       "all",
       "pre",
       "force",
+      "check",
       "skip-build",
       "skip-env",
     ],
@@ -48,6 +49,8 @@ export function parseGlobal(argv: string[]): { path: string[]; ctx: CmdCtx } {
       "id",
       "target",
       "location",
+      "compute",
+      // Superseded by --compute; still parsed so pinned scripts keep working.
       "server",
       "admin-email",
       "admin-password",

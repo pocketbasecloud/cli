@@ -5,6 +5,7 @@ import { CliError } from "../errors.ts";
 import { resolveProject } from "../resolve/project.ts";
 import { resolveExisting, resolveTarget } from "./deploy-helper.ts";
 import { printResult } from "../ui/output.ts";
+import { confirm } from "../ui/prompt.ts";
 
 /**
  * Pull the variable names out of the /api/env/list envelope. The route wraps
@@ -20,6 +21,20 @@ export function envKeysOf(body: unknown): string[] {
   };
   const vars = b.details?.variables ?? b.variables ?? {};
   return Object.keys(vars).sort();
+}
+
+/**
+ * Keys the platform removed because `prune` was set. The route reports them as
+ * `details.pruned`; a flatter `{ pruned }` is tolerated for the same reason
+ * `envKeysOf` tolerates one, and anything else reads as "nothing removed".
+ */
+export function prunedKeysOf(body: unknown): string[] {
+  const b = (body ?? {}) as {
+    details?: { pruned?: unknown };
+    pruned?: unknown;
+  };
+  const pruned = b.details?.pruned ?? b.pruned;
+  return Array.isArray(pruned) ? pruned.map(String) : [];
 }
 
 export function parseDotenv(text: string): Record<string, string> {
@@ -149,6 +164,19 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
       );
     }
     const vars = parseDotenv(await Deno.readTextFile(file));
+    // Merging is the default: a cloud-only key is usually a secret set from the
+    // portal, not a leftover. --delete-missing makes the file the whole truth.
+    const deleteMissing = ctx.raw["delete-missing"] === true;
+    if (deleteMissing) {
+      const ok = await confirm(
+        `Import with --delete-missing will REMOVE cloud variables that ${file} does not list. Continue?`,
+        { noInput: ctx.flags.noInput, yes: ctx.flags.yes },
+      );
+      if (!ok) {
+        console.log("Aborted.");
+        return 0;
+      }
+    }
     const { client, targetId, type } = await resolveVarTarget(ctx);
     // The route validates with validateSetEnvRequest: the bulk field is
     // `variables`, and anything else reads as "neither key+value nor bulk".
@@ -156,13 +184,19 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
       target_id: targetId,
       type,
       variables: vars,
+      prune: deleteMissing,
     });
     if (!res.ok) throw new CliError(`Import failed (${res.status}).`, 1);
-    console.log(
-      ctx.flags.json
-        ? JSON.stringify({ imported: Object.keys(vars).length })
-        : `Imported ${Object.keys(vars).length} vars.`,
-    );
+    const removed = prunedKeysOf(await res.json());
+    const imported = Object.keys(vars).length;
+    if (ctx.flags.json) {
+      console.log(JSON.stringify({ imported, removed }));
+    } else {
+      console.log(`Imported ${imported} vars.`);
+      if (removed.length > 0) {
+        console.log(`Removed ${removed.length}: ${removed.join(", ")}.`);
+      }
+    }
     return 0;
   };
 

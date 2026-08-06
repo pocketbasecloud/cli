@@ -13,7 +13,10 @@ import {
 } from "../config.ts";
 import {
   attachZip,
+  awaitReachable,
   buildBundle,
+  computeChooser,
+  computeFlag,
   deployResource,
   ensureTarget,
   isSubdomain,
@@ -105,9 +108,17 @@ export function makeFrontendCommands(
     if (target.name) data.name = target.name;
     if (ctx.raw.location) data.location = ctx.raw.location;
     // A Pro account's dedicated compute is `ownership: "user"`, which the
-    // platform's auto-selection (platform servers only) never picks — Pro
-    // deploys have to name it, exactly as the portal's create page does.
-    if (ctx.raw.server) data.server = ctx.raw.server;
+    // platform's auto-selection (platform servers only) never picks — Pro (and
+    // organization) deploys have to name it, exactly as the portal's create
+    // page does. Unset, the compute is chosen on the create path below.
+    const compute = computeFlag(ctx.raw);
+    if (compute) data.server = compute;
+    // Memoized: the subdomain-clash retry below runs create() twice, and the
+    // second run must not re-ask.
+    const askCompute = computeChooser(client, p.id, {
+      noInput: ctx.flags.noInput || ctx.flags.json,
+      log,
+    });
     attachZip(data, bundle);
 
     // A frontend's subdomain is required, globally unique, and permanent: it is
@@ -129,11 +140,20 @@ export function makeFrontendCommands(
         id: target.id,
         name: target.name,
         data,
-        createData: async () => ({
-          user: await resolveOwnerId(client, auth),
-          subdomain,
-          status: "pending",
-        }),
+        createData: async () => {
+          const fields: Record<string, unknown> = {
+            user: await resolveOwnerId(client, auth),
+            subdomain,
+            status: "pending",
+          };
+          // Only on create: a redeploy must never move a live site to another
+          // compute.
+          if (!data.server) {
+            const picked = await askCompute();
+            if (picked) fields.server = picked;
+          }
+          return fields;
+        },
         // frontend.service.ts only redeploys a record whose status says a new
         // archive is waiting.
         updateData: { status: "uploading" },
@@ -181,25 +201,20 @@ export function makeFrontendCommands(
       checkCommand: "frontend",
       onTick: ctx.flags.json ? undefined : (s) => console.log(`  status: ${s}`),
     });
-    console.log(
-      ctx.flags.json
-        ? JSON.stringify({ ...final, environment: target.environment })
-        : `Done: ${final.name} is ${final.status}.`,
-    );
-    // A brand-new subdomain needs DNS and a certificate before it answers, and
-    // the platform reports `running` well before that. Saying so beats a user
-    // hitting 525 and concluding the deploy failed.
-    if (created && !ctx.flags.json && final.status === "running") {
-      const url = (final as unknown as Record<string, string>).baseUrl ??
-        ((final as unknown as Record<string, string>).domain
-          ? `https://${(final as unknown as Record<string, string>).domain}`
-          : undefined);
-      if (url) {
-        console.log(
-          `  ${url}\n  A new domain can take a few minutes to become ` +
-            `reachable while its certificate is issued.`,
-        );
-      }
+    if (!ctx.flags.json) console.log(`Done: ${final.name} is ${final.status}.`);
+    const reachable = created && final.status === "running"
+      ? await awaitReachable(client, {
+        type: "frontend",
+        resource: final,
+        log,
+      })
+      : undefined;
+    if (ctx.flags.json) {
+      console.log(JSON.stringify({
+        ...final,
+        environment: target.environment,
+        ...(reachable === undefined ? {} : { reachable }),
+      }));
     }
     return final.status === "running" ? 0 : 6;
   };

@@ -36,5 +36,12 @@ export async function run(argv: string[]): Promise<number> {
 }
 
 if (import.meta.main) {
-  Deno.exit(await run(Deno.args));
+  const code = await run(Deno.args);
+  // After the command, never before: the notice is a courtesy and must not
+  // delay the work. Imported here so `run()` stays importable without it.
+  const { buildNotifyDeps, notifyUpdate } = await import(
+    "./src/self/notify.ts"
+  );
+  await notifyUpdate(Deno.args, buildNotifyDeps());
+  Deno.exit(code);
 }

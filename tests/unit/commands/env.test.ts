@@ -3,6 +3,7 @@ import {
   envKeysOf,
   makeEnvCommands,
   parseDotenv,
+  prunedKeysOf,
 } from "../../../src/commands/env.ts";
 import { createMockCloudClient } from "../../mocks/cloud.mock.ts";
 import { type Config, defaultConfig } from "../../../src/config.ts";
@@ -56,6 +57,74 @@ Deno.test("env import posts bulk-set with parsed vars", async () => {
   assertEquals(body.target_id, be.id);
   assertEquals(body.type, "backend");
   assertEquals(body.variables, { A: "1", B: "2" });
+  // Merging is the default — a cloud-only key survives an import.
+  assertEquals((body as unknown as { prune: boolean }).prune, false);
+});
+
+Deno.test("env import --delete-missing asks the platform to prune", async () => {
+  const dir = await Deno.makeTempDir();
+  await Deno.writeTextFile(join(dir, ".env"), "A=1\n");
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  await client.createResource("backends", { name: "api", project: p.id });
+  client.ext = (path: string, body: unknown) => {
+    (client.calls.ext as [string, unknown][]).push([path, body]);
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          status: "success",
+          details: { succeeded: 1, pruned: ["OLD"], pruned_count: 1 },
+        }),
+        { status: 200 },
+      ),
+    );
+  };
+  const config: Config = {
+    ...defaultConfig(),
+    cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
+    currentProject: p.id,
+  };
+  const logs: string[] = [];
+  const origLog = console.log;
+  console.log = (s: string) => logs.push(s);
+  try {
+    const cmds = makeEnvCommands({
+      requireAuth: () =>
+        Promise.resolve({ client, config, auth: config.cloud! }),
+      loadConfig: () => Promise.resolve(config),
+      saveConfig: () => Promise.resolve(),
+      cwd: () => "/tmp",
+    });
+    const code = await cmds["cloud env import"]({
+      args: [join(dir, ".env")],
+      flags: {
+        json: true,
+        // --yes stands in for the confirmation this destructive form asks for.
+        yes: true,
+        noInput: true,
+        interactive: false,
+        project: p.id,
+      },
+      raw: { target: "backend", name: "api", "delete-missing": true },
+    });
+    assertEquals(code, 0);
+    assertEquals(
+      (client.calls.ext[0][1] as { prune: boolean }).prune,
+      true,
+    );
+    assertEquals(JSON.parse(logs[0]), { imported: 1, removed: ["OLD"] });
+  } finally {
+    console.log = origLog;
+  }
+  await Deno.remove(dir, { recursive: true });
+});
+
+Deno.test("prunedKeysOf reads details.pruned and tolerates its absence", () => {
+  assertEquals(prunedKeysOf({ details: { pruned: ["A", "B"] } }), ["A", "B"]);
+  assertEquals(prunedKeysOf({ pruned: ["A"] }), ["A"]);
+  assertEquals(prunedKeysOf({ details: { succeeded: 1 } }), []);
+  assertEquals(prunedKeysOf({}), []);
+  assertEquals(prunedKeysOf(undefined), []);
 });
 
 Deno.test("env set --env writes to that environment's backend", async () => {

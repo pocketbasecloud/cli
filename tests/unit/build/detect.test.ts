@@ -1,7 +1,6 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
 import { detectPackageManager, inferBuild } from "../../../src/build/detect.ts";
-import { CliError } from "../../../src/errors.ts";
 
 /** A temp directory seeded with the given relative path → contents. */
 function dir(files: Record<string, string> = {}): string {
@@ -138,12 +137,11 @@ Deno.test("pocketbase inference records only the directories that exist", async 
   assertEquals(cfg.pbPublic, undefined);
 });
 
-Deno.test("pocketbase inference errors when none of the three exist", async () => {
-  await assertRejects(
-    () => inferBuild(dir(), "pocketbases"),
-    CliError,
-    "nothing to deploy",
-  );
+Deno.test("pocketbase inference yields an empty config when none of the three exist", async () => {
+  const cfg = await inferBuild(dir(), "pocketbases");
+  assertEquals(cfg.pbPublic, undefined);
+  assertEquals(cfg.pbHooks, undefined);
+  assertEquals(cfg.pbMigrations, undefined);
 });
 
 Deno.test("backend inference reads the project's own start task/script", async () => {

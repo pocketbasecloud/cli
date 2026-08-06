@@ -1,5 +1,6 @@
 import { join } from "@std/path";
 import { CliError } from "../errors.ts";
+import { sha256Hex } from "../hash.ts";
 import type { LocalDeps } from "./deps.ts";
 import { detectPlatform } from "./platform.ts";
 import { extractEntry } from "./unzip.ts";
@@ -28,13 +29,6 @@ export type InstallResult = {
   skipped: boolean;
   checksumVerified: boolean;
 };
-
-async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
 
 /**
  * Verifies the archive against the release's checksums.txt.

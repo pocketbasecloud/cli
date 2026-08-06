@@ -66,7 +66,15 @@ export async function resolveBuildConfig(opts: {
   };
 }
 
-/** The dotenv file a `--push-env` reads. */
-export function envFileOf(build: BuildConfig): string {
-  return build.envFile ?? ".env";
+/**
+ * The dotenv file a deploy pushes.
+ *
+ * Tri-state, and the middle state is the point: `undefined` means nobody has
+ * said yet (the deploy asks), `""` means "no env file for this environment"
+ * (asked and declined — never ask again), and a path means push that file.
+ * There is deliberately no `.env` fallback: pushing a developer's local dotenv
+ * to whichever environment happens to be deployed is an instruction nobody gave.
+ */
+export function envFileOf(build: BuildConfig): string | undefined {
+  return build.envFile;
 }

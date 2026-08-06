@@ -227,6 +227,38 @@ Deno.test("upsertEnvironment preserves unrelated fields and the env's build bloc
   }
 });
 
+Deno.test("upsertEnvironment merges an entry's build over the env's own, key by key", async () => {
+  // Deploy records one field (envFile) and knows nothing of the others — a
+  // wholesale replace would silently drop the environment's exclude list.
+  const dir = await Deno.makeTempDir();
+  try {
+    await withFile(dir, {
+      projectId: "p1",
+      kind: "backends",
+      environments: {
+        prod: {
+          id: "be1",
+          name: "api",
+          build: { runtime: "deno", exclude: ["*.map"] },
+        },
+      },
+    });
+    await upsertEnvironment(dir, {
+      projectId: "p1",
+      kind: "backends",
+      environment: "prod",
+      entry: { id: "be1", name: "api", build: { envFile: ".env.prod" } },
+    });
+    assertEquals((await readLinkFile(dir))?.environments?.prod.build, {
+      runtime: "deno",
+      exclude: ["*.map"],
+      envFile: ".env.prod",
+    });
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
 Deno.test("upsertEnvironment repoints projectId at the resource's project", async () => {
   // Otherwise `pb cloud link --project other …` would leave the file naming a
   // project the bound resource does not live in.

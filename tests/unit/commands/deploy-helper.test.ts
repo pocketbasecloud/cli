@@ -1,9 +1,20 @@
-import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import {
+  assertEquals,
+  assertRejects,
+  assertStringIncludes,
+  assertThrows,
+} from "@std/assert";
+import {
+  assertArchiveWithinLimit,
+  awaitReachable,
+  chooseCompute,
+  computeChooser,
+  computeFlag,
   deployResource,
   ensureTarget,
   findExisting,
   isSubdomain,
+  MAX_ARCHIVE_BYTES,
   missingTargetMessage,
   pollStatus,
   resolveExisting,
@@ -394,6 +405,153 @@ Deno.test("resolveOwnerId prefers the stored id and falls back to whoami", async
   assertEquals(await resolveOwnerId(c, { userId: "" }), "u1");
 });
 
+Deno.test("computeFlag reads --compute, and still honours the old --server", () => {
+  assertEquals(computeFlag({ compute: "s1" }), "s1");
+  // Pinned scripts and CI predate the rename; breaking them buys nothing.
+  assertEquals(computeFlag({ server: "s2" }), "s2");
+  assertEquals(computeFlag({ compute: "s1", server: "s2" }), "s1");
+  assertEquals(computeFlag({}), undefined);
+});
+
+/** A client whose deploy-context answers with exactly these computes. */
+function clientWithComputes(
+  computes: { id: string; name: string; location: string }[],
+  context: {
+    ownerPlan?: string;
+    isOwner?: boolean;
+    organization?: string;
+  } = {},
+) {
+  const c = createMockCloudClient();
+  c.deployContext = () =>
+    Promise.resolve({
+      ownerPlan: context.ownerPlan ?? "pro",
+      isOwner: context.isOwner ?? true,
+      organization: context.organization ?? "",
+      servers: computes,
+    });
+  return c;
+}
+
+const CPU = (id: string, name: string) => ({ id, name, location: "GRA" });
+
+Deno.test("chooseCompute takes the owner's only compute without asking", async () => {
+  const said: string[] = [];
+  const picked = await chooseCompute(
+    clientWithComputes([CPU("s1", "pro-1")]),
+    "p1",
+    { noInput: false, log: (m) => said.push(m), io: fakeIO([]) },
+  );
+  assertEquals(picked, "s1");
+  // Named the way the portal names it — never by the internal record name.
+  assertStringIncludes(said[0], "Compute 1 — Gravelines");
+  assertStringIncludes(said[0], "s1");
+});
+
+Deno.test("chooseCompute offers an organization's compute off Pro", async () => {
+  // A project shared into an organization is owned by the org owner, so its
+  // compute is the organization's — offered whatever the plan lookup says.
+  const picked = await chooseCompute(
+    clientWithComputes([CPU("s1", "org-1")], {
+      ownerPlan: "starter",
+      organization: "org1",
+    }),
+    "p1",
+    { noInput: true, log: () => {} },
+  );
+  assertEquals(picked, "s1");
+});
+
+Deno.test("chooseCompute leaves an org with no compute to the platform", async () => {
+  // An organization whose owner is not on Pro has no dedicated compute at all;
+  // the shared pool is the right answer, not an error.
+  const picked = await chooseCompute(
+    clientWithComputes([], { ownerPlan: "free", organization: "org1" }),
+    "p1",
+    { noInput: true, log: () => {} },
+  );
+  assertEquals(picked, undefined);
+});
+
+Deno.test("chooseCompute asks which compute when the owner has several", async () => {
+  const picked = await chooseCompute(
+    clientWithComputes([CPU("s1", "pro-1"), CPU("s2", "pro-2")]),
+    "p1",
+    { noInput: false, log: () => {}, io: fakeIO(["1"]) },
+  );
+  // deploy-context is newest-first, so the menu's first entry is the oldest.
+  assertEquals(picked, "s2");
+});
+
+Deno.test("chooseCompute names the ids instead of guessing under --no-input", async () => {
+  await assertRejects(
+    () =>
+      chooseCompute(
+        clientWithComputes([CPU("s1", "pro-1"), CPU("s2", "pro-2")]),
+        "p1",
+        { noInput: true, log: () => {} },
+      ),
+    CliError,
+    "--compute",
+  );
+});
+
+Deno.test("chooseCompute leaves the choice to the platform off Pro", async () => {
+  // Free/starter deploys are auto-placed in the shared pool by capacity, and
+  // a plan that cannot deploy at all gets the platform's own message. Compute
+  // the owner happens to have is not theirs to pick from outside Pro/an org.
+  const picked = await chooseCompute(
+    clientWithComputes([CPU("s1", "shared-1")], { ownerPlan: "free" }),
+    "p1",
+    { noInput: true, log: () => {} },
+  );
+  assertEquals(picked, undefined);
+});
+
+Deno.test("computeChooser asks once however often a create is retried", async () => {
+  let contexts = 0;
+  const c = clientWithComputes([CPU("s1", "pro-1"), CPU("s2", "pro-2")]);
+  const inner = c.deployContext;
+  c.deployContext = (id: string) => {
+    contexts++;
+    return inner(id);
+  };
+  const ask = computeChooser(c, "p1", {
+    noInput: false,
+    log: () => {},
+    io: fakeIO(["1"]), // One answer only: a second menu would hang.
+  });
+  assertEquals(await ask(), "s2");
+  assertEquals(await ask(), "s2");
+  assertEquals(contexts, 1);
+});
+
+Deno.test("chooseCompute refuses to fall back to shared compute on Pro", async () => {
+  await assertRejects(
+    () =>
+      chooseCompute(clientWithComputes([]), "p1", {
+        noInput: true,
+        log: () => {},
+      }),
+    CliError,
+    "No running compute on this account yet",
+  );
+});
+
+Deno.test("chooseCompute points a developer at the owner when their compute is down", async () => {
+  // The developer cannot provision compute in someone else's organization, so
+  // the message has to name who can.
+  await assertRejects(
+    () =>
+      chooseCompute(clientWithComputes([], { isOwner: false }), "p1", {
+        noInput: true,
+        log: () => {},
+      }),
+    CliError,
+    "The project owner has no running compute",
+  );
+});
+
 Deno.test("deployResource errors on a stale binding and runs onStale", async () => {
   const c = createMockCloudClient();
   let cleared = false;
@@ -477,4 +635,88 @@ Deno.test("a poll timeout names the resource and how to recover", async () => {
   assertStringIncludes(msg, "still be provisioning");
   assertStringIncludes(msg, "pb cloud pb info --name stuck-db");
   assertStringIncludes(msg, "pb cloud pb rm --name stuck-db");
+});
+
+Deno.test("awaitReachable prints the URL and stops once the domain answers", async () => {
+  const client = createMockCloudClient();
+  let probes = 0;
+  client.ext = (path, body) => {
+    client.calls.ext.push([path, body]);
+    probes++;
+    // 503 until the certificate is issued, which is what the route reports.
+    return Promise.resolve(
+      new Response(null, { status: probes < 3 ? 503 : 200 }),
+    );
+  };
+  const out: string[] = [];
+  const reachable = await awaitReachable(client, {
+    type: "pocketbase",
+    resource: { ...R("r1", "db"), baseUrl: "https://db.example.com" } as never,
+    path: "/_/",
+    log: (m) => out.push(m),
+    intervalMs: 0,
+  });
+  assertEquals(reachable, true);
+  assertEquals(probes, 3);
+  assertStringIncludes(out[0], "https://db.example.com/_/");
+  assertStringIncludes(out.join("\n"), "Reachable.");
+  assertEquals(client.calls.ext[0][0], "/api/domain/verify-reachability");
+  const body = client.calls.ext[0][1] as { type: string; id: string };
+  assertEquals(body, { type: "pocketbase", id: "r1" });
+});
+
+Deno.test("awaitReachable gives up without failing the deploy", async () => {
+  const client = createMockCloudClient();
+  client.ext = () => Promise.resolve(new Response(null, { status: 503 }));
+  const out: string[] = [];
+  const reachable = await awaitReachable(client, {
+    type: "frontend",
+    resource: { ...R("r2", "web"), domain: "web.example.com" } as never,
+    log: (m) => out.push(m),
+    timeoutMs: -1, // already past the deadline
+    intervalMs: 0,
+  });
+  assertEquals(reachable, false);
+  assertStringIncludes(out[0], "https://web.example.com");
+  assertStringIncludes(out.join("\n"), "Not reachable yet");
+});
+
+Deno.test("awaitReachable skips a resource that has no domain yet", async () => {
+  const client = createMockCloudClient();
+  const out: string[] = [];
+  const reachable = await awaitReachable(client, {
+    type: "backend",
+    resource: R("r3", "api"),
+    log: (m) => out.push(m),
+    intervalMs: 0,
+  });
+  assertEquals(reachable, false);
+  assertEquals(out, []);
+  assertEquals(client.calls.ext.length, 0);
+});
+
+// ===================================================================
+// Archive size pre-flight
+// ===================================================================
+
+Deno.test("assertArchiveWithinLimit accepts an archive at the limit", () => {
+  assertArchiveWithinLimit(new Uint8Array(MAX_ARCHIVE_BYTES), "app.zip");
+});
+
+Deno.test("assertArchiveWithinLimit rejects an over-limit archive by name and size", () => {
+  const err = assertThrows(
+    () =>
+      assertArchiveWithinLimit(
+        new Uint8Array(MAX_ARCHIVE_BYTES + 1024 * 1024),
+        "app.zip",
+      ),
+    CliError,
+  );
+
+  // The point of failing here rather than on upload: the user is told what
+  // went wrong and roughly what to do, before transferring 100MB.
+  assertStringIncludes(err.message, "app.zip");
+  assertStringIncludes(err.message, "101.0 MB");
+  assertStringIncludes(err.message, "100.0 MB limit");
+  assertEquals(err.exitCode, 2);
 });

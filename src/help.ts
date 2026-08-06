@@ -55,7 +55,13 @@ const GLOBAL_FLAGS: FlagSpec[] = [
 const EMPTY_SPEC: CommandSpec = { usage: "", summary: "", args: [], flags: [] };
 
 /** Commands that act on this machine rather than on a PocketBase instance. */
-export const LOCAL_COMMANDS = new Set(["init", "install", "versions", "which"]);
+export const LOCAL_COMMANDS = new Set([
+  "init",
+  "install",
+  "upgrade",
+  "versions",
+  "which",
+]);
 
 function specFor(key: string): CommandSpec {
   return COMMANDS[key] ?? { ...EMPTY_SPEC, usage: `Usage: pb ${key}` };
@@ -97,7 +103,7 @@ export function buildHelpText(registry: Record<string, Handler>): string {
     "",
     ...(local.length > 0
       ? [
-        "Local commands (a PocketBase binary on this machine):",
+        "Local commands (pb itself, and a PocketBase binary on this machine):",
         ...formatSection(local),
         "",
       ]

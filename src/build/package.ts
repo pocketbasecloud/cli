@@ -3,6 +3,10 @@ import { CliError } from "../errors.ts";
 import type { BuildConfig } from "../config.ts";
 import type { ResourceKind } from "../clients/types.ts";
 import { writeZip, type ZipEntry } from "./zip.ts";
+import {
+  describeStandaloneResult,
+  ensureStandaloneOutput,
+} from "./next-config.ts";
 
 /** Path segments never shipped, whatever the strategy. */
 const DENY_SEGMENTS = [".git", "pb_data", ".DS_Store"];
@@ -139,7 +143,8 @@ async function packStandalone(
     standalone,
     `.next/standalone not found in ${cwd}. Next.js backends must be built ` +
       `with output: "standalone" in next.config.* — the platform does not ` +
-      `build them (next build exhausts memory on a shared host).`,
+      `build them (next build exhausts memory on a shared host). Deploying ` +
+      `without --skip-build sets that up and builds it for you.`,
   );
 
   const opts = { keepNodeModules: true, extra };
@@ -189,13 +194,8 @@ async function packPbDirs(
       await collect(abs, canonical, { keepNodeModules: false, extra }),
     );
   }
-  if (groups.length === 0) {
-    throw new CliError(
-      `No PocketBase directories configured — set build.pbPublic, ` +
-        `build.pbHooks, or build.pbMigrations in pb.json.`,
-      2,
-    );
-  }
+  // No dirs configured: a bare instance, not an error — see packageResource's
+  // pbdirs exemption from the empty-zip check.
   return merge(groups);
 }
 
@@ -214,6 +214,16 @@ export async function packageResource(opts: {
 }): Promise<PackageResult> {
   const { cwd, kind, build, log } = opts;
   const strategy = strategyFor(kind, build.runtime);
+
+  // Before the build, not after it: `next build` only writes .next/standalone
+  // when the config asks for it, and finding that out at packaging time means
+  // the whole build was wasted. Skipped when no build runs — there is nothing
+  // left for the config to influence, and editing the project would be pure
+  // side effect.
+  if (strategy === "standalone" && build.command && !opts.skipBuild) {
+    const note = describeStandaloneResult(await ensureStandaloneOutput(cwd));
+    if (note) log(note);
+  }
 
   if (build.command && !opts.skipBuild) {
     log(`Building: ${build.command}`);
@@ -248,7 +258,9 @@ export async function packageResource(opts: {
     entries = await collect(abs, "", { keepNodeModules: false, extra });
   }
 
-  if (entries.length === 0) {
+  // pbdirs is exempt: no pb_public/pb_hooks/pb_migrations configured deploys a
+  // bare PocketBase instance, which the platform accepts with no archive.
+  if (entries.length === 0 && strategy !== "pbdirs") {
     throw new CliError(`Nothing to deploy — the packaged zip is empty.`, 2);
   }
 

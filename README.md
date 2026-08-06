@@ -51,6 +51,29 @@ Downloads the binary from the latest GitHub Release, verifies its SHA-256, and
 installs to `/usr/local/bin` (or `~/.local/bin`). Override the location with
 `PB_INSTALL_DIR`.
 
+### Staying up to date
+
+```sh
+pb upgrade --check   # what's installed vs what's published
+pb upgrade           # update in place
+```
+
+`pb upgrade` downloads the release archive for your OS and CPU, verifies its
+SHA-256 against the release's `checksums.txt`, and replaces the running binary —
+nothing is changed unless the checksum matches. Pass a version to install a
+specific release, including an older one to roll back:
+
+```sh
+pb upgrade 0.2.1
+```
+
+Only a standalone binary (the `curl | sh` installer above, or a release archive)
+can be replaced in place. An npm install has to be updated with npm, and a
+from-source install by updating its clone; in both cases `pb upgrade` prints the
+exact command and exits non-zero rather than pretending to succeed.
+
+> `pb upgrade` updates the CLI. To change your **plan**, use `pb cloud upgrade`.
+
 ### From source (Deno)
 
 For platforms without a prebuilt binary. Install from a clone, pointing `-c` at
@@ -234,10 +257,17 @@ The runtime decides what ships. `deno`, `bun`, and `nodejs` upload their source
 — the platform installs dependencies on start.
 
 `nextjs` is different: the platform does **not** run `next build` (it exhausts
-memory on a shared host), so you ship a prebuilt bundle. Set
-`output: "standalone"` in `next.config.*` and the CLI assembles
-`.next/standalone`, `.next/static`, and `public` into the layout the runtime
-expects, starting it with `node server.js`.
+memory on a shared host), so you ship a prebuilt bundle. That bundle exists only
+when the build asks for it, so **deploy adds `output: "standalone"` to
+`next.config.*` for you** — before the build, so you never lose one to a config
+you had no reason to write, and it prints the change. It writes a
+`next.config.js` if the project has none, and leaves a config that already sets
+`output` alone. The CLI then assembles `.next/standalone`, `.next/static`, and
+`public` into the layout the runtime expects, starting it with
+`node server.js`.
+
+A config setting `output: "export"` is refused rather than rewritten: that is a
+static site, so deploy it with `pb cloud frontend deploy`.
 
 ```jsonc
 // api/pb.json
@@ -245,6 +275,21 @@ expects, starting it with `node server.js`.
   "build": { "command": "npm run build", "runtime": "nextjs" }
 }
 ```
+
+Backends run on Pro compute, and creating one picks which. The compute is the
+**project owner's**, not yours: in a project shared with an organization, a
+developer on any plan deploys onto the owner's compute and against the owner's
+Pro plan. One compute is used without asking, several are offered as a menu, and
+`--compute <id>` settles it outright — which is what CI wants, since
+`--no-input` and `--json` will not choose for you. Redeploying never moves a
+backend to another compute.
+
+The same applies to `pb cloud pb deploy` and `pb cloud frontend deploy`: they
+pick a compute whenever there is one to pick — on Pro, and in a project shared
+with an organization. On the free and starter plans the platform places the
+deploy in its shared pool by capacity, so `--compute` is unnecessary there.
+`pb cloud compute ls` lists the ids the flag accepts. (`--server` is the flag's
+former name and still works.)
 
 ### PocketBase
 
@@ -269,16 +314,49 @@ were left as they are.
 
 ### Environment variables
 
-A `.env` next to `pb.json` is pushed to the PocketBase or backend it belongs to
-on every deploy. Keys in the file are written; keys that exist only in the cloud
-are left alone. Values are never printed, and the file itself never goes into
-the zip.
+**Nothing is pushed unless you name the file**, and each environment names its
+own — a `.env` holding localhost URLs and test keys has no business in
+production. The first deploy of an environment asks once and records the answer
+in `pb.json`:
 
 ```sh
-pb cloud backend deploy                      # pushes .env
-pb cloud backend deploy --skip-env           # leaves cloud env vars alone
-pb cloud backend deploy --env-file .env.prod # pushes a different file
+$ pb cloud pb deploy --env prod
+
+No env file configured for environment "prod".
+  1) Don't push env vars
+  2) .env.prod
+  3) .env
+  4) Enter a path…
+> 2
 ```
+
+```jsonc
+// pb.json — the answer, and one per environment
+"environments": {
+  "prod":    { "id": "…", "name": "api",     "build": { "envFile": ".env.prod" } },
+  "staging": { "id": "…", "name": "api-stg", "build": { "envFile": ".env.staging" } },
+  "dev":     { "id": "…", "name": "api-dev", "build": { "envFile": "" } }
+}
+```
+
+`""` means "no env file for this environment" — a recorded answer, so the
+question is never asked again. Edit `pb.json` to change any of them.
+
+```sh
+pb cloud backend deploy                        # pushes what pb.json configures
+pb cloud backend deploy --env-file .env.prod   # names it outright
+pb cloud backend deploy --skip-env             # pushes nothing this run
+pb cloud backend deploy --delete-missing       # the file is the whole truth
+```
+
+`--env-file` is also recorded, but only for an environment that has no `envFile`
+yet — a deploy never overwrites a choice already in the file. Keys in the file
+are written and cloud-only keys left alone (unless `--delete-missing`); a file
+named but not found fails the deploy before anything is provisioned. Values are
+never printed, and dotenv files never go into the zip.
+
+Under `--no-input` or `--json` nothing is asked, nothing is pushed unless
+configured, and `pb.json` is never written — so CI names its file explicitly.
 
 Frontends have no cloud env store — their variables are baked in at build time.
 
@@ -300,7 +378,7 @@ cd ../web && pb cloud frontend deploy --name my-app-web
 ```
 
 Each deploy prints what it packaged, records the binding in that directory's
-`pb.json`, and pushes a neighbouring `.env`. From then on a bare
+`pb.json`, and asks once which dotenv file this environment uses. From then on a bare
 `pb cloud <kind> deploy` in the same directory redeploys it.
 
 ### Promote staging to production
@@ -313,14 +391,17 @@ pb cloud frontend deploy --name web --env production       # --name: production 
 pb cloud frontend deploy --env production                  # from now on, no flags
 ```
 
-### Update hooks on a running instance
+### Update a running instance
 
-A PocketBase archive is read only when the instance is created, so a redeploy
-pushes hooks rather than replacing the whole instance:
+A redeploy ships the same directories as the first deploy. Hooks go through the
+hooks route (which keeps the portal's editor in sync); `pb_migrations` and
+`pb_public` travel in the archive, which the platform installs on the running
+instance — migrations merged with the ones already there, `pb_public` replaced
+wholesale, and new migrations applied by the restart that follows:
 
 ```sh
 cd db
-pb cloud pb deploy            # pushes pb_hooks/*.pb.js to the linked instance
+pb cloud pb deploy            # hooks + pb_migrations + pb_public
 pb cloud pb hooks ls          # what the instance has
 pb cloud pb hooks rm old.pb.js
 ```
@@ -356,22 +437,35 @@ pb cloud data export --name my-app-db --out data.zip   # via the platform
 pb cloud env ls --target backend --name my-app-api
 pb cloud env set API_KEY=secret --target backend --name my-app-api
 pb cloud env import .env.production --target backend --name my-app-api
+pb cloud env import .env.production --target backend --name my-app-api \
+  --delete-missing                 # the file is the whole truth
 ```
 
 Names only are listed — the platform stores values encrypted and never returns
 them in plaintext.
 
+An import merges by default: keys in the file are written, keys only in the
+cloud are left alone. `--delete-missing` removes those cloud-only keys instead,
+so the instance ends up with exactly what the file lists. The same flag works on
+`pb cloud pb deploy` and `pb cloud backend deploy`, which push the environment's
+configured dotenv file as part of a deploy.
+
 ### Diagnose a deploy that went wrong
 
 ```sh
 pb cloud pb ls                       # statuses at a glance
-pb cloud pb info --name my-app-db    # status, URL, server, admin login
+pb cloud pb info --name my-app-db    # status, URL, compute, admin login
 pb cloud logs backend --name my-app-api -f   # follow container logs
 ```
 
 If a deploy times out, the resource was still created — the error names the
-`info` and `rm` commands for it. A newly created domain also needs a few minutes
-for its certificate before it answers, even once the status reads `running`.
+`info` and `rm` commands for it.
+
+A newly created domain needs DNS and a certificate before it answers, even once
+the status reads `running`, so the first deploy of a PocketBase, backend, or
+frontend prints its URL and then waits for it to respond. Giving up on that wait
+is not a failure — the resource is running, and the exit code stays `0`. Under
+`--json` the deploy waits just the same and reports the outcome as `reachable`.
 
 ### Share a project with a team
 
@@ -381,6 +475,11 @@ pb cloud org share my-app --org <orgId>
 pb cloud org members add <orgId> teammate@example.com
 pb cloud org share my-app --none          # stop sharing
 ```
+
+Everyone in the organization deploys against the **owner's** plan and onto the
+owner's compute, so a member on the free plan can deploy backends into a shared
+project whose owner is on Pro — and give them custom domains. Deleting a
+resource stays with its owner.
 
 ### Run in CI (no browser, no prompts)
 
@@ -413,18 +512,32 @@ pb install 0.39.9                       # local binary + records the pin in pb.j
 pb cloud pb deploy --pb-version 0.39.9  # or set it per deploy
 ```
 
+### Keep `pb` itself current
+
+`pb` checks for a newer release of itself at most once a day and, when there is
+one, prints a single line on stderr after the command it was already running:
+
+```
+Update available: pb 0.2.3 → 0.2.4. Run `pb upgrade`.
+```
+
+The command it suggests matches how this copy was installed. The check is
+skipped under `--json`, when `CI` is set, and when output is redirected — so it
+never lands in a pipe or a log. `PB_NO_UPDATE_CHECK=1` turns it off entirely,
+and `pb upgrade --check` asks on demand.
+
 ## What you can do
 
 Run `pb --help`, or `pb <command> --help` for details on any command.
 
 - **Local** — `init`, `install`, `versions`, `which`: manage a pinned PocketBase
-  binary and scaffold projects.
+  binary and scaffold projects. `upgrade` updates `pb` itself.
 - **Instance** (`pb use <url>`) — `collections`, `records`, `rules`, `auth`,
   `settings` (incl. `mail`/`s3`/`backup`), `cron`, `logs`: operate any
   PocketBase instance.
 - **Cloud** (`pb cloud ...`) — `login`, `whoami`, `init`, `link`/`unlink`,
   `environments`, `project`, `pb`, `backend`, `frontend`, `env`, `logs`, `org`,
-  `server ls`, `data export`, `upgrade`, custom domains: manage your PocketBase
+  `compute ls`, `data export`, `upgrade`, custom domains: manage your PocketBase
   Cloud account and deployments. (`data import` is not implemented — the
   platform's import needs a target collection and a field mapping, so use the
   portal's import dialog.)

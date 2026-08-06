@@ -110,8 +110,12 @@ Deno.test("build config comes from the cwd's own pb.json, never a parent's", asy
   assertEquals(cfg.outputDir, "dist");
 });
 
-Deno.test("envFileOf defaults to .env", () => {
-  assertEquals(envFileOf({}), ".env");
+Deno.test("envFileOf is tri-state and never falls back to .env", () => {
+  // Unset is "nobody has said yet" — the deploy asks. It must not read as ".env",
+  // which would push a developer's local dotenv to whatever is being deployed.
+  assertEquals(envFileOf({}), undefined);
+  // Empty string is an answer: no env file for this environment.
+  assertEquals(envFileOf({ envFile: "" }), "");
   assertEquals(envFileOf({ envFile: ".env.production" }), ".env.production");
 });
 
@@ -212,6 +216,29 @@ Deno.test("flags still beat an environment's block", async () => {
   const own = await readOwnPbJson(cwd);
   assertEquals(own.build?.runtime, "nodejs");
   assertEquals(own.environments?.staging.build?.runtime, "deno");
+});
+
+Deno.test('an environment can override a base envFile with "" to push nothing', async () => {
+  const cwd = seed({
+    "pb.json": JSON.stringify({
+      projectId: "p1",
+      kind: "backends",
+      build: { runtime: "deno", envFile: ".env" },
+      environments: {
+        dev: { id: "be1", name: "api-dev", build: { envFile: "" } },
+      },
+    }),
+  });
+  const cfg = await resolveBuildConfig({
+    cwd,
+    kind: "backends",
+    flags: {},
+    environment: "dev",
+    log: noop,
+  });
+  // Not undefined — "" is an answer, and an answer beats the base file.
+  assertEquals(envFileOf(cfg), "");
+  assertEquals(cfg.runtime, "deno");
 });
 
 Deno.test("an environment-only build block suppresses inference", async () => {

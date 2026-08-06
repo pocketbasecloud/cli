@@ -122,12 +122,14 @@ export async function fillMissingFromSpec(
 export async function select<T>(
   question: string,
   items: T[],
-  label: (t: T) => string,
+  // The index is passed through for labels that are positional rather than
+  // intrinsic — a compute is named "Compute N" by its place in the list.
+  label: (t: T, index: number) => string,
   opts: PromptOpts,
 ): Promise<T> {
   const io = resolveIO(opts);
   io.write(`${question}\n`);
-  items.forEach((it, i) => io.write(`  ${i + 1}) ${label(it)}\n`));
+  items.forEach((it, i) => io.write(`  ${i + 1}) ${label(it, i)}\n`));
   io.write("> ");
   const raw = (await io.read() ?? "").trim();
   const idx = Number(raw) - 1;
