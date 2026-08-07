@@ -16,64 +16,169 @@ import {
 import { FALLBACK_VERSIONS, resolveLatest } from "../local/releases.ts";
 import {
   attachZip,
+  awaitDeployment,
   awaitReachable,
   buildBundle,
   computeChooser,
   computeFlag,
+  deployProgress,
   deployResource,
   ensureTarget,
   envFileEntry,
-  pollStatus,
   pushEnvFile,
+  reportUrl,
   resolveAdminCredentials,
   resolveEnvFile,
   resolveExisting,
   resolveOwnerId,
   resolveTarget,
+  uploadLabel,
 } from "./deploy-helper.ts";
 import { reportRemoval } from "./environments.ts";
 
 /**
- * Uploads every *.pb.js in `dir` and returns how many were sent. Shared by
- * `hooks push` and by `deploy`'s redeploy path: hooks are stored in the
- * platform's database (so the portal's editor stays in sync) and therefore
- * never travel in the deploy archive, which carries pb_public and
- * pb_migrations only.
+ * What the platform accepts as a hook file. Mirrors `ALLOWED_EXTENSIONS` in
+ * `backend-extension/src/dto/hook.dto.ts` — keep the two in step. PocketBase
+ * itself only auto-loads `*.pb.js`, but a hook routinely `require()`s a plain
+ * `.js` helper or a `.json` data file beside it, and those have to travel too
+ * or the hook that needs them breaks on the instance.
+ */
+const HOOK_EXTENSIONS = [".js", ".json"];
+
+/**
+ * How many hook files one push may carry.
+ *
+ * Deliberately *below* the platform's own ceiling of 50
+ * (`validateBulkWriteHooksInput` in `server-agent/src/dto/hook.dto.ts`): a
+ * pb_hooks directory this large is nearly always a wrong `--name` or a
+ * directory that is not pb_hooks at all, and catching that here beats
+ * uploading it. This is a CLI guard rail, not a platform rule — the portal and
+ * a direct API call still write up to 50.
+ */
+const MAX_HOOKS_PER_PUSH = 10;
+
+/**
+ * Uploads every hook file in `dir`. Shared by `hooks push` and by `deploy`'s
+ * redeploy path: hooks are stored in the platform's database (so the portal's
+ * editor stays in sync) and therefore never travel in the deploy archive,
+ * which carries pb_public and pb_migrations only.
+ *
+ * `sent` and `stored` are separate because they fail differently: `sent: 0`
+ * means the directory held nothing uploadable, while `sent: 3, stored: 2`
+ * means the platform refused a file. Collapsing them into one count reports
+ * the second case as the first.
  *
  * Hooks belong to one PocketBase instance, not to the project: `pocketbaseId`
  * is the instance record's id.
+ *
+ * Anything left behind is reported through `log`. Silently dropping a file is
+ * the bug this function was rewritten to fix — a skipped `helpers.js` surfaces
+ * much later as a `require` error inside the running instance, with nothing in
+ * the deploy output to connect the two.
  */
 export async function pushHooks(
   client: ICloudClient,
   pocketbaseId: string,
   dir: string,
-): Promise<number> {
-  const hooks: { filename: string; content: string; active: boolean }[] = [];
+  log: (msg: string) => void = () => {},
+): Promise<{ sent: number; stored: number }> {
+  const names: string[] = [];
+  const subdirs: string[] = [];
+  // Only the listing is guarded: folding the file reads into this try would
+  // report an unreadable hook file as a missing directory.
   try {
     for await (const entry of Deno.readDir(dir)) {
-      if (entry.isFile && entry.name.endsWith(".pb.js")) {
-        hooks.push({
-          filename: entry.name,
-          content: await Deno.readTextFile(join(dir, entry.name)),
-          // Sent explicitly: the service treats a missing `active` as active
-          // when deciding what to write to the server, but records it verbatim,
-          // so an omitted flag lands in the database as false and the portal
-          // then shows a live hook as disabled.
-          active: true,
-        });
+      // The platform stores hooks as flat files: validateHookFilename() in the
+      // agent rejects a name holding "/" or "\", so nothing under a
+      // subdirectory has a route to the instance. Say so rather than descend.
+      if (entry.isDirectory) {
+        subdirs.push(entry.name);
+        continue;
       }
+      if (!entry.isFile) continue;
+      if (!HOOK_EXTENSIONS.some((ext) => entry.name.endsWith(ext))) continue;
+      names.push(entry.name);
     }
   } catch {
     throw new CliError(`Hooks directory not found: ${dir}`, 2);
   }
-  if (hooks.length === 0) return 0;
+  for (const name of subdirs) {
+    log(
+      `Skipped ${name}/ — the platform stores hooks as flat files, so ` +
+        `subdirectories are not uploaded.`,
+    );
+  }
+  if (names.length === 0) return { sent: 0, stored: 0 };
+  // Before the files are read, not after: the batch is already refused, so
+  // reading it would be work thrown away.
+  if (names.length > MAX_HOOKS_PER_PUSH) {
+    // Names the directory, because the usual cause is that it is not the one
+    // the user meant — a bare `pb cloud pb hooks push .` in a project root
+    // lands here rather than uploading the repository.
+    throw new CliError(
+      `${names.length} hook files in ${dir} — pb pushes at most ` +
+        `${MAX_HOOKS_PER_PUSH} at a time. Check that this is your pb_hooks ` +
+        `directory.`,
+      2,
+    );
+  }
+  const hooks: { filename: string; content: string; active: boolean }[] = [];
+  for (const filename of names) {
+    hooks.push({
+      filename,
+      content: await Deno.readTextFile(join(dir, filename)),
+      // Sent explicitly: the service treats a missing `active` as active when
+      // deciding what to write to the server, but records it verbatim, so an
+      // omitted flag lands in the database as false and the portal then shows
+      // a live hook as disabled.
+      active: true,
+    });
+  }
   // Service-key-guarded on backend-extension, so it goes through PocketBase.
   const res = await client.pbApi("/api/hooks/bulk-write", {
     pocketbase_id: pocketbaseId,
     hooks,
   });
   if (!res.ok) throw new CliError(`Hook push failed (${res.status}).`, 1);
-  return hooks.length;
+  return {
+    sent: hooks.length,
+    stored: await reportHookResults(res, hooks.length, log),
+  };
+}
+
+/**
+ * Reads the per-file outcome out of a bulk-write response and returns how many
+ * files the platform actually stored. A 200 only means the batch was accepted:
+ * `details.results[]` can still carry individual failures, and counting the
+ * files we sent instead of the ones that landed reports a push that partly
+ * failed as a complete one.
+ */
+async function reportHookResults(
+  res: Response,
+  sent: number,
+  log: (msg: string) => void,
+): Promise<number> {
+  let body: {
+    details?: {
+      succeeded?: number;
+      results?: { filename: string; status: string; error_message?: string }[];
+    };
+  };
+  try {
+    body = await res.json();
+  } catch {
+    // An unreadable body is not a failed push — the write already succeeded.
+    return sent;
+  }
+  const failures = (body.details?.results ?? []).filter((r) =>
+    r.status === "failed"
+  );
+  for (const f of failures) {
+    log(`Hook rejected: ${f.filename} — ${f.error_message ?? "unknown error"}`);
+  }
+  return typeof body.details?.succeeded === "number"
+    ? body.details.succeeded
+    : sent - failures.length;
 }
 
 /**
@@ -118,7 +223,11 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
   }
 
   const deploy: Handler = async (ctx: CmdCtx) => {
-    const { client, project: p, auth } = await project(ctx);
+    const progress = deployProgress(ctx.flags.json);
+    const { client, project: p, auth } = await progress.step(
+      "Connecting to PocketBase Cloud",
+      () => project(ctx),
+    );
     const cwd = deps.cwd();
     const name = (ctx.raw.name as string) ?? ctx.args[0];
     const id = ctx.raw.id as string | undefined;
@@ -136,7 +245,7 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
         noInput: ctx.flags.noInput || ctx.flags.json,
       },
     );
-    const log = ctx.flags.json ? () => {} : (m: string) => console.log(m);
+    const log = (m: string) => progress.log(m);
     const zipPath = ctx.raw.zip as string | undefined;
     const data: Record<string, unknown> = { project: p.id };
     if (target.name) data.name = target.name;
@@ -163,6 +272,7 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
       envFile: ctx.raw["env-file"] as string | undefined,
       environment: target.environment,
       log,
+      progress,
     });
     const build: BuildConfig = bundle.build;
     // Resolved here, beside the packaging, so a named-but-missing env file
@@ -191,47 +301,55 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
 
     let credentials: { adminUsername: string; adminPassword: string } | null =
       null;
-    const { resource, created } = await deployResource(
-      client,
-      "pocketbases",
-      p.id,
-      {
-        id: target.id,
-        name: target.name,
-        data,
-        updateData,
-        createData: async () => {
-          credentials = await resolveAdminCredentials(client, {
-            username: ctx.raw["admin-email"] as string | undefined,
-            password: ctx.raw["admin-password"] as string | undefined,
-          });
-          const extra: Record<string, unknown> = {
-            user: await resolveOwnerId(client, auth),
-            status: "creating",
-            ...credentials,
-          };
-          // Only on create, and only lazily: a redeploy must never move a
-          // running instance to another compute, and asking costs a request.
-          if (!data.server) {
-            const picked = await askCompute();
-            if (picked) extra.server = picked;
-          }
-          // Which PocketBase build the agent installs. The directory's pin is
-          // the right default: it is the version already developed against.
-          extra.version = await resolveDeployVersion(
-            ctx.raw["pb-version"] as string | undefined,
-            cwd,
-            deps,
-          );
-          attachZip(extra, bundle);
-          return extra;
-        },
-        requireExisting: target.fromBinding,
-        environment: target.environment,
-        onStale: async () => {
-          await removeEnvironment(cwd, target.environment);
-        },
-      },
+    // The archive travels inside this call. With no pb_public/pb_migrations to
+    // send there is nothing to weigh, so the step says what it is really doing.
+    const { resource, created } = await progress.step(
+      hasUploadableDirs ? uploadLabel(bundle) : "Sending the deploy request",
+      () =>
+        deployResource(
+          client,
+          "pocketbases",
+          p.id,
+          {
+            id: target.id,
+            name: target.name,
+            data,
+            updateData,
+            createData: async () => {
+              credentials = await resolveAdminCredentials(client, {
+                username: ctx.raw["admin-email"] as string | undefined,
+                password: ctx.raw["admin-password"] as string | undefined,
+              });
+              const extra: Record<string, unknown> = {
+                user: await resolveOwnerId(client, auth),
+                status: "creating",
+                ...credentials,
+              };
+              // Only on create, and only lazily: a redeploy must never move a
+              // running instance to another compute, and asking costs a
+              // request.
+              if (!data.server) {
+                const picked = await askCompute();
+                if (picked) extra.server = picked;
+              }
+              // Which PocketBase build the agent installs. The directory's pin
+              // is the right default: it is the version already developed
+              // against.
+              extra.version = await resolveDeployVersion(
+                ctx.raw["pb-version"] as string | undefined,
+                cwd,
+                deps,
+              );
+              attachZip(extra, bundle);
+              return extra;
+            },
+            requireExisting: target.fromBinding,
+            environment: target.environment,
+            onStale: async () => {
+              await removeEnvironment(cwd, target.environment);
+            },
+          },
+        ),
     );
     await upsertEnvironment(cwd, {
       projectId: p.id,
@@ -245,13 +363,20 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
     });
 
     if (!created) {
-      if (build.pbHooks) {
-        const n = await pushHooks(
-          client,
-          resource.id,
-          join(cwd, build.pbHooks),
-        );
-        log(`Pushed ${n} hook file(s).`);
+      // Bound outside the step callback: narrowing an optional property does
+      // not survive into a closure, since nothing stops `build` being mutated
+      // in between.
+      const hooksDir = build.pbHooks;
+      if (hooksDir) {
+        await progress.step("Pushing hook files", async () => {
+          const { stored } = await pushHooks(
+            client,
+            resource.id,
+            join(cwd, hooksDir),
+            log,
+          );
+          log(`Pushed ${stored} hook file(s).`);
+        });
       }
       log(
         hasUploadableDirs
@@ -271,36 +396,32 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
         vars: env.push.vars,
         deleteMissing: ctx.raw["delete-missing"] === true,
         log,
+        progress,
       });
     }
-    if (!ctx.flags.json) {
-      console.log(
-        `${created ? "Creating" : "Redeploying"} ${resource.name} ` +
-          `(environment: ${target.environment})…`,
-      );
-    }
-    const final = await pollStatus(client, "pocketbases", resource.id, {
-      terminal: ["running", "error", "failed"],
-      timeoutMs: 300_000,
-      intervalMs: 3_000,
+    const final = await awaitDeployment(client, "pocketbases", resource, {
+      progress,
+      created,
+      environment: target.environment,
       label: "PocketBase",
       checkCommand: "pb",
-      onTick: ctx.flags.json ? undefined : (s) => console.log(`  status: ${s}`),
     });
     // The admin account exists only on the new instance, so a generated
     // password has to be shown once — `pb cloud pb info` can recover it later.
     const admin = credentials as
       | { adminUsername: string; adminPassword: string }
       | null;
-    if (!ctx.flags.json) console.log(`Done: ${final.name} is ${final.status}.`);
-    // The dashboard, not the API root: it is where a new instance is actually
-    // used, and the URL a user would otherwise have to know to append /_/ to.
+    // Both URLs: the instance itself, and the dashboard a user would otherwise
+    // have to know to append /_/ to.
+    if (final.status === "running") {
+      reportUrl(final, { log, paths: [{ path: "/_/", label: "admin" }] });
+    }
     const reachable = created && final.status === "running"
       ? await awaitReachable(client, {
         type: "pocketbase",
         resource: final,
-        path: "/_/",
         log,
+        progress,
       })
       : undefined;
     if (ctx.flags.json) {
@@ -405,12 +526,20 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
       ...ctx,
       args: ctx.args.slice(1),
     });
-    const pushed = await pushHooks(client, found.id, dir);
-    if (pushed === 0) throw new CliError(`No *.pb.js files in ${dir}.`, 2);
+    // Skip/rejection notices would corrupt the machine-readable output, so
+    // under --json they are dropped the way the deploy path drops its own.
+    const log = ctx.flags.json ? () => {} : (m: string) => console.log(m);
+    const { sent, stored } = await pushHooks(client, found.id, dir, log);
+    if (sent === 0) {
+      throw new CliError(
+        `No ${HOOK_EXTENSIONS.join(" or ")} files in ${dir}.`,
+        2,
+      );
+    }
     console.log(
       ctx.flags.json
-        ? JSON.stringify({ pushed })
-        : `Pushed ${pushed} hook file(s).`,
+        ? JSON.stringify({ pushed: stored })
+        : `Pushed ${stored} hook file(s).`,
     );
     return 0;
   };

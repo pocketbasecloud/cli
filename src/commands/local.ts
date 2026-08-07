@@ -6,6 +6,7 @@ import { installBinary, pinVersion, readPin } from "../local/install.ts";
 import { scaffoldProject } from "../local/scaffold.ts";
 import { listVersions } from "../local/releases.ts";
 import { detectPlatform } from "../local/platform.ts";
+import { createProgress, type Progress } from "../ui/progress.ts";
 
 const NO_CHECKSUM_WARNING =
   "Warning: no checksums.txt for this release; skipped verification.";
@@ -38,10 +39,22 @@ function installOptsFrom(deps: LocalDeps, ctx: CmdCtx) {
 export function makeLocalCommands(
   deps: LocalDeps,
   write: (s: string) => void = console.log,
+  progress: Progress = createProgress(),
 ): Record<string, Handler> {
+  /**
+   * Downloading a PocketBase release, checksumming it and unzipping it takes
+   * as long as the connection takes. Nothing is printed until it lands, so the
+   * step carries the wait.
+   */
+  const download = (ctx: CmdCtx) =>
+    progress.step(
+      "Downloading PocketBase",
+      () => installBinary(deps, installOptsFrom(deps, ctx)),
+    );
+
   const install: Handler = async (ctx: CmdCtx) => {
     const dir = dirOf(deps, ctx);
-    const res = await installBinary(deps, installOptsFrom(deps, ctx));
+    const res = await download(ctx);
     // Only pin what was actually installed — a skipped install leaves the
     // existing pin alone.
     if (!res.skipped) await pinVersion(deps, dir, res.version);
@@ -65,7 +78,7 @@ export function makeLocalCommands(
 
   const init: Handler = async (ctx: CmdCtx) => {
     const dir = dirOf(deps, ctx);
-    const res = await installBinary(deps, installOptsFrom(deps, ctx));
+    const res = await download(ctx);
     const scaffold = await scaffoldProject(deps, dir);
     if (!res.skipped) await pinVersion(deps, dir, res.version);
 

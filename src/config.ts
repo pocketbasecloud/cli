@@ -65,6 +65,14 @@ export type EnvEntry = {
 export type BuildConfig = {
   /** Shell command run in the resource directory. Omit for no build step. */
   command?: string;
+  /**
+   * How dependencies get installed when the build needs some that are not
+   * there. Unset infers it from the lockfile (`pnpm install`, `npm install`, …)
+   * and runs it at the workspace root; an empty string disables the step for
+   * projects that install their own way. Never runs when nothing is missing,
+   * and never without a `command` to build.
+   */
+  install?: string;
   /** Directory whose contents become the zip root. */
   outputDir?: string;
   /** Backends only. Mirrors --runtime; selects the packaging strategy. */

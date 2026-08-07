@@ -152,15 +152,23 @@ records it as the default, so the first deploy has nothing left to ask.`,
 instance. Their locations come from the "build" block in pb.json, which
 is inferred from the directory and written there on the first deploy.
 
-A redeploy ships them too: pb_hooks/*.pb.js go through the hooks route (which
-keeps the portal's editor in sync), and the archive's pb_migrations and
-pb_public are installed on the running instance — migrations merged with the
-ones already there, pb_public replaced wholesale. New migrations are applied
-by the restart that follows.
+A redeploy ships them too: the .js and .json files in pb_hooks go through the
+hooks route (which keeps the portal's editor in sync), and the archive's
+pb_migrations and pb_public are installed on the running instance — migrations
+merged with the ones already there, pb_public replaced wholesale. New
+migrations are applied by the restart that follows.
+
+Hooks are stored as flat files, so a subdirectory of pb_hooks is not uploaded
+and the deploy says which ones it skipped.
 
 A new instance gets a superuser account: your account email, and a generated
 password printed once when the deploy finishes (and readable afterwards with
 \`pb cloud pb info\`). Override either with --admin-email/--admin-password.
+
+Each wait — installing, building, packaging, uploading, provisioning, waiting
+for the domain — is reported as its own step, with a spinner and the elapsed
+time on a terminal, plain lines when the output is piped, and nothing at all
+under --json.
 
 Env vars are pushed only from the file you name — nothing is uploaded by
 default. Each environment has its own: the first deploy of an environment asks
@@ -295,10 +303,16 @@ never moves an existing instance.`,
   },
   "cloud pb hooks push": {
     usage: "pb cloud pb hooks push <dir> [--name <instance>] [--project <id>]",
-    summary: "Upload every *.pb.js file in <dir> as a hook.",
+    summary: "Upload every .js and .json file in <dir> as a hook.",
     details:
       `Hooks belong to one PocketBase instance. Name it with --name/--id, or let
-the directory's pb.json binding pick it.`,
+the directory's pb.json binding pick it.
+
+PocketBase itself only runs *.pb.js, but the plain .js and .json files beside
+them are uploaded too — a hook that requires a helper module or a data file
+needs it on the instance. Subdirectories are not uploaded: the platform stores
+hooks as flat files. At most 10 files per push — a bigger directory is nearly
+always the wrong one.`,
     args: [{ name: "dir", required: true }],
     flags: [{ name: "name", type: "string", required: false }],
   },
@@ -331,6 +345,17 @@ the directory's pb.json binding pick it.`,
 come from the "build" block in pb.json, which is inferred from the directory
 (vite/svelte/angular/next config, package.json build script) and written there
 on the first deploy.
+
+A build needs its dependencies, so deploy installs them first when something
+package.json declares is not installed — with the package manager the lockfile
+names, at the workspace root when the project is one. A tree that is already
+installed is left alone; "install" in the build block sets the command outright,
+and "" turns the step off.
+
+Each wait — installing, building, packaging, uploading, provisioning, waiting
+for the domain — is reported as its own step, with a spinner and the elapsed
+time on a terminal, plain lines when the output is piped, and nothing at all
+under --json.
 
 Frontends have no cloud env store — build-time variables are baked into the
 bundle, so --env-file is rejected here.
@@ -456,6 +481,14 @@ on the first deploy.
 deno, bun, and nodejs ship their source — the platform installs dependencies on
 start, so node_modules is excluded.
 
+Where there is a build command, it needs its dependencies, so deploy installs
+them first when something package.json declares is not installed — with the
+package manager the lockfile names, at the workspace root when the project is
+one. This is what keeps a Next.js deploy from a fresh clone or a CI runner from
+dying on "next: not found". A tree that is already installed is left alone;
+"install" in the build block sets the command outright, and "" turns the step
+off.
+
 nextjs ships a prebuilt bundle: the platform does not run next build (it
 exhausts memory on a shared host). That bundle only exists when the build asks
 for it, so deploy adds output: "standalone" to next.config.* before building
@@ -464,6 +497,11 @@ assembles .next/standalone, .next/static, and public into the layout the
 runtime expects, defaulting the start command to "node server.js". A config
 that already sets output is left alone; output: "export" is a static site, so
 deploy it with "pb cloud frontend deploy" instead.
+
+Each wait — installing, building, packaging, uploading, provisioning, waiting
+for the domain — is reported as its own step, with a spinner and the elapsed
+time on a terminal, plain lines when the output is piped, and nothing at all
+under --json.
 
 Env vars are pushed only from the file you name — nothing is uploaded by
 default. Each environment has its own: the first deploy of an environment asks

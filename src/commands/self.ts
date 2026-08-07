@@ -1,5 +1,6 @@
 import type { CmdCtx, Handler } from "../router.ts";
 import { applyUpgrade, planUpgrade, type SelfDeps } from "../self/upgrade.ts";
+import { createProgress, type Progress } from "../ui/progress.ts";
 
 /**
  * `pb upgrade` — updates `pb` itself. Distinct from `pb cloud upgrade`, which
@@ -8,14 +9,19 @@ import { applyUpgrade, planUpgrade, type SelfDeps } from "../self/upgrade.ts";
 export function makeSelfCommands(
   deps: SelfDeps,
   write: (s: string) => void = console.log,
+  progress: Progress = createProgress(),
 ): Record<string, Handler> {
   const upgrade: Handler = async (ctx: CmdCtx) => {
     const check = ctx.raw.check === true;
-    const { plan, manifest } = await planUpgrade(deps, {
-      version: ctx.args[0],
-      // --check must never install, so it also ignores --force.
-      force: !check && ctx.raw.force === true,
-    });
+    const { plan, manifest } = await progress.step(
+      "Checking for a newer pb",
+      () =>
+        planUpgrade(deps, {
+          version: ctx.args[0],
+          // --check must never install, so it also ignores --force.
+          force: !check && ctx.raw.force === true,
+        }),
+    );
 
     if (check) {
       if (ctx.flags.json) {
@@ -72,7 +78,11 @@ export function makeSelfCommands(
       return 1;
     }
 
-    const res = await applyUpgrade(deps, plan, manifest);
+    // Fetching and verifying a ~40 MB binary, then swapping it in place.
+    const res = await progress.step(
+      `Downloading pb ${plan.target}`,
+      () => applyUpgrade(deps, plan, manifest),
+    );
     if (ctx.flags.json) {
       write(JSON.stringify({ ...plan, upgraded: true, ...res }));
       return 0;

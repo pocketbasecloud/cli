@@ -1,4 +1,4 @@
-import { join } from "@std/path";
+import { dirname, join, resolve } from "@std/path";
 import type { BuildConfig } from "../config.ts";
 import type { ResourceKind } from "../clients/types.ts";
 
@@ -25,14 +25,48 @@ async function hasConfig(dir: string, stem: string): Promise<boolean> {
   return false;
 }
 
+/** Lockfile → manager, in precedence order. `bun.lock` is bun 1.2's text form. */
+const LOCKFILES: ReadonlyArray<readonly [string, PackageManager]> = [
+  ["bun.lockb", "bun"],
+  ["bun.lock", "bun"],
+  ["pnpm-lock.yaml", "pnpm"],
+  ["yarn.lock", "yarn"],
+  ["package-lock.json", "npm"],
+];
+
 /** Lockfile wins over any `packageManager` field — it is what CI actually ran. */
 export async function detectPackageManager(
   dir: string,
 ): Promise<PackageManager> {
-  if (await exists(join(dir, "bun.lockb"))) return "bun";
-  if (await exists(join(dir, "pnpm-lock.yaml"))) return "pnpm";
-  if (await exists(join(dir, "yarn.lock"))) return "yarn";
+  for (const [file, manager] of LOCKFILES) {
+    if (await exists(join(dir, file))) return manager;
+  }
   return "npm";
+}
+
+/**
+ * The nearest directory at or above `dir` holding a lockfile, and the manager
+ * it names. Walking up is what makes a workspace package work: its own
+ * directory has no lockfile, and installing there rather than at the workspace
+ * root is exactly the mistake that produces a broken nested `node_modules`.
+ *
+ * A candidate must also have a package.json, so the walk cannot wander out of
+ * the project and settle on a stray lockfile in a home directory.
+ */
+export async function findPackageManagerRoot(
+  dir: string,
+): Promise<{ dir: string; manager: PackageManager } | null> {
+  let current = resolve(dir);
+  while (true) {
+    if (await exists(join(current, "package.json"))) {
+      for (const [file, manager] of LOCKFILES) {
+        if (await exists(join(current, file))) return { dir: current, manager };
+      }
+    }
+    const parent = dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
 }
 
 /** The `build` script from package.json, or null when there is none. */
@@ -127,7 +161,7 @@ async function inferBackend(dir: string): Promise<BuildConfig> {
       startCommand: await hasDenoStartTask(dir) ? "deno task start" : undefined,
     };
   }
-  if (await exists(join(dir, "bun.lockb"))) {
+  if (await detectPackageManager(dir) === "bun") {
     return {
       runtime: "bun",
       outputDir: ".",

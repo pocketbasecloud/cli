@@ -1,5 +1,6 @@
 import { CliError } from "../errors.ts";
 import type { CommandSpec } from "../usage.ts";
+import { pauseProgress } from "./progress.ts";
 
 export type PromptIO = {
   read: () => Promise<string | null>;
@@ -43,14 +44,28 @@ export function canPrompt(opts: PromptOpts): boolean {
   return (opts.io ?? stdinIO()).isTTY;
 }
 
+/**
+ * Every question goes through here, and every question suspends whatever
+ * animation is running first: a spinner redrawing itself over the line the user
+ * is typing on is unreadable, and the deploy path asks (which compute? which
+ * environment?) from inside work that is already reporting progress.
+ */
+function ask<T>(fn: () => Promise<T>): Promise<T> {
+  return pauseProgress(fn);
+}
+
+// Async, not a promise-returning sync function: `resolveIO` throws when input
+// is impossible, and callers (and their tests) expect that as a rejection.
 export async function prompt(
   question: string,
   opts: PromptOpts,
 ): Promise<string> {
   const io = resolveIO(opts);
-  io.write(`${question} `);
-  const answer = await io.read();
-  return (answer ?? "").trim();
+  return await ask(async () => {
+    io.write(`${question} `);
+    const answer = await io.read();
+    return (answer ?? "").trim();
+  });
 }
 
 export async function confirm(
@@ -68,9 +83,11 @@ export async function confirm(
     );
   }
   const io = resolveIO(opts);
-  io.write(`${question} [y/N] `);
-  const answer = (await io.read() ?? "").trim().toLowerCase();
-  return answer === "y" || answer === "yes";
+  return await ask(async () => {
+    io.write(`${question} [y/N] `);
+    const answer = (await io.read() ?? "").trim().toLowerCase();
+    return answer === "y" || answer === "yes";
+  });
 }
 
 /** Prompt repeatedly until a non-empty answer is given (a required value). */
@@ -128,10 +145,12 @@ export async function select<T>(
   opts: PromptOpts,
 ): Promise<T> {
   const io = resolveIO(opts);
-  io.write(`${question}\n`);
-  items.forEach((it, i) => io.write(`  ${i + 1}) ${label(it, i)}\n`));
-  io.write("> ");
-  const raw = (await io.read() ?? "").trim();
+  const raw = await ask(async () => {
+    io.write(`${question}\n`);
+    items.forEach((it, i) => io.write(`  ${i + 1}) ${label(it, i)}\n`));
+    io.write("> ");
+    return (await io.read() ?? "").trim();
+  });
   const idx = Number(raw) - 1;
   if (!Number.isInteger(idx) || idx < 0 || idx >= items.length) {
     throw new CliError(`Invalid selection: ${raw}`, 2);

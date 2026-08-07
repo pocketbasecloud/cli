@@ -7,6 +7,8 @@ import {
   describeStandaloneResult,
   ensureStandaloneOutput,
 } from "./next-config.ts";
+import { describeInstall, planInstall } from "./install.ts";
+import { plainProgress, type Progress } from "../ui/progress.ts";
 
 /** Path segments never shipped, whatever the strategy. */
 const DENY_SEGMENTS = [".git", "pb_data", ".DS_Store"];
@@ -210,9 +212,12 @@ export async function packageResource(opts: {
   build: BuildConfig;
   skipBuild: boolean;
   log: (msg: string) => void;
+  /** Reports the waits. Defaults to plain lines through `log`. */
+  progress?: Progress;
   run?: CommandRunner;
 }): Promise<PackageResult> {
   const { cwd, kind, build, log } = opts;
+  const progress = opts.progress ?? plainProgress(log);
   const strategy = strategyFor(kind, build.runtime);
 
   // Before the build, not after it: `next build` only writes .next/standalone
@@ -226,47 +231,87 @@ export async function packageResource(opts: {
   }
 
   if (build.command && !opts.skipBuild) {
-    log(`Building: ${build.command}`);
-    const { code } = await (opts.run ?? runShell)(build.command, cwd);
-    if (code !== 0) {
-      throw new CliError(`Build failed (${build.command} exited ${code}).`, 7);
+    const run = opts.run ?? runShell;
+    // Before the build, because the build is what needs them: a project whose
+    // node_modules is missing (fresh clone, CI runner, a dependency added but
+    // never installed) fails with `sh: next: not found` and no hint that the
+    // fix is an install. `install: ""` in pb.json opts out.
+    const plan = build.install === ""
+      ? null
+      : await planInstall(cwd, build.install);
+    if (plan) {
+      // Not animated: the package manager writes its own progress to the same
+      // terminal, and frames drawn against it would be shredded.
+      await progress.step(describeInstall(plan), async (step) => {
+        const { code } = await run(plan.command, plan.cwd);
+        if (code !== 0) {
+          throw new CliError(
+            `Installing dependencies failed (${plan.command} exited ${code} ` +
+              `in ${plan.cwd}). Install them yourself and deploy again, or ` +
+              `set "install" in the build block of pb.json to the right ` +
+              `command.`,
+            7,
+          );
+        }
+        step.done(`Installed dependencies (${plan.command})`);
+      }, { animate: false });
     }
+
+    await progress.step(`Building: ${build.command}`, async (step) => {
+      const { code } = await run(build.command as string, cwd);
+      if (code !== 0) {
+        throw new CliError(
+          `Build failed (${build.command} exited ${code}).`,
+          7,
+        );
+      }
+      step.done(`Built (${build.command})`);
+    }, { animate: false });
   }
 
   const extra = (build.exclude ?? []).map((g) =>
     globToRegExp(g, { globstar: true })
   );
-  let entries: ZipEntry[];
-  let startCommand: string | undefined;
 
-  if (strategy === "standalone") {
-    const packed = await packStandalone(cwd, extra);
-    entries = packed.entries;
-    startCommand = packed.startCommand;
-  } else if (strategy === "pbdirs") {
-    entries = await packPbDirs(cwd, build, extra);
-  } else {
-    const dir = build.outputDir ?? (strategy === "static" ? "dist" : ".");
-    const abs = join(cwd, dir);
-    await requireDir(
-      abs,
-      strategy === "static"
-        ? `Build output ${dir} not found in ${cwd}. Set build.outputDir in ` +
-          `pb.json, or check that the build command produced it.`
-        : `${dir} not found in ${cwd} (pb.json build.outputDir).`,
+  // Reading a Next.js bundle's file tree and deflating it is not instant — a
+  // standalone build runs to tens of thousands of files — and it is entirely
+  // silent, so it animates.
+  return await progress.step("Packaging files", async (step) => {
+    let entries: ZipEntry[];
+    let startCommand: string | undefined;
+
+    if (strategy === "standalone") {
+      const packed = await packStandalone(cwd, extra);
+      entries = packed.entries;
+      startCommand = packed.startCommand;
+    } else if (strategy === "pbdirs") {
+      entries = await packPbDirs(cwd, build, extra);
+    } else {
+      const dir = build.outputDir ?? (strategy === "static" ? "dist" : ".");
+      const abs = join(cwd, dir);
+      await requireDir(
+        abs,
+        strategy === "static"
+          ? `Build output ${dir} not found in ${cwd}. Set build.outputDir in ` +
+            `pb.json, or check that the build command produced it.`
+          : `${dir} not found in ${cwd} (pb.json build.outputDir).`,
+      );
+      entries = await collect(abs, "", { keepNodeModules: false, extra });
+    }
+
+    // pbdirs is exempt: no pb_public/pb_hooks/pb_migrations configured deploys
+    // a bare PocketBase instance, which the platform accepts with no archive.
+    if (entries.length === 0 && strategy !== "pbdirs") {
+      throw new CliError(`Nothing to deploy — the packaged zip is empty.`, 2);
+    }
+
+    step.update(`Compressing ${entries.length} file(s)`);
+    const bytes = await writeZip(entries);
+    step.done(
+      `Packaged ${entries.length} file(s), ${formatSize(bytes.length)}.`,
     );
-    entries = await collect(abs, "", { keepNodeModules: false, extra });
-  }
-
-  // pbdirs is exempt: no pb_public/pb_hooks/pb_migrations configured deploys a
-  // bare PocketBase instance, which the platform accepts with no archive.
-  if (entries.length === 0 && strategy !== "pbdirs") {
-    throw new CliError(`Nothing to deploy — the packaged zip is empty.`, 2);
-  }
-
-  const bytes = await writeZip(entries);
-  log(`Packaged ${entries.length} file(s), ${formatSize(bytes.length)}.`);
-  return { bytes, fileName: fileNameFor(kind), startCommand };
+    return { bytes, fileName: fileNameFor(kind), startCommand };
+  });
 }
 
 function fileNameFor(kind: ResourceKind): string {

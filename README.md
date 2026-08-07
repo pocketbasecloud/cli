@@ -241,6 +241,15 @@ and review the guess before anything ships:
 }
 ```
 
+A build only works once its dependencies are there, so deploy installs them
+first when something `package.json` declares is not installed — `pnpm install`,
+`yarn install`, `bun install`, or `npm install`, whichever the lockfile names,
+run at the workspace root when the project is part of one. A fresh clone, a CI
+runner with no cache, or a dependency you added but never installed therefore
+deploys instead of failing on `next: not found`. Nothing runs when the tree is
+already installed; set `install` in the build block to run your own command, or
+`""` to turn the step off.
+
 Edit that block whenever the guess is wrong; it is never overwritten. Useful
 extras: `exclude` (globs dropped from the zip) and `envFile` (which dotenv file
 to push). `.git`, `pb_data`, `.DS_Store`, `.env`, `.env.*`, and `*.log` are
@@ -250,6 +259,26 @@ any of these — see [Environments](#environments).
 
 Handy flags: `--skip-build` packages without rebuilding, and `--zip <file>`
 uploads an archive you built yourself.
+
+### What a deploy shows you
+
+Every wait a deploy contains — installing, building, packaging, uploading the
+archive, provisioning, waiting for the domain to answer — is a step that names
+itself, spins while it runs, and closes with how long it took:
+
+```
+✓ Installed dependencies (npm install) 11s
+✓ Built (npm run build) 24s
+✓ Packaged 412 file(s), 18.4 MB. 2s
+✓ Uploaded code.zip (18.4 MB) 9s
+✓ api is running 41s
+✓ Reachable. 37s
+```
+
+The animation belongs to the terminal: piped into a file or a CI log the same
+steps print as plain lines (`→` when a step starts, `✓`/`✗` when it ends,
+including each provisioning status as it changes), and `--json` prints nothing
+but the final JSON object on stdout.
 
 ### Backends
 
@@ -308,9 +337,16 @@ anywhere:
 ```
 
 They are packaged and shipped when the instance is **created**. The platform
-reads that archive only at creation, so a later `pb cloud pb deploy` pushes
-`pb_hooks/*.pb.js` instead and tells you that `pb_public` and `pb_migrations`
-were left as they are.
+reads that archive only at creation, so a later `pb cloud pb deploy` pushes the
+`.js` and `.json` files in `pb_hooks/` instead and tells you that `pb_public`
+and `pb_migrations` were left as they are.
+
+PocketBase only runs `*.pb.js`, but the plain `.js` and `.json` files beside
+them go up as well — a hook that `require()`s a helper module or a data file
+needs it on the instance too. Hooks are stored as flat files, so a
+subdirectory of `pb_hooks/` is not uploaded and the deploy names the ones it
+skipped. A push carries at most **10** files — more than that is nearly always
+the wrong directory, so `pb` stops rather than uploading it.
 
 ### Environment variables
 

@@ -13,20 +13,23 @@ import {
 } from "../config.ts";
 import {
   attachZip,
+  awaitDeployment,
   awaitReachable,
   buildBundle,
   computeChooser,
   computeFlag,
+  deployProgress,
   deployResource,
   ensureTarget,
   isSubdomain,
-  pollStatus,
+  reportUrl,
   resolveExisting,
   resolveOwnerId,
   resolveTarget,
   subdomainTaken,
   suffixSubdomain,
   toSubdomain,
+  uploadLabel,
 } from "./deploy-helper.ts";
 import { reportRemoval } from "./environments.ts";
 
@@ -71,7 +74,11 @@ export function makeFrontendCommands(
   }
 
   const deploy: Handler = async (ctx: CmdCtx) => {
-    const { client, project: p, auth } = await ctxProject(ctx);
+    const progress = deployProgress(ctx.flags.json);
+    const { client, project: p, auth } = await progress.step(
+      "Connecting to PocketBase Cloud",
+      () => ctxProject(ctx),
+    );
     const cwd = deps.cwd();
     const name = (ctx.raw.name as string) ?? ctx.args[0];
     const id = ctx.raw.id as string | undefined;
@@ -89,7 +96,7 @@ export function makeFrontendCommands(
         noInput: ctx.flags.noInput || ctx.flags.json,
       },
     );
-    const log = ctx.flags.json ? () => {} : (m: string) => console.log(m);
+    const log = (m: string) => progress.log(m);
     const bundle = await buildBundle({
       cwd,
       kind: "frontends",
@@ -97,6 +104,7 @@ export function makeFrontendCommands(
       skipBuild: ctx.raw["skip-build"] === true,
       environment: target.environment,
       log,
+      progress,
     });
     if (ctx.raw["env-file"]) {
       throw new CliError(
@@ -135,34 +143,40 @@ export function makeFrontendCommands(
     }
     const base = chosen ?? toSubdomain(target.name ?? "");
     let subdomain = base;
+    // The archive goes up inside this call — the longest silent stretch of a
+    // deploy on a slow link.
     const create = () =>
-      deployResource(client, "frontends", p.id, {
-        id: target.id,
-        name: target.name,
-        data,
-        createData: async () => {
-          const fields: Record<string, unknown> = {
-            user: await resolveOwnerId(client, auth),
-            subdomain,
-            status: "pending",
-          };
-          // Only on create: a redeploy must never move a live site to another
-          // compute.
-          if (!data.server) {
-            const picked = await askCompute();
-            if (picked) fields.server = picked;
-          }
-          return fields;
-        },
-        // frontend.service.ts only redeploys a record whose status says a new
-        // archive is waiting.
-        updateData: { status: "uploading" },
-        requireExisting: target.fromBinding,
-        environment: target.environment,
-        onStale: async () => {
-          await removeEnvironment(cwd, target.environment);
-        },
-      });
+      progress.step(
+        uploadLabel(bundle),
+        () =>
+          deployResource(client, "frontends", p.id, {
+            id: target.id,
+            name: target.name,
+            data,
+            createData: async () => {
+              const fields: Record<string, unknown> = {
+                user: await resolveOwnerId(client, auth),
+                subdomain,
+                status: "pending",
+              };
+              // Only on create: a redeploy must never move a live site to
+              // another compute.
+              if (!data.server) {
+                const picked = await askCompute();
+                if (picked) fields.server = picked;
+              }
+              return fields;
+            },
+            // frontend.service.ts only redeploys a record whose status says a
+            // new archive is waiting.
+            updateData: { status: "uploading" },
+            requireExisting: target.fromBinding,
+            environment: target.environment,
+            onStale: async () => {
+              await removeEnvironment(cwd, target.environment);
+            },
+          }),
+      );
 
     let outcome: Awaited<ReturnType<typeof create>>;
     try {
@@ -187,26 +201,20 @@ export function makeFrontendCommands(
       environment: target.environment,
       entry: { id: resource.id, name: resource.name },
     });
-    if (!ctx.flags.json) {
-      console.log(
-        `${created ? "Creating" : "Redeploying"} ${resource.name} ` +
-          `(environment: ${target.environment})…`,
-      );
-    }
-    const final = await pollStatus(client, "frontends", resource.id, {
-      terminal: ["running", "error", "failed"],
-      timeoutMs: 300_000,
-      intervalMs: 3_000,
+    const final = await awaitDeployment(client, "frontends", resource, {
+      progress,
+      created,
+      environment: target.environment,
       label: "frontend",
       checkCommand: "frontend",
-      onTick: ctx.flags.json ? undefined : (s) => console.log(`  status: ${s}`),
     });
-    if (!ctx.flags.json) console.log(`Done: ${final.name} is ${final.status}.`);
+    if (final.status === "running") reportUrl(final, { log });
     const reachable = created && final.status === "running"
       ? await awaitReachable(client, {
         type: "frontend",
         resource: final,
         log,
+        progress,
       })
       : undefined;
     if (ctx.flags.json) {

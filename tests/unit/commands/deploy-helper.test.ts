@@ -6,6 +6,7 @@ import {
 } from "@std/assert";
 import {
   assertArchiveWithinLimit,
+  awaitDeployment,
   awaitReachable,
   chooseCompute,
   computeChooser,
@@ -17,6 +18,7 @@ import {
   MAX_ARCHIVE_BYTES,
   missingTargetMessage,
   pollStatus,
+  reportUrl,
   resolveExisting,
   resolveOwnerId,
   resolveTarget,
@@ -30,6 +32,7 @@ import { CliError } from "../../../src/errors.ts";
 import { createMockCloudClient } from "../../mocks/cloud.mock.ts";
 import type { Resource } from "../../../src/clients/types.ts";
 import type { PromptIO } from "../../../src/ui/prompt.ts";
+import { plainProgress } from "../../../src/ui/progress.ts";
 import { join } from "@std/path";
 
 function fakeIO(inputs: string[]): PromptIO {
@@ -637,7 +640,90 @@ Deno.test("a poll timeout names the resource and how to recover", async () => {
   assertStringIncludes(msg, "pb cloud pb rm --name stuck-db");
 });
 
-Deno.test("awaitReachable prints the URL and stops once the domain answers", async () => {
+Deno.test("awaitDeployment follows the platform's status in one step", async () => {
+  const lines: string[] = [];
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const r = await client.createResource("backends", {
+    name: "api",
+    project: p.id,
+  });
+  let n = 0;
+  client.getResource = (_k, id) =>
+    Promise.resolve(
+      { id, name: "api", status: ++n < 3 ? "creating" : "running" } as never,
+    );
+  const final = await awaitDeployment(client, "backends", r, {
+    progress: plainProgress((m) => lines.push(m)),
+    created: true,
+    environment: "production",
+    label: "backend",
+    checkCommand: "backend",
+    intervalMs: 0,
+  });
+  assertEquals(final.status, "running");
+  assertStringIncludes(lines[0], "Creating api (environment: production)");
+  // The step says what the platform last reported, then closes with the answer.
+  assertStringIncludes(lines.join("\n"), "— creating");
+  assertEquals(lines[lines.length - 1], "✓ api is running");
+});
+
+Deno.test("awaitDeployment marks the step failed when the deploy does not run", async () => {
+  const lines: string[] = [];
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const r = await client.createResource("backends", {
+    name: "api",
+    project: p.id,
+  });
+  client.getResource = (_k, id) =>
+    Promise.resolve({ id, name: "api", status: "failed" } as never);
+  const final = await awaitDeployment(client, "backends", r, {
+    progress: plainProgress((m) => lines.push(m)),
+    created: false,
+    environment: "production",
+    label: "backend",
+    checkCommand: "backend",
+    intervalMs: 0,
+  });
+  assertEquals(final.status, "failed");
+  assertStringIncludes(lines[0], "Redeploying api");
+  assertEquals(lines[lines.length - 1], "✗ api is failed");
+});
+
+Deno.test("reportUrl names the resource URL and any extra path", () => {
+  const out: string[] = [];
+  const url = reportUrl(
+    { ...R("r1", "db"), baseUrl: "https://db.example.com" } as never,
+    { log: (m) => out.push(m), paths: [{ path: "/_/", label: "admin" }] },
+  );
+  assertEquals(url, "https://db.example.com");
+  assertEquals(out, [
+    "  https://db.example.com",
+    "  https://db.example.com/_/ (admin)",
+  ]);
+});
+
+Deno.test("reportUrl falls back to the domain field", () => {
+  const out: string[] = [];
+  const url = reportUrl(
+    { ...R("r2", "web"), domain: "web.example.com" } as never,
+    { log: (m) => out.push(m) },
+  );
+  assertEquals(url, "https://web.example.com");
+  assertEquals(out, ["  https://web.example.com"]);
+});
+
+Deno.test("reportUrl says nothing for a resource with no domain yet", () => {
+  const out: string[] = [];
+  assertEquals(
+    reportUrl(R("r3", "api"), { log: (m) => out.push(m) }),
+    undefined,
+  );
+  assertEquals(out, []);
+});
+
+Deno.test("awaitReachable stops once the domain answers", async () => {
   const client = createMockCloudClient();
   let probes = 0;
   client.ext = (path, body) => {
@@ -652,13 +738,11 @@ Deno.test("awaitReachable prints the URL and stops once the domain answers", asy
   const reachable = await awaitReachable(client, {
     type: "pocketbase",
     resource: { ...R("r1", "db"), baseUrl: "https://db.example.com" } as never,
-    path: "/_/",
     log: (m) => out.push(m),
     intervalMs: 0,
   });
   assertEquals(reachable, true);
   assertEquals(probes, 3);
-  assertStringIncludes(out[0], "https://db.example.com/_/");
   assertStringIncludes(out.join("\n"), "Reachable.");
   assertEquals(client.calls.ext[0][0], "/api/domain/verify-reachability");
   const body = client.calls.ext[0][1] as { type: string; id: string };
@@ -677,7 +761,6 @@ Deno.test("awaitReachable gives up without failing the deploy", async () => {
     intervalMs: 0,
   });
   assertEquals(reachable, false);
-  assertStringIncludes(out[0], "https://web.example.com");
   assertStringIncludes(out.join("\n"), "Not reachable yet");
 });
 

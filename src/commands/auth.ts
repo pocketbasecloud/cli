@@ -4,6 +4,7 @@ import { resolveCloudAuth, usesEnvToken } from "../config.ts";
 import type { ICloudClient } from "../clients/cloud.ts";
 import { CliError } from "../errors.ts";
 import { describePlan } from "../ui/output.ts";
+import { createProgress } from "../ui/progress.ts";
 
 export type AuthDeps = {
   loadConfig: () => Promise<Config>;
@@ -29,7 +30,12 @@ function warnIfEnvTokenShadows(ctx: CmdCtx, effect: string): void {
 
 export function makeAuthCommands(deps: AuthDeps): Record<string, Handler> {
   const login: Handler = async (ctx: CmdCtx) => {
-    const auth = await deps.login({ portalUrl: deps.portalUrl });
+    // The browser is where the time goes: this waits for a human to finish an
+    // OAuth round trip, and until the callback lands there is nothing to show.
+    const auth = await createProgress({ silent: ctx.flags.json }).step(
+      "Waiting for the browser login to finish",
+      () => deps.login({ portalUrl: deps.portalUrl }),
+    );
     const config = await deps.loadConfig();
     // Logging in as someone else inherits the previous account's project id, and
     // every flagless command then fails on a project this user cannot see. An

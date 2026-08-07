@@ -1,5 +1,6 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { makeLocalCommands } from "../../../src/commands/local.ts";
+import { silentProgress } from "../../../src/ui/progress.ts";
 import type { LocalDeps } from "../../../src/local/deps.ts";
 import { detectPlatform } from "../../../src/local/platform.ts";
 import { buildZip } from "../../mocks/zip.mock.ts";
@@ -80,7 +81,7 @@ function harness(
     remove: () => Promise.resolve(),
     env: () => undefined,
   };
-  const cmds = makeLocalCommands(deps, (s) => out.push(s));
+  const cmds = makeLocalCommands(deps, (s) => out.push(s), silentProgress());
   return { cmds, deps, texts, files, out };
 }
 

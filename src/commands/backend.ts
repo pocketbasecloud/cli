@@ -11,19 +11,22 @@ import {
 } from "../config.ts";
 import {
   attachZip,
+  awaitDeployment,
   awaitReachable,
   buildBundle,
   computeChooser,
   computeFlag,
+  deployProgress,
   deployResource,
   ensureTarget,
   envFileEntry,
-  pollStatus,
   pushEnvFile,
+  reportUrl,
   resolveEnvFile,
   resolveExisting,
   resolveOwnerId,
   resolveTarget,
+  uploadLabel,
 } from "./deploy-helper.ts";
 import { reportRemoval } from "./environments.ts";
 
@@ -43,7 +46,11 @@ export function makeBackendCommands(
   }
 
   const deploy: Handler = async (ctx: CmdCtx) => {
-    const { client, project: p, auth } = await ctxProject(ctx);
+    const progress = deployProgress(ctx.flags.json);
+    const { client, project: p, auth } = await progress.step(
+      "Connecting to PocketBase Cloud",
+      () => ctxProject(ctx),
+    );
     const cwd = deps.cwd();
     const name = (ctx.raw.name as string) ?? ctx.args[0];
     const id = ctx.raw.id as string | undefined;
@@ -61,7 +68,7 @@ export function makeBackendCommands(
         noInput: ctx.flags.noInput || ctx.flags.json,
       },
     );
-    const log = ctx.flags.json ? () => {} : (m: string) => console.log(m);
+    const log = (m: string) => progress.log(m);
     const bundle = await buildBundle({
       cwd,
       kind: "backends",
@@ -71,6 +78,7 @@ export function makeBackendCommands(
       envFile: ctx.raw["env-file"] as string | undefined,
       environment: target.environment,
       log,
+      progress,
     });
     // Resolved here, beside the packaging, so a named-but-missing env file
     // fails before anything is provisioned rather than after.
@@ -122,36 +130,42 @@ export function makeBackendCommands(
       noInput: ctx.flags.noInput || ctx.flags.json,
       log,
     });
-    const { resource, created } = await deployResource(
-      client,
-      "backends",
-      p.id,
-      {
-        id: target.id,
-        name: target.name,
-        data,
-        createData: async () => {
-          const fields: Record<string, unknown> = {
-            user: await resolveOwnerId(client, auth),
-            status: "pending",
-          };
-          // Only on create, and only lazily: a redeploy must never move a
-          // running backend to another compute, and asking costs a request.
-          if (!data.server) {
-            const picked = await askCompute();
-            if (picked) fields.server = picked;
-          }
-          return fields;
-        },
-        // backend.service.ts only redeploys a record whose status says a new
-        // archive is waiting.
-        updateData: { status: "uploading" },
-        requireExisting: target.fromBinding,
-        environment: target.environment,
-        onStale: async () => {
-          await removeEnvironment(cwd, target.environment);
-        },
-      },
+    // The archive goes up inside this call, and on a slow link it is by far the
+    // longest thing a deploy does without saying anything.
+    const { resource, created } = await progress.step(
+      uploadLabel(bundle),
+      () =>
+        deployResource(
+          client,
+          "backends",
+          p.id,
+          {
+            id: target.id,
+            name: target.name,
+            data,
+            createData: async () => {
+              const fields: Record<string, unknown> = {
+                user: await resolveOwnerId(client, auth),
+                status: "pending",
+              };
+              // Only on create, and only lazily: a redeploy must never move a
+              // running backend to another compute, and asking costs a request.
+              if (!data.server) {
+                const picked = await askCompute();
+                if (picked) fields.server = picked;
+              }
+              return fields;
+            },
+            // backend.service.ts only redeploys a record whose status says a
+            // new archive is waiting.
+            updateData: { status: "uploading" },
+            requireExisting: target.fromBinding,
+            environment: target.environment,
+            onStale: async () => {
+              await removeEnvironment(cwd, target.environment);
+            },
+          },
+        ),
     );
     await upsertEnvironment(cwd, {
       projectId: p.id,
@@ -171,28 +185,23 @@ export function makeBackendCommands(
         vars: env.push.vars,
         deleteMissing: ctx.raw["delete-missing"] === true,
         log,
+        progress,
       });
     }
-    if (!ctx.flags.json) {
-      console.log(
-        `${created ? "Creating" : "Redeploying"} ${resource.name} ` +
-          `(environment: ${target.environment})…`,
-      );
-    }
-    const final = await pollStatus(client, "backends", resource.id, {
-      terminal: ["running", "error", "failed"],
-      timeoutMs: 300_000,
-      intervalMs: 3_000,
+    const final = await awaitDeployment(client, "backends", resource, {
+      progress,
+      created,
+      environment: target.environment,
       label: "backend",
       checkCommand: "backend",
-      onTick: ctx.flags.json ? undefined : (s) => console.log(`  status: ${s}`),
     });
-    if (!ctx.flags.json) console.log(`Done: ${final.name} is ${final.status}.`);
+    if (final.status === "running") reportUrl(final, { log });
     const reachable = created && final.status === "running"
       ? await awaitReachable(client, {
         type: "backend",
         resource: final,
         log,
+        progress,
       })
       : undefined;
     if (ctx.flags.json) {

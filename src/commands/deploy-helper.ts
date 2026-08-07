@@ -13,6 +13,11 @@ import {
 import { canPrompt, prompt, type PromptIO, select } from "../ui/prompt.ts";
 import { computeLabel } from "../ui/compute.ts";
 import {
+  createProgress,
+  plainProgress,
+  type Progress,
+} from "../ui/progress.ts";
+import {
   envFileOf,
   mergeEnvBuild,
   resolveBuildConfig,
@@ -447,6 +452,8 @@ export type BundleOptions = {
   /** Whose `build` overrides apply on top of the file's base block. */
   environment?: string;
   log: (msg: string) => void;
+  /** Reports the build's waits. Defaults to plain lines through `log`. */
+  progress?: Progress;
   run?: CommandRunner;
 };
 
@@ -520,6 +527,7 @@ export async function buildBundle(o: BundleOptions): Promise<Bundle> {
     build,
     skipBuild: o.skipBuild,
     log: o.log,
+    progress: o.progress,
     run: o.run,
   });
   assertArchiveWithinLimit(packed.bytes, packed.fileName);
@@ -711,27 +719,34 @@ export async function pushEnvFile(
     /** --delete-missing: drop cloud vars the file does not list. */
     deleteMissing?: boolean;
     log: (msg: string) => void;
+    progress?: Progress;
   },
 ): Promise<void> {
   const count = Object.keys(o.vars).length;
   // An emptied file still means something under --delete-missing: clear them all.
   if (count === 0 && o.deleteMissing !== true) return;
 
-  const res = await client.ext("/api/env/bulk-set", {
-    target_id: o.targetId,
-    type: o.type,
-    variables: o.vars,
-    prune: o.deleteMissing === true,
-  });
-  if (!res.ok) {
-    throw new CliError(`Env push failed (${res.status}).`, 1);
-  }
-  const removed = prunedKeysOf(await res.json());
-  o.log(
-    `Pushed ${count} env var(s) from ${o.name}.` +
-      (removed.length > 0
-        ? ` Removed ${removed.length}: ${removed.join(", ")}.`
-        : ""),
+  const progress = o.progress ?? plainProgress(o.log);
+  await progress.step(
+    `Pushing ${count} env var(s) from ${o.name}`,
+    async (step) => {
+      const res = await client.ext("/api/env/bulk-set", {
+        target_id: o.targetId,
+        type: o.type,
+        variables: o.vars,
+        prune: o.deleteMissing === true,
+      });
+      if (!res.ok) {
+        throw new CliError(`Env push failed (${res.status}).`, 1);
+      }
+      const removed = prunedKeysOf(await res.json());
+      step.done(
+        `Pushed ${count} env var(s) from ${o.name}.` +
+          (removed.length > 0
+            ? ` Removed ${removed.length}: ${removed.join(", ")}.`
+            : ""),
+      );
+    },
   );
 }
 
@@ -742,7 +757,29 @@ function resourceUrl(r: Resource): string | undefined {
 }
 
 /**
- * Names a freshly created resource's URL and holds until it answers.
+ * Names where a deployed resource can now be reached.
+ *
+ * Printed after every deploy, not only the first one: a redeploy used to end at
+ * "… is running" and leave the URL to be looked up in the portal, even though
+ * it is the one thing a user wants next.
+ */
+export function reportUrl(
+  resource: Resource,
+  o: {
+    log: (msg: string) => void;
+    /** Further paths worth a line of their own, e.g. a PocketBase dashboard. */
+    paths?: { path: string; label: string }[];
+  },
+): string | undefined {
+  const url = resourceUrl(resource);
+  if (!url) return undefined;
+  o.log(`  ${url}`);
+  for (const p of o.paths ?? []) o.log(`  ${url}${p.path} (${p.label})`);
+  return url;
+}
+
+/**
+ * Holds until a freshly created resource's domain answers.
  *
  * The platform reports `running` as soon as the container starts, but a new
  * subdomain serves nothing until DNS propagates and its certificate is issued.
@@ -750,39 +787,45 @@ function resourceUrl(r: Resource): string | undefined {
  * minute or two, which reads as a deploy that did not work.
  *
  * Never fatal: an unreachable domain is a wait, not a failure, so the caller's
- * exit code still follows the resource's status.
+ * exit code still follows the resource's status. The URL itself is printed by
+ * `reportUrl`, which runs on a redeploy too.
  */
 export async function awaitReachable(
   client: ICloudClient,
   o: {
     type: "pocketbase" | "backend" | "frontend";
     resource: Resource;
-    /** Appended to the URL that is printed — a PocketBase dashboard is at /_/. */
-    path?: string;
     log: (msg: string) => void;
+    progress?: Progress;
     timeoutMs?: number;
     intervalMs?: number;
   },
 ): Promise<boolean> {
-  const url = resourceUrl(o.resource);
-  if (!url) return false;
-  o.log(`  ${url}${o.path ?? ""}`);
-  o.log("  Waiting for it to become reachable…");
-  const deadline = Date.now() + (o.timeoutMs ?? 120_000);
-  while (true) {
-    if (await isReachable(client, o.type, o.resource.id)) {
-      o.log("  Reachable.");
-      return true;
-    }
-    if (Date.now() > deadline) {
-      o.log(
-        "  Not reachable yet — a new domain can take a few more minutes " +
-          "while its certificate is issued.",
-      );
-      return false;
-    }
-    await new Promise((res) => setTimeout(res, o.intervalMs ?? 5_000));
-  }
+  // Nothing to probe until the platform has recorded a domain.
+  if (!resourceUrl(o.resource)) return false;
+  const progress = o.progress ?? plainProgress(o.log);
+  // The longest wait of a first deploy, and the one with the least to show for
+  // itself: DNS and ACME take minutes and report nothing in between.
+  return await progress.step(
+    "Waiting for it to become reachable",
+    async (step) => {
+      const deadline = Date.now() + (o.timeoutMs ?? 120_000);
+      while (true) {
+        if (await isReachable(client, o.type, o.resource.id)) {
+          step.done("Reachable.");
+          return true;
+        }
+        if (Date.now() > deadline) {
+          step.fail(
+            "Not reachable yet — a new domain can take a few more minutes " +
+              "while its certificate is issued.",
+          );
+          return false;
+        }
+        await new Promise((res) => setTimeout(res, o.intervalMs ?? 5_000));
+      }
+    },
+  );
 }
 
 async function isReachable(
@@ -802,6 +845,67 @@ async function isReachable(
   } catch {
     return false; // A network hiccup mid-propagation is not an answer either.
   }
+}
+
+/**
+ * The progress a deploy command reports through: animated on a terminal, plain
+ * lines when piped, and silent under `--json`, where stdout carries one object
+ * and nothing else may touch it.
+ */
+export function deployProgress(json: boolean): Progress {
+  return createProgress({ silent: json });
+}
+
+/** What the upload step says while an archive is in flight. */
+export function uploadLabel(
+  bundle: Pick<Bundle, "fileName" | "bytes">,
+): string {
+  return `Uploading ${bundle.fileName} (${formatMb(bundle.bytes.length)})`;
+}
+
+/**
+ * The provisioning wait, shown as one step that follows the platform's own
+ * status rather than a line per change.
+ *
+ * This is the longest silence in a deploy — a backend is built into an image,
+ * started, and put behind Caddy — so the step keeps the elapsed time visible
+ * and names the status the platform last reported. It closes as failed when the
+ * resource settles on anything but `running`, which is what the exit code says
+ * too.
+ */
+export async function awaitDeployment(
+  client: ICloudClient,
+  kind: ResourceKind,
+  resource: Resource,
+  o: {
+    progress: Progress;
+    /** Creating and redeploying look identical from here; say which it is. */
+    created: boolean;
+    environment: string;
+    /** Human word for the resource, e.g. "backend" / "PocketBase". */
+    label: string;
+    /** Command group to name for recovery, e.g. "pb" / "backend". */
+    checkCommand: string;
+    timeoutMs?: number;
+    intervalMs?: number;
+  },
+): Promise<Resource> {
+  const head = `${o.created ? "Creating" : "Redeploying"} ${resource.name} ` +
+    `(environment: ${o.environment})`;
+  return await o.progress.step(head, async (step) => {
+    const final = await pollStatus(client, kind, resource.id, {
+      terminal: ["running", "error", "failed"],
+      timeoutMs: o.timeoutMs ?? 300_000,
+      intervalMs: o.intervalMs ?? 3_000,
+      label: o.label,
+      checkCommand: o.checkCommand,
+      onTick: (s) => step.update(`${head} — ${s}`),
+    });
+    const settled = `${final.name} is ${final.status}`;
+    if (final.status === "running") step.done(settled);
+    else step.fail(settled);
+    return final;
+  });
 }
 
 export async function pollStatus(

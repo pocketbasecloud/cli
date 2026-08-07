@@ -1,5 +1,5 @@
 import { assertEquals, assertRejects } from "@std/assert";
-import { makePbCommands } from "../../../src/commands/pb.ts";
+import { makePbCommands, pushHooks } from "../../../src/commands/pb.ts";
 import { createMockCloudClient } from "../../mocks/cloud.mock.ts";
 import {
   type Config,
@@ -474,4 +474,171 @@ Deno.test("pb redeploy never re-picks the compute", async () => {
   });
   assertEquals(code, 0);
   assertEquals(client.calls.createResource.length, 0);
+});
+
+// --- Hook uploads -----------------------------------------------------------
+//
+// A hook routinely `require()`s a plain .js helper or a .json data file beside
+// it. The filter used to be `*.pb.js` only, so those were dropped in silence
+// and the instance failed at runtime with a `require` error that nothing in
+// the deploy output explained.
+
+/** A pb_hooks directory holding exactly `files`. */
+function hooksDir(files: Record<string, string>): string {
+  const dir = Deno.makeTempDirSync();
+  for (const [name, content] of Object.entries(files)) {
+    Deno.writeTextFileSync(`${dir}/${name}`, content);
+  }
+  return dir;
+}
+
+/** Filenames sent to the bulk-write route, in call order. */
+function pushedNames(
+  client: ReturnType<typeof createMockCloudClient>,
+): string[] {
+  const call = client.calls.pbApi.find(([p]) => p === "/api/hooks/bulk-write");
+  if (!call) return [];
+  const body = call[1] as { hooks: { filename: string }[] };
+  return body.hooks.map((h) => h.filename).sort();
+}
+
+Deno.test("pushHooks uploads .js and .json, not just *.pb.js", async () => {
+  const client = createMockCloudClient();
+  const dir = hooksDir({
+    "main.pb.js": "// entrypoint\n",
+    "helpers.js": "module.exports = {}\n",
+    "countries.json": "[]\n",
+    "README.md": "not a hook\n",
+  });
+  const r = await pushHooks(client, "pb1", dir);
+  assertEquals(r, { sent: 3, stored: 3 });
+  assertEquals(pushedNames(client), [
+    "countries.json",
+    "helpers.js",
+    "main.pb.js",
+  ]);
+});
+
+Deno.test("pushHooks marks every file active", async () => {
+  // An omitted `active` is recorded verbatim as false, which shows a live hook
+  // as disabled in the portal.
+  const client = createMockCloudClient();
+  const dir = hooksDir({ "helpers.js": "x\n" });
+  await pushHooks(client, "pb1", dir);
+  const body = client.calls.pbApi[0][1] as {
+    hooks: { active: boolean }[];
+  };
+  assertEquals(body.hooks.every((h) => h.active === true), true);
+});
+
+Deno.test("pushHooks skips subdirectories and says so", async () => {
+  // The agent's validateHookFilename() rejects a name holding a path
+  // separator, so nothing under a subdirectory can reach the instance.
+  const client = createMockCloudClient();
+  const dir = hooksDir({ "main.pb.js": "// hook\n" });
+  Deno.mkdirSync(`${dir}/lib`);
+  Deno.writeTextFileSync(`${dir}/lib/deep.js`, "// unreachable\n");
+  const logs: string[] = [];
+  const r = await pushHooks(client, "pb1", dir, (m) => logs.push(m));
+  assertEquals(r.sent, 1);
+  assertEquals(pushedNames(client), ["main.pb.js"]);
+  assertEquals(logs.length, 1);
+  assertEquals(logs[0].includes("lib/"), true);
+});
+
+Deno.test("pushHooks refuses more than 10 files in one push", async () => {
+  const client = createMockCloudClient();
+  const files: Record<string, string> = {};
+  for (let i = 0; i < 11; i++) files[`h${i}.js`] = "// hook\n";
+  await assertRejects(
+    () => pushHooks(client, "pb1", hooksDir(files)),
+    Error,
+    "pushes at most 10 at a time",
+  );
+  // Nothing was uploaded: a partial push would leave the instance half-updated.
+  assertEquals(client.calls.pbApi.length, 0);
+});
+
+Deno.test("pushHooks accepts a directory sitting exactly on the limit", async () => {
+  // Off-by-one guard: 10 is allowed, 11 is not.
+  const client = createMockCloudClient();
+  const files: Record<string, string> = {};
+  for (let i = 0; i < 10; i++) files[`h${i}.js`] = "// hook\n";
+  const r = await pushHooks(client, "pb1", hooksDir(files));
+  assertEquals(r.sent, 10);
+  assertEquals(client.calls.pbApi.length, 1);
+});
+
+Deno.test("pushHooks reports what the platform stored, not what it sent", async () => {
+  // A 200 only means the batch was accepted — details.results[] still carries
+  // per-file failures, and counting the files we sent hides them.
+  const client = createMockCloudClient();
+  client.pbApi = (path, body) => {
+    client.calls.pbApi.push([path, body]);
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          details: {
+            succeeded: 1,
+            results: [
+              { filename: "helpers.js", status: "success" },
+              {
+                filename: "main.pb.js",
+                status: "failed",
+                error_message: "content exceeds maximum size of 1MB",
+              },
+            ],
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+  };
+  const dir = hooksDir({ "main.pb.js": "// hook\n", "helpers.js": "x\n" });
+  const logs: string[] = [];
+  const r = await pushHooks(client, "pb1", dir, (m) => logs.push(m));
+  assertEquals(r, { sent: 2, stored: 1 });
+  assertEquals(logs.length, 1);
+  assertEquals(logs[0].includes("main.pb.js"), true);
+  assertEquals(logs[0].includes("exceeds maximum size"), true);
+});
+
+Deno.test("pushHooks errors when the directory is missing", async () => {
+  await assertRejects(
+    () => pushHooks(createMockCloudClient(), "pb1", "/nope/pb_hooks"),
+    Error,
+    "Hooks directory not found",
+  );
+});
+
+Deno.test("pb redeploy pushes the hook directory's .js helpers", async () => {
+  // The end-to-end shape of the bug: main.pb.js reached the instance on a
+  // redeploy while the helper it requires stayed behind.
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const pb = await client.createResource("pocketbases", {
+    name: "db1",
+    project: p.id,
+  });
+  const { d, config, cwd } = deps(client);
+  config.currentProject = p.id;
+  runningNow(client);
+  Deno.writeTextFileSync(`${cwd}/pb_hooks/helpers.js`, "module.exports = {}\n");
+  Deno.writeTextFileSync(`${cwd}/pb_hooks/seed.json`, "[]\n");
+  await Deno.writeTextFile(
+    `${cwd}/pb.json`,
+    JSON.stringify({
+      projectId: p.id,
+      kind: "pocketbases",
+      defaultEnvironment: "production",
+      environments: { production: { id: pb.id, name: "db1" } },
+    }),
+  );
+  const code = await makePbCommands(d)["cloud pb deploy"]({
+    args: [],
+    flags: flags({ project: p.id }),
+    raw: {},
+  });
+  assertEquals(code, 0);
+  assertEquals(pushedNames(client), ["helpers.js", "main.pb.js", "seed.json"]);
 });

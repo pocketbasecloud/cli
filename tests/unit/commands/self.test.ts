@@ -1,5 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { makeSelfCommands } from "../../../src/commands/self.ts";
+import { silentProgress } from "../../../src/ui/progress.ts";
 import type { SelfDeps } from "../../../src/self/upgrade.ts";
 import type { CmdCtx } from "../../../src/router.ts";
 import { VERSION } from "../../../src/version.ts";
@@ -81,7 +82,8 @@ function deps(opts: {
 
 function run(d: SelfDeps) {
   const out: string[] = [];
-  const cmd = makeSelfCommands(d, (s) => out.push(s))["upgrade"];
+  const cmd =
+    makeSelfCommands(d, (s) => out.push(s), silentProgress())["upgrade"];
   return { cmd, out };
 }
 

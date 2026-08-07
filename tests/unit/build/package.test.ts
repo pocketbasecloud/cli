@@ -268,6 +268,116 @@ Deno.test("the build command runs in the resource directory before packaging", a
   assertEquals(calls, [["npm run build", cwd]]);
 });
 
+Deno.test("dependencies are installed before the build that needs them", async () => {
+  const cwd = dir({
+    "package.json": JSON.stringify({ dependencies: { next: "15" } }),
+    "package-lock.json": "{}",
+    "dist/index.html": "x",
+  });
+  const calls: [string, string][] = [];
+  const messages: string[] = [];
+  await packageResource({
+    cwd,
+    kind: "frontends",
+    build: { command: "npm run build", outputDir: "dist" },
+    skipBuild: false,
+    log: (m) => messages.push(m),
+    run: (command, at) => {
+      calls.push([command, at]);
+      return Promise.resolve({ code: 0 });
+    },
+  });
+  assertEquals(calls, [["npm install", cwd], ["npm run build", cwd]]);
+  assertStringIncludes(messages[0], "Installing dependencies: npm install");
+});
+
+Deno.test("an installed tree is not reinstalled", async () => {
+  const cwd = dir({
+    "package.json": JSON.stringify({ dependencies: { next: "15" } }),
+    "node_modules/next/package.json": "{}",
+    "dist/index.html": "x",
+  });
+  const calls: string[] = [];
+  await packageResource({
+    cwd,
+    kind: "frontends",
+    build: { command: "npm run build", outputDir: "dist" },
+    skipBuild: false,
+    log: noop,
+    run: (command) => {
+      calls.push(command);
+      return Promise.resolve({ code: 0 });
+    },
+  });
+  assertEquals(calls, ["npm run build"]);
+});
+
+Deno.test('install: "" opts out of the install step', async () => {
+  const cwd = dir({
+    "package.json": JSON.stringify({ dependencies: { next: "15" } }),
+    "dist/index.html": "x",
+  });
+  const calls: string[] = [];
+  await packageResource({
+    cwd,
+    kind: "frontends",
+    build: { command: "npm run build", outputDir: "dist", install: "" },
+    skipBuild: false,
+    log: noop,
+    run: (command) => {
+      calls.push(command);
+      return Promise.resolve({ code: 0 });
+    },
+  });
+  assertEquals(calls, ["npm run build"]);
+});
+
+Deno.test("--skip-build installs nothing either", async () => {
+  const cwd = dir({
+    "package.json": JSON.stringify({ dependencies: { next: "15" } }),
+    "dist/index.html": "x",
+  });
+  let ran = false;
+  await packageResource({
+    cwd,
+    kind: "frontends",
+    build: { command: "npm run build", outputDir: "dist" },
+    skipBuild: true,
+    log: noop,
+    run: () => {
+      ran = true;
+      return Promise.resolve({ code: 0 });
+    },
+  });
+  assertEquals(ran, false);
+});
+
+Deno.test("a failing install exits 7 and never starts the build", async () => {
+  const cwd = dir({
+    "package.json": JSON.stringify({ dependencies: { next: "15" } }),
+    "dist/index.html": "x",
+  });
+  const calls: string[] = [];
+  const err = await assertRejects(
+    () =>
+      packageResource({
+        cwd,
+        kind: "frontends",
+        build: { command: "npm run build", outputDir: "dist" },
+        skipBuild: false,
+        log: noop,
+        run: (command) => {
+          calls.push(command);
+          return Promise.resolve({ code: 1 });
+        },
+      }),
+    CliError,
+    "Installing dependencies failed",
+  );
+  assertEquals(err.exitCode, 7);
+  assertEquals(calls, ["npm install"]);
+});
+
 Deno.test("a failing build exits 7 and produces no archive", async () => {
   const cwd = dir({ "dist/index.html": "x" });
   const err = await assertRejects(
@@ -326,6 +436,27 @@ Deno.test("a nextjs build gets output: standalone before it runs", async () => {
   assertEquals(seen.length, 1);
   assertStringIncludes(seen[0], `output: "standalone"`);
   assertStringIncludes(messages[0], `Added output: "standalone"`);
+});
+
+Deno.test("a nextjs deploy installs next before building the bundle", async () => {
+  const cwd = dir({
+    "package.json": JSON.stringify({ dependencies: { next: "15.0.0" } }),
+    "next.config.mjs": `export default { output: "standalone" };\n`,
+    ".next/standalone/server.js": "x",
+  });
+  const calls: string[] = [];
+  await packageResource({
+    cwd,
+    kind: "backends",
+    build: { command: "npm run build", runtime: "nextjs" },
+    skipBuild: false,
+    log: noop,
+    run: (command) => {
+      calls.push(command);
+      return Promise.resolve({ code: 0 });
+    },
+  });
+  assertEquals(calls, ["npm install", "npm run build"]);
 });
 
 Deno.test("--skip-build leaves next.config alone", async () => {
