@@ -55,7 +55,7 @@ const HOOK_EXTENSIONS = [".js", ".json"];
  * uploading it. This is a CLI guard rail, not a platform rule — the portal and
  * a direct API call still write up to 50.
  */
-const MAX_HOOKS_PER_PUSH = 10;
+const MAX_HOOKS_PER_PUSH = 30;
 
 /**
  * Uploads every hook file in `dir`. Shared by `hooks push` and by `deploy`'s
@@ -395,6 +395,8 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
         name: env.push.name,
         vars: env.push.vars,
         deleteMissing: ctx.raw["delete-missing"] === true,
+        force: ctx.raw["force-env"] === true,
+        statePath: deps.envStatePath?.(),
         log,
         progress,
       });

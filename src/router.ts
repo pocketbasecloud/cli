@@ -37,6 +37,7 @@ export function parseGlobal(argv: string[]): { path: string[]; ctx: CmdCtx } {
       "check",
       "skip-build",
       "skip-env",
+      "force-env",
     ],
     string: [
       "project",

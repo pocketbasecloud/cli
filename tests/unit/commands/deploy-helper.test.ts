@@ -714,6 +714,51 @@ Deno.test("reportUrl falls back to the domain field", () => {
   assertEquals(out, ["  https://web.example.com"]);
 });
 
+Deno.test("reportUrl prints a verified custom domain beside the platform URL", () => {
+  const out: string[] = [];
+  const url = reportUrl(
+    {
+      ...R("r4", "web"),
+      domain: "web.example.com",
+      custom_domain: "app.mysite.com",
+      custom_domain_status: "verified",
+    },
+    { log: (m) => out.push(m) },
+  );
+  // The platform URL still comes first — it is the one that always works —
+  // and the user's own domain follows it.
+  assertEquals(url, "https://web.example.com");
+  assertEquals(out, [
+    "  https://web.example.com",
+    "  https://app.mysite.com (custom domain)",
+  ]);
+});
+
+Deno.test("an unverified custom domain is printed with its status", () => {
+  const out: string[] = [];
+  reportUrl(
+    {
+      ...R("r5", "api"),
+      domain: "api.example.com",
+      custom_domain: "api.mysite.com",
+      custom_domain_status: "pending",
+    },
+    { log: (m) => out.push(m) },
+  );
+  // Saying "pending" here is the point: the deploy worked, the domain does not
+  // answer yet, and those two facts arrive together.
+  assertEquals(out[1], "  https://api.mysite.com (custom domain — pending)");
+});
+
+Deno.test("a resource with no custom domain prints only its own URL", () => {
+  const out: string[] = [];
+  reportUrl(
+    { ...R("r6", "db"), domain: "db.example.com" },
+    { log: (m) => out.push(m), paths: [{ path: "/_/", label: "admin" }] },
+  );
+  assertEquals(out.length, 2);
+});
+
 Deno.test("reportUrl says nothing for a resource with no domain yet", () => {
   const out: string[] = [];
   assertEquals(

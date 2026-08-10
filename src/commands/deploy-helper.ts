@@ -23,6 +23,12 @@ import {
   resolveBuildConfig,
 } from "../build/config.ts";
 import { type CommandRunner, packageResource } from "../build/package.ts";
+import {
+  envDigest,
+  envStateKey,
+  lastEnvDigest,
+  recordEnvDigest,
+} from "../env-state.ts";
 import { parseDotenv, prunedKeysOf } from "./env.ts";
 
 export type Target = {
@@ -708,6 +714,12 @@ async function readEnvFile(
  * Merge semantics: keys in the file are written, keys only in the cloud are
  * left alone. `--delete-missing` swaps that for the file being the whole
  * truth, removing cloud-only keys. Values are never printed.
+ *
+ * Unchanged files are not re-uploaded: every push records a digest of what it
+ * wrote (see `env-state.ts`), and a deploy whose file still hashes to that
+ * digest skips the call. The cache is local and advisory — an unknown target
+ * pushes — so the worst a lost or stale state file can do is one redundant
+ * upload. `--force-env` pushes regardless, for a store changed from the portal.
  */
 export async function pushEnvFile(
   client: ICloudClient,
@@ -718,6 +730,10 @@ export async function pushEnvFile(
     vars: Record<string, string>;
     /** --delete-missing: drop cloud vars the file does not list. */
     deleteMissing?: boolean;
+    /** --force-env: push even when nothing changed since the last push. */
+    force?: boolean;
+    /** Where the digests are kept; unset uses the file beside the config. */
+    statePath?: string;
     log: (msg: string) => void;
     progress?: Progress;
   },
@@ -725,6 +741,16 @@ export async function pushEnvFile(
   const count = Object.keys(o.vars).length;
   // An emptied file still means something under --delete-missing: clear them all.
   if (count === 0 && o.deleteMissing !== true) return;
+
+  const key = envStateKey(o.type, o.targetId);
+  const digest = await envDigest(o.vars, o.deleteMissing === true);
+  if (o.force !== true && await lastEnvDigest(key, o.statePath) === digest) {
+    o.log(
+      `Env vars unchanged since the last push — skipped ${o.name} ` +
+        `(--force-env pushes anyway).`,
+    );
+    return;
+  }
 
   const progress = o.progress ?? plainProgress(o.log);
   await progress.step(
@@ -740,6 +766,9 @@ export async function pushEnvFile(
         throw new CliError(`Env push failed (${res.status}).`, 1);
       }
       const removed = prunedKeysOf(await res.json());
+      // Only after the platform accepted it: a failed push must leave the
+      // next deploy trying again.
+      await recordEnvDigest(key, digest, o.statePath);
       step.done(
         `Pushed ${count} env var(s) from ${o.name}.` +
           (removed.length > 0
@@ -775,7 +804,28 @@ export function reportUrl(
   if (!url) return undefined;
   o.log(`  ${url}`);
   for (const p of o.paths ?? []) o.log(`  ${url}${p.path} (${p.label})`);
+  const custom = customDomainLine(resource);
+  if (custom) o.log(`  ${custom}`);
   return url;
+}
+
+/**
+ * The user's own domain, when one is pointed at this resource.
+ *
+ * Printed beside the platform URL on every deploy, because it is the address
+ * the user's traffic actually arrives on — the platform subdomain is the one
+ * they stop using once a custom domain verifies. An unverified one still
+ * belongs here, saying so: "it deployed but my domain shows nothing" is
+ * exactly the moment the pending state explains itself.
+ */
+export function customDomainLine(resource: Resource): string | undefined {
+  const domain = resource.custom_domain;
+  if (!domain) return undefined;
+  const status = resource.custom_domain_status;
+  const note = status === "verified" || status === undefined || status === ""
+    ? "custom domain"
+    : `custom domain — ${status}`;
+  return `https://${domain} (${note})`;
 }
 
 /**

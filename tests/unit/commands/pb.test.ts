@@ -1,6 +1,7 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { makePbCommands, pushHooks } from "../../../src/commands/pb.ts";
 import { createMockCloudClient } from "../../mocks/cloud.mock.ts";
+import { tempStatePath } from "../../mocks/state.mock.ts";
 import {
   type Config,
   defaultConfig,
@@ -33,6 +34,7 @@ function deps(
       loadConfig: () => Promise.resolve(config),
       saveConfig: () => Promise.resolve(),
       cwd: () => cwd,
+      envStatePath: tempStatePath(),
       // Deploy resolves the newest release when nothing is pinned. Stubbed so
       // the unit suite never touches the network.
       fetch: () =>
@@ -546,26 +548,26 @@ Deno.test("pushHooks skips subdirectories and says so", async () => {
   assertEquals(logs[0].includes("lib/"), true);
 });
 
-Deno.test("pushHooks refuses more than 10 files in one push", async () => {
+Deno.test("pushHooks refuses more than 30 files in one push", async () => {
   const client = createMockCloudClient();
   const files: Record<string, string> = {};
-  for (let i = 0; i < 11; i++) files[`h${i}.js`] = "// hook\n";
+  for (let i = 0; i < 31; i++) files[`h${i}.js`] = "// hook\n";
   await assertRejects(
     () => pushHooks(client, "pb1", hooksDir(files)),
     Error,
-    "pushes at most 10 at a time",
+    "pushes at most 30 at a time",
   );
   // Nothing was uploaded: a partial push would leave the instance half-updated.
   assertEquals(client.calls.pbApi.length, 0);
 });
 
 Deno.test("pushHooks accepts a directory sitting exactly on the limit", async () => {
-  // Off-by-one guard: 10 is allowed, 11 is not.
+  // Off-by-one guard: 30 is allowed, 31 is not.
   const client = createMockCloudClient();
   const files: Record<string, string> = {};
-  for (let i = 0; i < 10; i++) files[`h${i}.js`] = "// hook\n";
+  for (let i = 0; i < 30; i++) files[`h${i}.js`] = "// hook\n";
   const r = await pushHooks(client, "pb1", hooksDir(files));
-  assertEquals(r.sent, 10);
+  assertEquals(r.sent, 30);
   assertEquals(client.calls.pbApi.length, 1);
 });
 

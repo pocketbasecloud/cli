@@ -345,7 +345,7 @@ PocketBase only runs `*.pb.js`, but the plain `.js` and `.json` files beside
 them go up as well — a hook that `require()`s a helper module or a data file
 needs it on the instance too. Hooks are stored as flat files, so a
 subdirectory of `pb_hooks/` is not uploaded and the deploy names the ones it
-skipped. A push carries at most **10** files — more than that is nearly always
+skipped. A push carries at most **30** files — more than that is nearly always
 the wrong directory, so `pb` stops rather than uploading it.
 
 ### Environment variables
@@ -383,6 +383,7 @@ pb cloud backend deploy                        # pushes what pb.json configures
 pb cloud backend deploy --env-file .env.prod   # names it outright
 pb cloud backend deploy --skip-env             # pushes nothing this run
 pb cloud backend deploy --delete-missing       # the file is the whole truth
+pb cloud backend deploy --force-env            # push even if nothing changed
 ```
 
 `--env-file` is also recorded, but only for an environment that has no `envFile`
@@ -390,6 +391,22 @@ yet — a deploy never overwrites a choice already in the file. Keys in the file
 are written and cloud-only keys left alone (unless `--delete-missing`); a file
 named but not found fails the deploy before anything is provisioned. Values are
 never printed, and dotenv files never go into the zip.
+
+**Unchanged variables are not re-uploaded.** Each push remembers a digest of
+what it wrote — the parsed variables, so a reordered key or an edited comment is
+not a change — in `~/.config/pb/env-state.json`, and the next deploy of the same
+resource skips the upload when the file still hashes to it:
+
+```
+Env vars unchanged since the last push — skipped .env.prod (--force-env pushes anyway).
+```
+
+Only the upload is skipped — nothing about what a push *does* changes, so a key
+you delete from the file is still left alone in the cloud unless you pass
+`--delete-missing`. The digest is per resource, not per file, and `env
+set`/`env rm` clear it so a variable changed out of band is never masked. It is only a cache: on a machine
+that has never deployed this resource (CI, a teammate's laptop) the file is
+simply pushed. Use `--force-env` when the store was edited in the portal.
 
 Under `--no-input` or `--json` nothing is asked, nothing is pushed unless
 configured, and `pb.json` is never written — so CI names its file explicitly.
@@ -503,6 +520,19 @@ frontend prints its URL and then waits for it to respond. Giving up on that wait
 is not a failure — the resource is running, and the exit code stays `0`. Under
 `--json` the deploy waits just the same and reports the outcome as `reachable`.
 
+Every deploy, first or hundredth, prints where the resource can now be reached
+— including a custom domain of your own when one is pointed at it, and saying
+so while the platform has yet to verify it:
+
+```
+✓ web is running
+  https://web-a1b2.pocketbasecloud.com
+  https://app.mysite.com (custom domain)
+```
+
+An unverified one reads `(custom domain — pending)`, which is the answer to
+"the deploy worked, so why does my domain show nothing?".
+
 ### Share a project with a team
 
 ```sh
@@ -519,8 +549,12 @@ resource stays with its owner.
 
 ### Run in CI (no browser, no prompts)
 
-Authenticate with a token instead of `pb cloud login`, and make every command
-fail rather than ask:
+**Setting up GitHub Actions? Follow
+[Deploy from GitHub Actions](https://pocketbasecloud.com/docs/ci-cd/deploying-from-github-actions)**
+— copy your token from the portal's Account page, add one workflow file, done.
+
+The mechanics, for any other CI: authenticate with a token instead of
+`pb cloud login`, and make every command fail rather than ask:
 
 ```sh
 export PB_TOKEN=…            # a PocketBase Cloud user token
@@ -537,6 +571,9 @@ stderr, so `pb … --json | jq` is safe. Errors are `{"error":"…"}` on stderr 
 a non-zero exit: `2` usage, `3` not permitted (plan or slot limits), `4` not
 authenticated, `5` timed out, `6` the resource finished in a failed state, `7`
 your build command failed.
+
+Environments, monorepos, PR previews, and every error a pipeline hits are in
+the **[full CI/CD reference](https://pocketbasecloud.com/docs/ci-cd/reference)**.
 
 ### Pin a PocketBase version
 

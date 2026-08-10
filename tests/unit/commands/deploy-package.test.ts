@@ -7,6 +7,7 @@ import {
   createMockCloudClient,
   type MockCloudClient,
 } from "../../mocks/cloud.mock.ts";
+import { tempStatePath } from "../../mocks/state.mock.ts";
 import { type Config, defaultConfig } from "../../../src/config.ts";
 import type { CloudCmdDeps } from "../../../src/commands/project.ts";
 import { CliError } from "../../../src/errors.ts";
@@ -33,6 +34,7 @@ function deps(client: MockCloudClient, projectId: string, cwd: string) {
     loadConfig: () => Promise.resolve(config),
     saveConfig: () => Promise.resolve(),
     cwd: () => cwd,
+    envStatePath: tempStatePath(),
   };
   return d;
 }

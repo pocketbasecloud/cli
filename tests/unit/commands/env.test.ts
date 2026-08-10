@@ -6,6 +6,7 @@ import {
   prunedKeysOf,
 } from "../../../src/commands/env.ts";
 import { createMockCloudClient } from "../../mocks/cloud.mock.ts";
+import { tempStatePath } from "../../mocks/state.mock.ts";
 import { type Config, defaultConfig } from "../../../src/config.ts";
 import { join } from "@std/path";
 
@@ -35,6 +36,7 @@ Deno.test("env import posts bulk-set with parsed vars", async () => {
     loadConfig: () => Promise.resolve(config),
     saveConfig: () => Promise.resolve(),
     cwd: () => "/tmp",
+    envStatePath: tempStatePath(),
   });
   const code = await cmds["cloud env import"]({
     args: [join(dir, ".env")],
@@ -94,6 +96,7 @@ Deno.test("env import --delete-missing asks the platform to prune", async () => 
       loadConfig: () => Promise.resolve(config),
       saveConfig: () => Promise.resolve(),
       cwd: () => "/tmp",
+      envStatePath: tempStatePath(),
     });
     const code = await cmds["cloud env import"]({
       args: [join(dir, ".env")],
@@ -161,6 +164,7 @@ Deno.test("env set --env writes to that environment's backend", async () => {
     loadConfig: () => Promise.resolve(config),
     saveConfig: () => Promise.resolve(),
     cwd: () => cwd,
+    envStatePath: tempStatePath(),
   });
   const flags = {
     json: true,
@@ -231,6 +235,7 @@ Deno.test("env ls emits a flat [{key}] array under --json", async () => {
       loadConfig: () => Promise.resolve(config),
       saveConfig: () => Promise.resolve(),
       cwd: () => "/tmp",
+      envStatePath: tempStatePath(),
     });
     // Override pbApi to answer /api/env/list with the real envelope shape.
     client.pbApi = (path: string, body: unknown) => {

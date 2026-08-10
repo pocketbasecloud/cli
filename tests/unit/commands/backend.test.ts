@@ -1,6 +1,7 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { makeBackendCommands } from "../../../src/commands/backend.ts";
 import { createMockCloudClient } from "../../mocks/cloud.mock.ts";
+import { tempStatePath } from "../../mocks/state.mock.ts";
 import { type Config, defaultConfig } from "../../../src/config.ts";
 
 /** A directory with something to package, so deploy has a zip to upload. */
@@ -29,6 +30,7 @@ Deno.test("backend deploy sends runtime and start command", async () => {
     loadConfig: () => Promise.resolve(config),
     saveConfig: () => Promise.resolve(),
     cwd: () => cwd,
+    envStatePath: tempStatePath(),
   });
   const code = await cmds["cloud backend deploy"]({
     args: [],
@@ -74,6 +76,7 @@ Deno.test("backend rm keeps a binding it did not resolve", async () => {
     loadConfig: () => Promise.resolve(config),
     saveConfig: () => Promise.resolve(),
     cwd: () => cwd,
+    envStatePath: tempStatePath(),
   };
   await Deno.writeTextFile(
     `${cwd}/pb.json`,
@@ -124,6 +127,7 @@ Deno.test("backend deploy forwards --compute, which Pro deploys cannot do withou
     loadConfig: () => Promise.resolve(config),
     saveConfig: () => Promise.resolve(),
     cwd: () => cwd,
+    envStatePath: tempStatePath(),
   })["cloud backend deploy"]({
     args: [],
     flags: {
@@ -161,6 +165,7 @@ function backendDeps(
     loadConfig: () => Promise.resolve(config),
     saveConfig: () => Promise.resolve(),
     cwd: () => cwd,
+    envStatePath: tempStatePath(),
   };
 }
 

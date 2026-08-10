@@ -36,6 +36,12 @@ export type CloudCmdDeps = {
   fetch?: typeof fetch;
   /** Env reader, so a GITHUB_TOKEN can lift the releases-API rate limit. */
   env?: (k: string) => string | undefined;
+  /**
+   * Where the env-push digests live (see `env-state.ts`). Optional so a test
+   * keeps its own beside its temp directory; unset in production, where it
+   * falls back to the file beside the config.
+   */
+  envStatePath?: () => string;
 };
 
 export function makeProjectCommands(

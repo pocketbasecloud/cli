@@ -3,8 +3,13 @@ import { join } from "@std/path";
 import {
   envCandidates,
   envFileEntry,
+  pushEnvFile,
   resolveEnvFile,
 } from "../../../src/commands/deploy-helper.ts";
+import {
+  createMockCloudClient,
+  type MockCloudClient,
+} from "../../mocks/cloud.mock.ts";
 import { CliError } from "../../../src/errors.ts";
 import type { PromptIO } from "../../../src/ui/prompt.ts";
 
@@ -207,4 +212,92 @@ Deno.test("envFileEntry writes the decision only when the environment has none",
   );
   // Nothing decided, nothing written.
   assertEquals(await envFileEntry(cwd, "staging", {}, noop), {});
+});
+
+/** A throwaway digest store, so a test never reads or writes ~/.config/pb. */
+function statePath(): string {
+  return join(Deno.makeTempDirSync(), "env-state.json");
+}
+
+function pushArgs(over: Partial<Parameters<typeof pushEnvFile>[1]> = {}) {
+  return {
+    targetId: "r1",
+    type: "backend" as const,
+    name: ".env.prod",
+    vars: { A: "1", B: "2" },
+    statePath: statePath(),
+    log: noop,
+    ...over,
+  };
+}
+
+Deno.test("an unchanged env file is not pushed again", async () => {
+  const client = createMockCloudClient();
+  const args = pushArgs();
+  await pushEnvFile(client, args);
+  assertEquals(client.calls.ext.length, 1);
+
+  // Same values, same target: the platform already holds exactly this.
+  await pushEnvFile(client, args);
+  assertEquals(client.calls.ext.length, 1);
+
+  // A changed value is a push, and re-pushing the old one is one too.
+  await pushEnvFile(client, { ...args, vars: { A: "1", B: "3" } });
+  assertEquals(client.calls.ext.length, 2);
+  await pushEnvFile(client, args);
+  assertEquals(client.calls.ext.length, 3);
+});
+
+Deno.test("the skip is per resource, and --force-env overrides it", async () => {
+  const client = createMockCloudClient();
+  const args = pushArgs();
+  await pushEnvFile(client, args);
+  // A second resource has its own store, however identical the file.
+  await pushEnvFile(client, { ...args, targetId: "r2" });
+  assertEquals(client.calls.ext.length, 2);
+  await pushEnvFile(client, { ...args, targetId: "r2" });
+  assertEquals(client.calls.ext.length, 2);
+
+  await pushEnvFile(client, { ...args, force: true });
+  assertEquals(client.calls.ext.length, 3);
+});
+
+Deno.test("--delete-missing is part of what changed", async () => {
+  const client = createMockCloudClient();
+  const args = pushArgs();
+  await pushEnvFile(client, args);
+  // The same variables, but this run also removes cloud-only keys — work the
+  // earlier push did not do.
+  await pushEnvFile(client, { ...args, deleteMissing: true });
+  assertEquals(client.calls.ext.length, 2);
+  assertEquals((client.calls.ext[1][1] as { prune: boolean }).prune, true);
+  await pushEnvFile(client, { ...args, deleteMissing: true });
+  assertEquals(client.calls.ext.length, 2);
+});
+
+Deno.test("a rejected push is not remembered as done", async () => {
+  let fail = true;
+  const client: MockCloudClient = createMockCloudClient({
+    ext: (path, body) => {
+      client.calls.ext.push([path, body]);
+      return Promise.resolve(new Response("{}", { status: fail ? 500 : 200 }));
+    },
+  });
+  const args = pushArgs();
+  await assertRejects(() => pushEnvFile(client, args), CliError);
+  fail = false;
+  await pushEnvFile(client, args);
+  assertEquals(client.calls.ext.length, 2);
+});
+
+Deno.test("the skip says so, naming the escape hatch", async () => {
+  const client = createMockCloudClient();
+  const logs: string[] = [];
+  const args = pushArgs({ log: (m: string) => logs.push(m) });
+  await pushEnvFile(client, args);
+  logs.length = 0;
+  await pushEnvFile(client, args);
+  assertEquals(logs.length, 1);
+  assertEquals(logs[0].includes(".env.prod"), true);
+  assertEquals(logs[0].includes("--force-env"), true);
 });

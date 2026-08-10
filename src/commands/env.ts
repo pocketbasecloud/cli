@@ -3,6 +3,12 @@ import type { CloudCmdDeps } from "./project.ts";
 import type { ResourceKind } from "../clients/types.ts";
 import { CliError } from "../errors.ts";
 import { resolveProject } from "../resolve/project.ts";
+import {
+  envDigest,
+  envStateKey,
+  forgetEnvDigest,
+  recordEnvDigest,
+} from "../env-state.ts";
 import { resolveExisting, resolveTarget } from "./deploy-helper.ts";
 import { printResult } from "../ui/output.ts";
 import { confirm } from "../ui/prompt.ts";
@@ -130,6 +136,9 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
       value,
     });
     if (!res.ok) throw new CliError(`Set failed (${res.status}).`, 1);
+    // The cloud store no longer matches whatever a deploy last pushed, so the
+    // next deploy must not trust its digest and skip.
+    await forgetEnvDigest(envStateKey(type, targetId), deps.envStatePath?.());
     console.log(ctx.flags.json ? JSON.stringify({ ok: true }) : `Set ${key}.`);
     return 0;
   };
@@ -149,6 +158,7 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
       key,
     });
     if (!res.ok) throw new CliError(`Delete failed (${res.status}).`, 1);
+    await forgetEnvDigest(envStateKey(type, targetId), deps.envStatePath?.());
     console.log(
       ctx.flags.json ? JSON.stringify({ ok: true }) : `Removed ${key}.`,
     );
@@ -187,6 +197,14 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
       prune: deleteMissing,
     });
     if (!res.ok) throw new CliError(`Import failed (${res.status}).`, 1);
+    // An import writes exactly what a deploy's push writes, so it records the
+    // same digest rather than invalidating: importing the file a deploy would
+    // have pushed leaves that deploy nothing to do.
+    await recordEnvDigest(
+      envStateKey(type, targetId),
+      await envDigest(vars, deleteMissing),
+      deps.envStatePath?.(),
+    );
     const removed = prunedKeysOf(await res.json());
     const imported = Object.keys(vars).length;
     if (ctx.flags.json) {

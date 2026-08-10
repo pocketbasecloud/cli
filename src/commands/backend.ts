@@ -184,6 +184,8 @@ export function makeBackendCommands(
         name: env.push.name,
         vars: env.push.vars,
         deleteMissing: ctx.raw["delete-missing"] === true,
+        force: ctx.raw["force-env"] === true,
+        statePath: deps.envStatePath?.(),
         log,
         progress,
       });

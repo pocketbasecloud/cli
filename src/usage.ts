@@ -176,7 +176,9 @@ which dotenv file it uses (or none) and records the answer as envFile under
 that environment in pb.json, so it is asked once. --env-file names one outright
 and is recorded the same way when the environment has none yet. Pushing merges,
 keeping cloud-only keys; --delete-missing removes them so the file is the whole
-truth, and --skip-env pushes nothing for this run.
+truth, and --skip-env pushes nothing for this run. A file whose variables are
+unchanged since the last push is not uploaded again — pass --force-env to push
+it anyway, e.g. after editing the variables in the portal.
 
 With no --name and nothing bound in pb.json, deploy asks which instance to
 redeploy — or what to call a new one — the way it already asks which project
@@ -262,6 +264,13 @@ never moves an existing instance.`,
         description: "Remove cloud env vars the pushed file does not list.",
       },
       {
+        name: "force-env",
+        type: "boolean",
+        required: false,
+        description:
+          "Push env vars even when they are unchanged since the last push.",
+      },
+      {
         name: "zip",
         type: "string",
         required: false,
@@ -311,7 +320,7 @@ the directory's pb.json binding pick it.
 PocketBase itself only runs *.pb.js, but the plain .js and .json files beside
 them are uploaded too — a hook that requires a helper module or a data file
 needs it on the instance. Subdirectories are not uploaded: the platform stores
-hooks as flat files. At most 10 files per push — a bigger directory is nearly
+hooks as flat files. At most 30 files per push — a bigger directory is nearly
 always the wrong one.`,
     args: [{ name: "dir", required: true }],
     flags: [{ name: "name", type: "string", required: false }],
@@ -509,7 +518,9 @@ which dotenv file it uses (or none) and records the answer as envFile under
 that environment in pb.json, so it is asked once. --env-file names one outright
 and is recorded the same way when the environment has none yet. Pushing merges,
 keeping cloud-only keys; --delete-missing removes them so the file is the whole
-truth, and --skip-env pushes nothing for this run.
+truth, and --skip-env pushes nothing for this run. A file whose variables are
+unchanged since the last push is not uploaded again — pass --force-env to push
+it anyway, e.g. after editing the variables in the portal.
 
 With no --name and nothing bound in pb.json, deploy asks which backend to
 redeploy — or what to call a new one — the way it already asks which project
@@ -577,6 +588,13 @@ outright. A redeploy never moves an existing backend.`,
         type: "boolean",
         required: false,
         description: "Remove cloud env vars the pushed file does not list.",
+      },
+      {
+        name: "force-env",
+        type: "boolean",
+        required: false,
+        description:
+          "Push env vars even when they are unchanged since the last push.",
       },
     ],
   },
@@ -668,7 +686,8 @@ outright. A redeploy never moves an existing backend.`,
       `Merges by default: keys in the file are written, keys only in the cloud
 are left alone. Pass --delete-missing to make the file the whole truth — cloud
 variables it does not list are removed from the instance too, which asks for
-confirmation unless --yes or --no-input is given.`,
+confirmation unless --yes is given. --no-input does not waive it: without a way
+to ask, the import stops and names --yes.`,
     args: [{ name: ".env", required: true }],
     flags: [
       {
