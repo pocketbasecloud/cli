@@ -101,12 +101,30 @@ export function mapPbError(e: unknown): CliError {
 /** Every collection here tombstones instead of hard-deleting. */
 const NOT_DELETED = 'status != "deleted"';
 
+function generateTraceId(): string {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    // Fallback for environments without crypto
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+}
+
 export class PocketBaseCloudClient implements ICloudClient {
   private pb: PocketBase;
   private cachedUserId?: string;
   constructor(private auth: CloudAuth) {
     this.pb = new PocketBase(auth.backendUrl);
     this.pb.authStore.save(auth.userToken, null);
+
+    // Inject trace headers into every PocketBase SDK call for cross-service correlation.
+    this.pb.beforeSend = (url, options) => {
+      options.headers = Object.assign(options.headers || {}, {
+        "X-Trace-Id": generateTraceId(),
+        "X-Client-Type": "cli",
+      });
+      return { url, options };
+    };
   }
 
   private async guard<T>(fn: () => Promise<T>): Promise<T> {
@@ -137,8 +155,14 @@ export class PocketBaseCloudClient implements ICloudClient {
         id: string;
         email: string;
         plan: string;
+        role?: string;
       };
-      return { id: u.id, email: u.email, plan: u.plan ?? "free" };
+      return {
+        id: u.id,
+        email: u.email,
+        plan: u.plan ?? "free",
+        role: u.role || undefined,
+      };
     });
   }
 

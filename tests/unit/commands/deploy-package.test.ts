@@ -12,6 +12,7 @@ import { type Config, defaultConfig } from "../../../src/config.ts";
 import type { CloudCmdDeps } from "../../../src/commands/project.ts";
 import { CliError } from "../../../src/errors.ts";
 import { extractEntry } from "../../../src/local/unzip.ts";
+import { writeZip } from "../../../src/build/zip.ts";
 
 function seed(files: Record<string, string>): string {
   const root = Deno.makeTempDirSync();
@@ -458,7 +459,7 @@ Deno.test("pb deploy packages the three directories on create", async () => {
   );
 });
 
-Deno.test("pb redeploy uploads the archive and pushes hooks", async () => {
+Deno.test("pb redeploy sends hooks inside the archive, not through the hooks route", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   const pb = await client.createResource("pocketbases", {
@@ -495,22 +496,22 @@ Deno.test("pb redeploy uploads the archive and pushes hooks", async () => {
     ),
     "// migration",
   );
-  // Hooks still go through their own route: the platform's upload endpoint
-  // installs pb_public and pb_migrations only.
-  const push = client.calls.pbApi.find(([path]) =>
-    path === "/api/hooks/bulk-write"
+  assertEquals(
+    dec.decode(await extractEntry(await zipOf(data), "pb_hooks/main.pb.js")),
+    "// hook",
   );
-  const body = push?.[1] as {
-    pocketbase_id: string;
-    hooks: { filename: string }[];
-  };
-  assertEquals(body.pocketbase_id, pb.id);
-  assertEquals(body.hooks[0].filename, "main.pb.js");
+  // The platform installs pb_hooks from the archive through the very route
+  // this used to call, so calling it as well would write every file twice and
+  // restart the instance twice.
+  assertEquals(
+    client.calls.pbApi.some(([path]) => path === "/api/hooks/bulk-write"),
+    false,
+  );
 });
 
-Deno.test("pb redeploy of a hooks-only directory sends no archive", async () => {
-  // An archive with neither pb_public nor pb_migrations has nothing the
-  // platform's upload route accepts — sending it would error the instance.
+Deno.test("pb redeploy of a hooks-only directory sends the archive", async () => {
+  // pb_hooks is installed from an archive now, so a directory holding only
+  // hooks has something to upload after all.
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   await client.createResource("pocketbases", { name: "db", project: p.id });
@@ -526,16 +527,122 @@ Deno.test("pb redeploy of a hooks-only directory sends no archive", async () => 
 
   assertEquals(code, 0);
   const [, , data] = client.calls.updateResource[0];
+  assertEquals((data.zipFile as File).name, "data.zip");
+  assertEquals(data.status, "uploading");
+});
+
+Deno.test("pb deploy of a directory with no pb_* directories creates without an archive", async () => {
+  // A bare instance is a supported deploy, so packaging yields zero files.
+  // The archive that describes zero files is 22 bytes of end-of-central-
+  // directory and nothing else, which `unzip` refuses outright ("zipfile is
+  // empty") — so it must never be attached.
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  runningNow(client);
+  const cwd = seed({ "README.md": "nothing to deploy" });
+  const cmds = makePbCommands(deps(client, p.id, cwd));
+
+  const code = await cmds["cloud pb deploy"]({
+    args: [],
+    flags: flags(p.id),
+    raw: { name: "db" },
+  });
+
+  assertEquals(code, 0);
+  const [, data] = client.calls.createResource[0];
+  assertEquals(data.zipFile, undefined);
+  assertEquals(data.zipFileSize, undefined);
+});
+
+Deno.test("pb redeploy of a configured but empty pb_public sends no archive", async () => {
+  // The directory exists, so it is configured — but it holds no files, and an
+  // entry-less archive is refused by the agent exactly as an empty one is.
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  await client.createResource("pocketbases", { name: "db", project: p.id });
+  runningNow(client);
+  const cwd = seed({ "README.md": "x" });
+  Deno.mkdirSync(join(cwd, "pb_public"));
+  const cmds = makePbCommands(deps(client, p.id, cwd));
+
+  const code = await cmds["cloud pb deploy"]({
+    args: [],
+    flags: flags(p.id),
+    raw: { name: "db" },
+  });
+
+  assertEquals(code, 0);
+  const [, , data] = client.calls.updateResource[0];
   assertEquals(data.zipFile, undefined);
   assertEquals(data.status, undefined);
 });
+
+/**
+ * Progress writes straight to stdout rather than through console.log, so the
+ * notes a deploy prints are only observable there.
+ */
+function captureStdout(): { text: () => string; restore: () => void } {
+  const chunks: string[] = [];
+  const original = Deno.stdout.writeSync.bind(Deno.stdout);
+  const dec = new TextDecoder();
+  Deno.stdout.writeSync = (b: Uint8Array) => {
+    chunks.push(dec.decode(b));
+    return b.byteLength;
+  };
+  return {
+    text: () => chunks.join(""),
+    restore: () => {
+      Deno.stdout.writeSync = original;
+    },
+  };
+}
+
+Deno.test("pb deploy says so when there was nothing to deploy", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  runningNow(client);
+  const cwd = seed({ "README.md": "x" });
+  const cmds = makePbCommands(deps(client, p.id, cwd));
+  const out = captureStdout();
+
+  try {
+    const code = await cmds["cloud pb deploy"]({
+      args: [],
+      flags: { ...flags(p.id), json: false },
+      raw: { name: "db" },
+    });
+    assertEquals(code, 0);
+  } finally {
+    out.restore();
+  }
+
+  // A deploy that shipped nothing looks identical to one that worked, so the
+  // note has to name both the cause and the way out.
+  const text = out.text();
+  assertEquals(text.includes("nothing to deploy"), true);
+  assertEquals(text.includes("pb_public"), true);
+  assertEquals(text.includes("pb.json"), true);
+});
+
+/** Writes a real archive to `path`, since --zip is now read before upload. */
+async function writeZipFile(
+  path: string,
+  names: string[],
+): Promise<void> {
+  const body = new TextEncoder().encode("x");
+  await Deno.writeFile(path, await writeZip(names.map((name) => ({
+    name,
+    body,
+  }))));
+}
 
 Deno.test("pb redeploy uploads an explicit --zip", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   await client.createResource("pocketbases", { name: "db", project: p.id });
   runningNow(client);
-  const cwd = seed({ "pb_hooks/main.pb.js": "//", "old.zip": "x" });
+  const cwd = seed({ "pb_hooks/main.pb.js": "//" });
+  await writeZipFile(join(cwd, "old.zip"), ["pb_public/index.html"]);
   const cmds = makePbCommands(deps(client, p.id, cwd));
 
   const code = await cmds["cloud pb deploy"]({
@@ -548,4 +655,88 @@ Deno.test("pb redeploy uploads an explicit --zip", async () => {
   const [, , data] = client.calls.updateResource[0];
   assertEquals((data.zipFile as File).name, "old.zip");
   assertEquals(data.status, "uploading");
+});
+
+Deno.test("pb redeploy refuses a --zip holding neither pb_migrations nor pb_public", async () => {
+  // The production failure, caught before the upload: the platform would
+  // refuse this archive on the VM and mark a healthy instance errored.
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  await client.createResource("pocketbases", { name: "db", project: p.id });
+  runningNow(client);
+  const cwd = seed({});
+  await writeZipFile(join(cwd, "site.zip"), ["index.html", "README.txt"]);
+  const cmds = makePbCommands(deps(client, p.id, cwd));
+
+  const err = await assertRejects(
+    () =>
+      cmds["cloud pb deploy"]({
+        args: [],
+        flags: flags(p.id),
+        raw: { name: "db", zip: join(cwd, "site.zip") },
+      }),
+    CliError,
+    "pb_migrations",
+  );
+  assertEquals(err.exitCode, 2);
+  // Naming what it did find is what turns this from a rule into a diagnosis.
+  assertEquals(err.message.includes("index.html"), true);
+  assertEquals(err.message.includes("pb_public"), true);
+  // Nothing was sent, so the instance is untouched.
+  assertEquals(client.calls.updateResource.length, 0);
+});
+
+Deno.test("pb create accepts a --zip that only seeds pb_hooks", async () => {
+  // Creation extracts the archive wholesale — pb_hooks is a legitimate seed
+  // there, and only the *upload* route is restricted to the two directories.
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  runningNow(client);
+  const cwd = seed({});
+  await writeZipFile(join(cwd, "seed.zip"), ["pb_hooks/main.pb.js"]);
+  const cmds = makePbCommands(deps(client, p.id, cwd));
+
+  const code = await cmds["cloud pb deploy"]({
+    args: [],
+    flags: flags(p.id),
+    raw: { name: "db", zip: join(cwd, "seed.zip") },
+  });
+
+  assertEquals(code, 0);
+  const [, data] = client.calls.createResource[0];
+  assertEquals((data.zipFile as File).name, "seed.zip");
+});
+
+Deno.test("a failed deploy reports the platform's own message, not just the sub-status", async () => {
+  // `subStatus` maps to one fixed sentence per runtime, so it can say a hook
+  // could not be installed but never which one. `statusMessage` is the only
+  // field that can name the file, so it wins whenever the platform wrote one.
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  await client.createResource("pocketbases", { name: "db", project: p.id });
+  const orig = client.getResource.bind(client);
+  client.getResource = async (k, id) => ({
+    ...(await orig(k, id)),
+    status: "error",
+    subStatus: "hooksNotInstallable",
+    statusMessage:
+      "pb_hooks/lib/helpers.js is inside a subdirectory. Hooks must be flat files.",
+  });
+  const cwd = seed({ "pb_hooks/main.pb.js": "// hook" });
+  const cmds = makePbCommands(deps(client, p.id, cwd));
+  const out = captureStdout();
+
+  try {
+    await cmds["cloud pb deploy"]({
+      args: [],
+      flags: { ...flags(p.id), json: false },
+      raw: { name: "db" },
+    });
+  } finally {
+    out.restore();
+  }
+
+  const text = out.text();
+  assertEquals(text.includes("pb_hooks/lib/helpers.js"), true);
+  assertEquals(text.includes("inside a subdirectory"), true);
 });

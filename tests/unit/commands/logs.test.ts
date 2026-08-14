@@ -164,3 +164,87 @@ Deno.test("logs --env streams that environment's instance", async () => {
   );
   await Deno.remove(cwd, { recursive: true });
 });
+
+function captureLog() {
+  const lines: string[] = [];
+  const original = console.log;
+  console.log = (...args: unknown[]) => lines.push(args.map(String).join(" "));
+  return { lines, restore: () => console.log = original };
+}
+
+Deno.test("logs announces the project resolved from config.currentProject", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  await client.createResource("pocketbases", { name: "db1", project: p.id });
+  client.ext = () =>
+    Promise.resolve(
+      new Response(
+        new ReadableStream<Uint8Array>({ start: (c) => c.close() }),
+        { status: 200 },
+      ),
+    );
+  const config: Config = {
+    ...defaultConfig(),
+    cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
+    currentProject: p.id,
+  };
+  const cmds = makeLogsCommands({
+    requireAuth: () => Promise.resolve({ client, config, auth: config.cloud! }),
+    loadConfig: () => Promise.resolve(config),
+    saveConfig: () => Promise.resolve(),
+    cwd: () => "/tmp",
+  });
+  const log = captureLog();
+  try {
+    const code = await cmds["cloud logs"]({
+      args: ["pb"],
+      flags: { json: false, yes: true, noInput: true, interactive: false },
+      raw: { name: "db1" },
+    });
+    assertEquals(code, 0);
+    assertEquals(log.lines[0].includes(`Project: ${p.name}`), true);
+    assertEquals(log.lines[0].includes("pb cloud project use"), true);
+  } finally {
+    log.restore();
+  }
+});
+
+Deno.test("logs does not announce the project when --project names it", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  await client.createResource("pocketbases", { name: "db1", project: p.id });
+  client.ext = () =>
+    Promise.resolve(
+      new Response(
+        new ReadableStream<Uint8Array>({ start: (c) => c.close() }),
+        { status: 200 },
+      ),
+    );
+  const config: Config = {
+    ...defaultConfig(),
+    cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
+  };
+  const cmds = makeLogsCommands({
+    requireAuth: () => Promise.resolve({ client, config, auth: config.cloud! }),
+    loadConfig: () => Promise.resolve(config),
+    saveConfig: () => Promise.resolve(),
+    cwd: () => "/tmp",
+  });
+  const log = captureLog();
+  try {
+    await cmds["cloud logs"]({
+      args: ["pb"],
+      flags: {
+        json: false,
+        yes: true,
+        noInput: true,
+        interactive: false,
+        project: p.id,
+      },
+      raw: { name: "db1" },
+    });
+    assertEquals(log.lines.some((l) => l.startsWith("Project:")), false);
+  } finally {
+    log.restore();
+  }
+});

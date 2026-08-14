@@ -4,6 +4,7 @@ import { type CloudCmdDeps, makeProjectCommands } from "./project.ts";
 import { makePbCommands } from "./pb.ts";
 import { makeFrontendCommands } from "./frontend.ts";
 import { makeBackendCommands } from "./backend.ts";
+import { makeDeployCommands } from "./deploy.ts";
 import { makeEnvCommands } from "./env.ts";
 import { makeEnvironmentsCommands } from "./environments.ts";
 import { makeDataCommands } from "./data.ts";
@@ -30,7 +31,7 @@ import { PocketBaseAdminClient } from "../clients/admin.ts";
 import { activeProfileName } from "../resolve/profile.ts";
 import {
   loadConfig,
-  PORTAL_URL,
+  portalUrl,
   resolveCloudAuth,
   saveConfig,
 } from "../config.ts";
@@ -38,7 +39,7 @@ import { PocketBaseCloudClient } from "../clients/cloud.ts";
 import { browserLogin } from "../auth/browser-login.ts";
 import { CliError } from "../errors.ts";
 
-const PORTAL_BASE = PORTAL_URL.replace(/\/login\/?$/, "");
+const PORTAL_BASE = portalUrl().replace(/\/login\/?$/, "");
 
 export function buildCloudDeps(): CloudCmdDeps {
   return {
@@ -112,6 +113,9 @@ export function buildSelfDeps(): SelfDeps {
 export function registerCommands(registry: Record<string, Handler>): void {
   const cloud = buildCloudDeps();
   const admin = buildAdminDeps();
+  const pb = makePbCommands(cloud);
+  const frontend = makeFrontendCommands(cloud);
+  const backend = makeBackendCommands(cloud);
   Object.assign(
     registry,
     makeAuthCommands({
@@ -119,12 +123,19 @@ export function registerCommands(registry: Record<string, Handler>): void {
       saveConfig,
       makeClient: (a) => new PocketBaseCloudClient(a),
       login: (o) => browserLogin(o),
-      portalUrl: PORTAL_URL,
+      portalUrl: portalUrl(),
     }),
     makeProjectCommands(cloud),
-    makePbCommands(cloud),
-    makeFrontendCommands(cloud),
-    makeBackendCommands(cloud),
+    pb,
+    frontend,
+    backend,
+    // Dispatches to the three above rather than deploying anything itself, so
+    // `pb cloud deploy` and `pb cloud <kind> deploy` can never drift apart.
+    makeDeployCommands(cloud, {
+      pocketbases: pb["cloud pb deploy"],
+      frontends: frontend["cloud frontend deploy"],
+      backends: backend["cloud backend deploy"],
+    }),
     makeEnvCommands(cloud),
     makeEnvironmentsCommands(cloud),
     makeDataCommands(cloud),

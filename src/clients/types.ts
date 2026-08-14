@@ -12,6 +12,19 @@ export type Resource = {
   id: string;
   name: string;
   status: string;
+  /**
+   * Why a deploy ended where it did. On `status: "error"` this is the only
+   * explanation there is — the request that failed belonged to a platform-side
+   * hook, so there is no response left to read. See `describeSubStatus`.
+   */
+  subStatus?: string;
+  /**
+   * A sentence the platform composed for *this* failure, which `subStatus`
+   * cannot be: a sub-status maps to one fixed line per failure kind, so it can
+   * say a hook could not be installed but never which one. Preferred over the
+   * sub-status sentence whenever it is present.
+   */
+  statusMessage?: string;
   project: string;
   createdBy: string;
   domain?: string;
@@ -32,7 +45,13 @@ export type Org = {
   owner: string;
   role: "owner" | "developer";
 };
-export type User = { id: string; email: string; plan: string };
+export type User = {
+  id: string;
+  email: string;
+  plan: string;
+  /** Platform role. Absent on an ordinary account. */
+  role?: string;
+};
 
 /**
  * The project OWNER's deploy context, as `GET /api/deploy-context` reports it.

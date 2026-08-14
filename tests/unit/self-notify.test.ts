@@ -1,6 +1,7 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import {
   CHECK_TTL_MS,
+  FAIL_TTL_MS,
   notice,
   type NotifyDeps,
   notifyUpdate,
@@ -87,6 +88,35 @@ Deno.test("suppressed keeps quiet where a notice would be noise", () => {
   );
 });
 
+Deno.test("suppression reads the parse, not the raw argv", () => {
+  const tty = { env: () => undefined, isTTY: () => true };
+  // A global flag ahead of it still leaves `upgrade` the command being run,
+  // which scanning argv[0] missed — and the stutter it produced was the whole
+  // reason `pb upgrade` is on the list.
+  assertEquals(suppressed(["--profile", "work", "upgrade"], tty), true);
+  // ...while "upgrade" as a flag's *value* is not the command.
+  assertEquals(
+    suppressed(["--profile", "upgrade", "cloud", "pb", "ls"], tty),
+    false,
+  );
+  // Likewise "--json" attached to another flag is not the --json flag, so the
+  // notice is not silenced with nothing to protect.
+  assertEquals(
+    suppressed(["admin", "records", "create", "posts", "--data=--json"], tty),
+    false,
+  );
+  // Written with a space, parseArgs reads it as the --json flag rather than as
+  // a value — so the command really would emit JSON, and staying quiet is
+  // right. Agreeing with the parse is the point, not second-guessing it.
+  assertEquals(
+    suppressed(
+      ["admin", "records", "create", "posts", "--data", "--json"],
+      tty,
+    ),
+    true,
+  );
+});
+
 Deno.test("notice names the command that works for the install", () => {
   assertStringIncludes(notice("9.9.9", "/usr/local/bin/pb"), "pb upgrade");
   assertStringIncludes(
@@ -164,4 +194,116 @@ Deno.test("a corrupt cache is replaced rather than thrown over", async () => {
   await notifyUpdate(["cloud", "pb", "ls"], poisoned.deps);
   assertEquals(poisoned.fetches.length, 1);
   assertStringIncludes(poisoned.out[0], "99.0.0");
+});
+
+Deno.test("a failed check expires an hour later, not a day later", async () => {
+  const failed = harness({ fail: true });
+  await notifyUpdate(["cloud", "pb", "ls"], failed.deps);
+  assertEquals(failed.out, []);
+
+  // Past the failure TTL but nowhere near the success one: look again.
+  const retry = harness({
+    latest: "99.0.0",
+    files: failed.files,
+    now: 1_000_000 + FAIL_TTL_MS + 1,
+  });
+  await notifyUpdate(["cloud", "pb", "ls"], retry.deps);
+  assertEquals(retry.fetches.length, 1);
+  assertStringIncludes(retry.out[0], "99.0.0");
+
+  // A *successful* check of the same age is still trusted — the shorter TTL
+  // applies to failures alone.
+  const ok = harness({ latest: "99.0.0" });
+  await notifyUpdate(["cloud", "pb", "ls"], ok.deps);
+  const fresh = harness({
+    latest: "99.0.0",
+    files: ok.files,
+    now: 1_000_000 + FAIL_TTL_MS + 1,
+  });
+  await notifyUpdate(["cloud", "pb", "ls"], fresh.deps);
+  assertEquals(fresh.fetches.length, 0);
+});
+
+Deno.test("the pass before a command answers from cache and never fetches", async () => {
+  // Nothing cached yet: the pass before the command has no free answer, and
+  // says so rather than paying for one.
+  const cold = harness({ latest: "99.0.0" });
+  assertEquals(
+    await notifyUpdate(["cloud", "logs", "--follow"], cold.deps, {
+      before: true,
+    }),
+    "unknown",
+  );
+  assertEquals(cold.fetches.length, 0);
+  assertEquals(cold.out, []);
+
+  // Once the cache is warm it prints without a request — which is how a
+  // command that never returns gets a notice at all.
+  const warm = harness({ latest: "99.0.0" });
+  await notifyUpdate(["cloud", "pb", "ls"], warm.deps);
+  const follow = harness({ latest: "99.0.0", files: warm.files });
+  assertEquals(
+    await notifyUpdate(["cloud", "logs", "--follow"], follow.deps, {
+      before: true,
+    }),
+    "announced",
+  );
+  assertEquals(follow.fetches.length, 0);
+  assertStringIncludes(follow.out[0], "99.0.0");
+});
+
+Deno.test("a stale cache is not repeated ahead of the command", async () => {
+  const h = harness({ latest: "99.0.0" });
+  await notifyUpdate(["cloud", "pb", "ls"], h.deps);
+
+  const later = harness({
+    latest: "99.0.0",
+    files: h.files,
+    now: 1_000_000 + CHECK_TTL_MS + 1,
+  });
+  // Stale is not an answer: stay quiet and leave it to the pass that refreshes.
+  assertEquals(
+    await notifyUpdate(["cloud", "pb", "ls"], later.deps, { before: true }),
+    "unknown",
+  );
+  assertEquals(later.fetches.length, 0);
+  assertEquals(later.out, []);
+});
+
+Deno.test("the blank line always falls between notice and command output", async () => {
+  const warm = harness({ latest: "99.0.0" });
+  await notifyUpdate(["cloud", "pb", "ls"], warm.deps);
+
+  const before = harness({ latest: "99.0.0", files: warm.files });
+  await notifyUpdate(["cloud", "pb", "ls"], before.deps, { before: true });
+  assertEquals(before.out[0].startsWith("Update available"), true);
+  assertEquals(before.out[0].endsWith("\n"), true);
+
+  // Printing last, the spacing flips so the notice is not glued to the output
+  // above it.
+  assertEquals(warm.out[0].startsWith("\nUpdate available"), true);
+  assertEquals(warm.out[0].endsWith("\n"), false);
+});
+
+Deno.test("nothing to say is reported as quiet, so no second pass runs", async () => {
+  const current = harness({ latest: VERSION });
+  await notifyUpdate(["cloud", "pb", "ls"], current.deps);
+  assertEquals(
+    await notifyUpdate(
+      ["cloud", "pb", "ls"],
+      harness({
+        latest: VERSION,
+        files: current.files,
+      }).deps,
+      { before: true },
+    ),
+    "quiet",
+  );
+  // Suppressed is equally final — looking again cannot change it.
+  assertEquals(
+    await notifyUpdate(["cloud", "pb", "ls", "--json"], current.deps, {
+      before: true,
+    }),
+    "quiet",
+  );
 });

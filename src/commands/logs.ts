@@ -1,7 +1,7 @@
 import type { CmdCtx, Handler } from "../router.ts";
 import type { CloudCmdDeps } from "./project.ts";
 import type { ResourceKind } from "../clients/types.ts";
-import { CliError } from "../errors.ts";
+import { CliError, httpError } from "../errors.ts";
 import { resolveProject } from "../resolve/project.ts";
 import { resolveExisting, resolveTarget } from "./deploy-helper.ts";
 
@@ -80,6 +80,7 @@ export function makeLogsCommands(deps: CloudCmdDeps): Record<string, Handler> {
       cwd: deps.cwd(),
       flagProject: ctx.flags.project,
       noInput: ctx.flags.noInput || ctx.flags.json,
+      log: ctx.flags.json ? undefined : (m) => console.log(m),
     });
     const target = await resolveTarget(
       {
@@ -110,7 +111,7 @@ export function makeLogsCommands(deps: CloudCmdDeps): Record<string, Handler> {
       initial_lines: lines,
     });
     if (!res.ok || !res.body) {
-      throw new CliError(`Log stream failed (${res.status}).`, 1);
+      throw await httpError(res, "Log stream");
     }
     await streamToWriter(
       res.body,

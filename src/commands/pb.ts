@@ -2,29 +2,38 @@ import { join } from "@std/path";
 import type { CmdCtx, Handler } from "../router.ts";
 import type { CloudCmdDeps } from "./project.ts";
 import type { ICloudClient } from "../clients/cloud.ts";
-import { CliError } from "../errors.ts";
+import { CliError, httpError } from "../errors.ts";
 import { printDetail, printResult } from "../ui/output.ts";
-import { confirm } from "../ui/prompt.ts";
+import { canPrompt, confirm, prompt } from "../ui/prompt.ts";
 import { resolveProject } from "../resolve/project.ts";
 import type { BuildConfig } from "../config.ts";
 import {
+  readLinkFile,
   readOwnPbJson,
   removeEnvironment,
   removeEnvironmentFor,
   upsertEnvironment,
 } from "../config.ts";
+import {
+  chooseEnvironment,
+  entryFor,
+  resolveEnvironmentName,
+} from "../resolve/environment.ts";
 import { FALLBACK_VERSIONS, resolveLatest } from "../local/releases.ts";
+import { pbArchiveShape, zipEntryNames } from "../build/pb-archive.ts";
 import {
   attachZip,
   awaitDeployment,
   awaitReachable,
   buildBundle,
+  chooseCompute,
   computeChooser,
   computeFlag,
   deployProgress,
   deployResource,
   ensureTarget,
   envFileEntry,
+  findExisting,
   pushEnvFile,
   reportUrl,
   resolveAdminCredentials,
@@ -32,6 +41,7 @@ import {
   resolveExisting,
   resolveOwnerId,
   resolveTarget,
+  suggestName,
   uploadLabel,
 } from "./deploy-helper.ts";
 import { reportRemoval } from "./environments.ts";
@@ -55,13 +65,123 @@ const HOOK_EXTENSIONS = [".js", ".json"];
  * uploading it. This is a CLI guard rail, not a platform rule — the portal and
  * a direct API call still write up to 50.
  */
+/**
+ * Refuse nested hook files before they reach the platform.
+ *
+ * The agent's `validateHookFilename` rejects a name holding "/" or "\", so a
+ * `.js` file inside a subdirectory of pb_hooks can never be installed. Catching
+ * it here — before the archive is uploaded — means the CLI names the file and
+ * the fix, rather than the platform marking the instance errored after the
+ * bytes have already travelled.
+ */
+async function findNestedHooks(dir: string): Promise<string[]> {
+  const nested: string[] = [];
+  try {
+    for await (const entry of Deno.readDir(dir)) {
+      if (!entry.isDirectory) continue;
+      try {
+        for await (const sub of Deno.readDir(join(dir, entry.name))) {
+          if (!sub.isFile) continue;
+          if (HOOK_EXTENSIONS.some((ext) => sub.name.endsWith(ext))) {
+            nested.push(`${entry.name}/${sub.name}`);
+          }
+        }
+      } catch { /* subdir unreadable, skip */ }
+    }
+  } catch {
+    // Directory doesn't exist — not a validation failure, just nothing to check.
+  }
+  return nested;
+}
+
 const MAX_HOOKS_PER_PUSH = 30;
 
 /**
- * Uploads every hook file in `dir`. Shared by `hooks push` and by `deploy`'s
- * redeploy path: hooks are stored in the platform's database (so the portal's
- * editor stays in sync) and therefore never travel in the deploy archive,
- * which carries pb_public and pb_migrations only.
+ * How long one hook file may be.
+ *
+ * Mirrors the `max` on the `hook.content` field in PocketBase — keep the two in
+ * step; the platform is authoritative and its own message quotes the real
+ * number, which is why exceeding this is worth catching but not worth guessing
+ * about.
+ *
+ * The reason to check it *here* rather than let the platform refuse: a push
+ * sends `active: true`, so the agent writes the file to the running instance
+ * before the database is touched. The agent's own ceiling is 1MB, so a file
+ * between the two limits lands on the instance and *then* fails to be stored —
+ * leaving the hook live on the server while the portal editor and `hooks ls`
+ * still show the previous version, and the next save quietly ships that stale
+ * copy back over it. Refusing before the request keeps the two in agreement.
+ */
+const MAX_HOOK_CONTENT_CHARS = 300_000;
+
+/** `123456` → `123,456`. A five-figure limit is unreadable without it. */
+function formatCount(n: number): string {
+  return n.toLocaleString("en-US");
+}
+
+/**
+ * Refuses a `--zip` archive the platform's upload route would reject anyway.
+ *
+ * Only reachable on a **redeploy**: creating an instance extracts the archive
+ * wholesale, so anything in it lands somewhere, while the upload route installs
+ * `pb_hooks`, `pb_migrations` and `pb_public` and skips the rest. Without this
+ * the archive travels to the VM, is refused there, and a healthy running
+ * instance is marked errored for a mistake that was visible before the upload
+ * began. Naming what the archive *does* hold is the part that makes it a
+ * diagnosis: the usual cause is zipping a folder's contents instead of the
+ * folder.
+ */
+function assertUploadableArchive(bytes: Uint8Array, fileName: string): void {
+  const names = zipEntryNames(bytes);
+  if (names === null) {
+    throw new CliError(`${fileName} is not a zip archive.`, 2);
+  }
+
+  const { uploadable, found } = pbArchiveShape(names);
+  if (uploadable.length > 0) return;
+
+  const holds = found.length === 0
+    ? "it is empty"
+    : `it holds ${found.slice(0, 5).join(", ")}${
+      found.length > 5 ? `, and ${found.length - 5} more` : ""
+    }`;
+  throw new CliError(
+    `${fileName} has no pb_hooks, pb_migrations or pb_public directory at ` +
+      `its root — ${holds}. Those are the only directories an upload ` +
+      `installs. If you zipped the contents of a folder, zip the folder ` +
+      `itself instead.`,
+    2,
+  );
+}
+
+/**
+ * Said when a deploy found no `pb_public`, `pb_hooks` or `pb_migrations` to
+ * ship.
+ *
+ * Deploying a bare instance is supported and is not an error, so this is a
+ * note rather than a failure — but it must be said. A deploy that packaged
+ * nothing looks exactly like a successful one from the outside, and the usual
+ * cause is being one directory up from the project, or a `pb.json` whose build
+ * block points somewhere the files are not. Staying quiet lets someone watch
+ * "deployed" scroll past and wonder later why the instance is empty.
+ */
+function nothingToDeployNote(cwd: string, created: boolean): string {
+  return `Note: nothing to deploy from ${cwd} — no pb_public, pb_hooks or ` +
+    `pb_migrations directory was found, so ${
+      created
+        ? "the instance was created bare"
+        : "no files were sent and the instance is unchanged"
+    }. Add one of those directories, or point build.pbPublic / build.pbHooks ` +
+    `/ build.pbMigrations in pb.json at where yours live, then deploy again.`;
+}
+
+/**
+ * Uploads every hook file in `dir`, for `hooks push`.
+ *
+ * `deploy` no longer calls this: `pb_hooks` travels in the deploy archive, and
+ * the platform installs it through this same route on the far side — so
+ * pushing here as well would write every file twice and restart the instance
+ * twice. This remains the way to push hooks *without* deploying anything else.
  *
  * `sent` and `stored` are separate because they fail differently: `sent: 0`
  * means the directory held nothing uploadable, while `sent: 3, stored: 2`
@@ -123,10 +243,18 @@ export async function pushHooks(
     );
   }
   const hooks: { filename: string; content: string; active: boolean }[] = [];
+  const oversized: string[] = [];
   for (const filename of names) {
+    const content = await Deno.readTextFile(join(dir, filename));
+    if (content.length > MAX_HOOK_CONTENT_CHARS) {
+      oversized.push(
+        `${filename} (${formatCount(content.length)} characters)`,
+      );
+      continue;
+    }
     hooks.push({
       filename,
-      content: await Deno.readTextFile(join(dir, filename)),
+      content,
       // Sent explicitly: the service treats a missing `active` as active when
       // deciding what to write to the server, but records it verbatim, so an
       // omitted flag lands in the database as false and the portal then shows
@@ -134,12 +262,23 @@ export async function pushHooks(
       active: true,
     });
   }
+  // The whole push is refused, not just the offending file: a partial push
+  // leaves the instance running some files from this version and some from
+  // the last, which is harder to reason about than not having pushed at all.
+  if (oversized.length > 0) {
+    throw new CliError(
+      `${oversized.join(", ")} — a hook file may be at most ` +
+        `${formatCount(MAX_HOOK_CONTENT_CHARS)} characters. Split it up and ` +
+        `require() the parts.`,
+      2,
+    );
+  }
   // Service-key-guarded on backend-extension, so it goes through PocketBase.
   const res = await client.pbApi("/api/hooks/bulk-write", {
     pocketbase_id: pocketbaseId,
     hooks,
   });
-  if (!res.ok) throw new CliError(`Hook push failed (${res.status}).`, 1);
+  if (!res.ok) throw await httpError(res, "Hook push");
   return {
     sent: hooks.length,
     stored: await reportHookResults(res, hooks.length, log),
@@ -210,7 +349,7 @@ async function resolveDeployVersion(
 }
 
 export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
-  async function project(ctx: CmdCtx) {
+  async function project(ctx: CmdCtx, log?: (m: string) => void) {
     const { client, config, auth } = await deps.requireAuth();
     const p = await resolveProject({
       client,
@@ -218,15 +357,228 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
       cwd: deps.cwd(),
       flagProject: ctx.flags.project,
       noInput: ctx.flags.noInput || ctx.flags.json,
+      log: log ?? (ctx.flags.json ? undefined : (m) => console.log(m)),
     });
     return { client, project: p, auth };
   }
+
+  /**
+   * What to call an instance that does not exist yet, for `create`.
+   *
+   * `--name` and the positional argument are the same answer written two ways,
+   * and `deploy` reads them in this order — keep them in step. Asked for on a
+   * terminal, defaulting to the directory's name the way `deploy` does, since
+   * `pb cloud pb create` in a fresh project directory is the case this exists
+   * for. Nothing is read from the directory but its name.
+   */
+  async function newInstanceName(ctx: CmdCtx): Promise<string> {
+    const explicit = (ctx.raw.name as string | undefined) ?? ctx.args[0];
+    if (explicit) return explicit;
+    const opts = { noInput: ctx.flags.noInput || ctx.flags.json, io: deps.io };
+    if (!canPrompt(opts)) {
+      throw new CliError(
+        "Pass a name: `pb cloud pb create <name>`.",
+        2,
+      );
+    }
+    const suggested = suggestName(deps.cwd());
+    const answer = await prompt(
+      `Name for the new PocketBase [${suggested}]:`,
+      opts,
+    );
+    return answer || suggested;
+  }
+
+  /**
+   * Which environment a `create` records its new instance under, and the
+   * guards that have to pass before anything is provisioned.
+   *
+   * `deploy` gets all of this from `resolveTarget`, whose job is to *find* an
+   * existing resource — the wrong shape here, where the resource does not exist
+   * yet and the file is only a destination. The two guards are the same ones
+   * deploy enforces, for the same reasons: `kind` is shared by every
+   * environment in a pb.json, so a directory bound to frontends cannot also
+   * bind a PocketBase; and repointing an environment that already names an
+   * instance would silently orphan the binding to a live one.
+   */
+  async function environmentToRecord(
+    ctx: CmdCtx,
+    cwd: string,
+  ): Promise<string> {
+    const link = await readLinkFile(cwd);
+    const opts = { noInput: ctx.flags.noInput || ctx.flags.json, io: deps.io };
+    const choice = await chooseEnvironment(
+      resolveEnvironmentName(link, { flag: ctx.raw.env as string | undefined }),
+      link,
+      opts,
+    );
+    if (link?.kind && link.kind !== "pocketbases") {
+      throw new CliError(
+        `pb.json is bound to ${link.kind} — create a PocketBase from a ` +
+          `different directory.`,
+        2,
+      );
+    }
+    const bound = entryFor(link, "pocketbases", choice);
+    if (bound) {
+      throw new CliError(
+        `pb.json already binds environment "${choice.name}" to PocketBase ` +
+          `"${
+            bound.name ?? bound.id
+          }" (${bound.id}). Record the new instance ` +
+          `under another environment with --env <name>, run this from a ` +
+          `different directory, or remove the bound instance with ` +
+          `\`pb cloud pb rm --name ${bound.name ?? bound.id}\`.`,
+        2,
+      );
+    }
+    return choice.name;
+  }
+
+  /**
+   * Creates an empty instance and records it in this directory's pb.json.
+   *
+   * `deploy` is a directory command: it infers a build block, packages
+   * pb_public/pb_hooks/pb_migrations, and asks which dotenv file the
+   * environment uses, all before it creates anything. That is right for "ship
+   * this directory" and wrong for "give me an instance" — a script, a CI step,
+   * or a user with nothing to deploy yet. So `create` skips every one of those
+   * steps and sends no archive at all.
+   *
+   * What it does keep is the binding: the instance is written into pb.json
+   * under its environment exactly as a deploy would write it, so the next
+   * `pb cloud pb deploy` here needs no --name. The rest of the create is shared
+   * with `deploy` — owner, superuser credentials, compute, version, the
+   * provisioning and reachability waits — so the two cannot drift into
+   * producing differently-shaped instances.
+   */
+  const create: Handler = async (ctx: CmdCtx) => {
+    const progress = deployProgress(ctx.flags.json);
+    const { client, project: p, auth } = await progress.step(
+      "Connecting to PocketBase Cloud",
+      () => project(ctx, progress.log),
+    );
+    const cwd = deps.cwd();
+    const log = (m: string) => progress.log(m);
+    const noInput = ctx.flags.noInput || ctx.flags.json;
+    const name = await newInstanceName(ctx);
+    // Before the create, not after: a directory that cannot record the result
+    // must fail while there is still nothing to clean up.
+    const environment = await environmentToRecord(ctx, cwd);
+
+    // The one thing that distinguishes create from deploy, so its refusal has
+    // to name deploy. Creating a second instance under a name already in the
+    // project would also make every later --name lookup ambiguous.
+    const existing = findExisting(
+      await client.listResources("pocketbases", p.id),
+      { name },
+    );
+    if (existing === "ambiguous") {
+      throw new CliError(
+        `More than one PocketBase in this project is already named "${name}". ` +
+          `Pick another name.`,
+        2,
+      );
+    }
+    if (existing) {
+      throw new CliError(
+        `A PocketBase named "${name}" already exists in this project ` +
+          `(${existing.id}). Redeploy it with \`pb cloud pb deploy --name ` +
+          `${name}\`, or create this one under another name.`,
+        2,
+      );
+    }
+
+    // Both required: the platform refuses the deploy when either is blank and
+    // never fills them in itself.
+    const credentials = await resolveAdminCredentials(client, {
+      username: ctx.raw["admin-email"] as string | undefined,
+      password: ctx.raw["admin-password"] as string | undefined,
+    });
+    const data: Record<string, unknown> = {
+      project: p.id,
+      name,
+      user: await resolveOwnerId(client, auth),
+      status: "creating",
+      // Never blank: an empty version leaves the instance stranded in
+      // `creating` with no error status ever written.
+      version: await resolveDeployVersion(
+        ctx.raw["pb-version"] as string | undefined,
+        cwd,
+        deps,
+      ),
+      ...credentials,
+    };
+    if (ctx.raw.location) data.location = ctx.raw.location;
+    // A Pro account's dedicated compute is `ownership: "user"`, which the
+    // platform's auto-selection (platform pool only) never picks.
+    const compute = computeFlag(ctx.raw) ??
+      await chooseCompute(client, p.id, { noInput, log, io: deps.io });
+    if (compute) data.server = compute;
+
+    const resource = await progress.step(
+      "Sending the create request",
+      () => client.createResource("pocketbases", data),
+    );
+    // Recorded as soon as the record exists, not once it is running: an
+    // instance that fails to provision is still one this directory owns, and a
+    // binding is how `pb cloud pb deploy`, `info`, `logs` and `rm` reach it.
+    // No envFile is written — nothing was pushed, so the first deploy here
+    // still gets to ask which dotenv file this environment uses.
+    await upsertEnvironment(cwd, {
+      projectId: p.id,
+      kind: "pocketbases",
+      environment,
+      entry: { id: resource.id, name: resource.name },
+    });
+    const final = await awaitDeployment(client, "pocketbases", resource, {
+      progress,
+      created: true,
+      environment,
+      label: "PocketBase",
+      checkCommand: "pb",
+    });
+    if (final.status === "running") {
+      reportUrl(final, { log, paths: [{ path: "/_/", label: "admin" }] });
+    }
+    const reachable = final.status === "running"
+      ? await awaitReachable(client, {
+        type: "pocketbase",
+        resource: final,
+        log,
+        progress,
+      })
+      : undefined;
+    if (ctx.flags.json) {
+      console.log(JSON.stringify({
+        ...final,
+        environment,
+        ...(reachable === undefined ? {} : { reachable }),
+        ...credentials,
+      }));
+    } else {
+      // The superuser account exists only on this instance, and a generated
+      // password is shown exactly once — `pb cloud pb info` recovers it later.
+      console.log(
+        `Admin login: ${credentials.adminUsername} / ${credentials.adminPassword}`,
+      );
+      // Only once it is actually up: pointing at the next step of a deploy
+      // that has not finished reads as if it had.
+      if (final.status === "running") {
+        console.log(
+          `Recorded in pb.json as environment "${environment}" — ` +
+            `\`pb cloud pb deploy\` here needs no --name.`,
+        );
+      }
+    }
+    return final.status === "running" ? 0 : 6;
+  };
 
   const deploy: Handler = async (ctx: CmdCtx) => {
     const progress = deployProgress(ctx.flags.json);
     const { client, project: p, auth } = await progress.step(
       "Connecting to PocketBase Cloud",
-      () => project(ctx),
+      () => project(ctx, progress.log),
     );
     const cwd = deps.cwd();
     const name = (ctx.raw.name as string) ?? ctx.args[0];
@@ -261,6 +613,28 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
       log,
     });
 
+    // Refuse nested hook files before they travel in the archive. The platform
+    // rejects them at the agent level, but that is after the upload.
+    if (!ctx.raw.zip) {
+      const own = await readOwnPbJson(cwd);
+      const hooksDir = join(cwd, own.build?.pbHooks ?? "pb_hooks");
+      try {
+        const nested = await findNestedHooks(hooksDir);
+        if (nested.length > 0) {
+          throw new CliError(
+            nested.map((f) =>
+              `pb_hooks/${f} is inside a subdirectory and cannot be installed. ` +
+              `Move it to pb_hooks/ directly.`
+            ).join("\n"),
+            2,
+          );
+        }
+      } catch (e) {
+        if (e instanceof CliError) throw e;
+        // Directory doesn't exist — nothing to validate.
+      }
+    }
+
     // Packaged on both paths: a new instance extracts the archive when it is
     // created, and an existing one has it installed by the platform's
     // upload-files route.
@@ -285,12 +659,15 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
       skip: ctx.raw["skip-env"] === true,
       noInput: ctx.flags.noInput || ctx.flags.json,
     });
-    // The upload route installs pb_public and pb_migrations only — pb_hooks go
-    // through the hooks route, so an archive holding nothing else must not be
-    // sent: the platform would reject it and mark the instance errored.
+    // The upload route installs pb_hooks, pb_migrations and pb_public, so an
+    // archive holding none of them must not be sent: the platform would reject
+    // it and mark the instance errored. `bundle.empty` is the second half of
+    // that: a directory can name pb_public and still package nothing, and an
+    // entry-less archive fails the platform's unzip rather than installing
+    // zero files.
     const hasUploadableDirs = Boolean(
-      zipPath ?? build.pbPublic ?? build.pbMigrations,
-    );
+      zipPath ?? build.pbPublic ?? build.pbMigrations ?? build.pbHooks,
+    ) && !bundle.empty;
     const updateData: Record<string, unknown> = {};
     if (hasUploadableDirs) {
       attachZip(updateData, bundle);
@@ -340,9 +717,18 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
                 cwd,
                 deps,
               );
-              attachZip(extra, bundle);
+              // Skipped when the directory packaged nothing: the platform
+              // accepts a create with no archive at all, but not one holding
+              // no files.
+              if (!bundle.empty) attachZip(extra, bundle);
               return extra;
             },
+            // Only a --zip needs checking: a packaged archive stages every
+            // directory under its canonical name, so it is right by
+            // construction.
+            beforeUpdate: zipPath
+              ? () => assertUploadableArchive(bundle.bytes, bundle.fileName)
+              : undefined,
             requireExisting: target.fromBinding,
             environment: target.environment,
             onStale: async () => {
@@ -363,29 +749,19 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
     });
 
     if (!created) {
-      // Bound outside the step callback: narrowing an optional property does
-      // not survive into a closure, since nothing stops `build` being mutated
-      // in between.
-      const hooksDir = build.pbHooks;
-      if (hooksDir) {
-        await progress.step("Pushing hook files", async () => {
-          const { stored } = await pushHooks(
-            client,
-            resource.id,
-            join(cwd, hooksDir),
-            log,
-          );
-          log(`Pushed ${stored} hook file(s).`);
-        });
-      }
+      // No separate hooks push any more: pb_hooks travels in the archive and
+      // the platform installs it through the same hooks route this used to
+      // call, so pushing again would write everything twice and restart the
+      // instance twice. `pb cloud hooks push` still exists for hooks alone.
       log(
         hasUploadableDirs
-          ? "Uploaded the archive: pb_migrations is merged into the instance " +
-            "and pb_public replaced. New migrations run on the restart that " +
-            "follows."
-          : "Note: no pb_public or pb_migrations directory to upload — only " +
-            "hooks were pushed.",
+          ? "Uploaded the archive: pb_hooks and pb_migrations are merged into " +
+            "the instance and pb_public replaced. New migrations run on the " +
+            "restart that follows."
+          : nothingToDeployNote(cwd, false),
       );
+    } else if (bundle.empty) {
+      log(nothingToDeployNote(cwd, true));
     }
 
     if (env.push) {
@@ -552,7 +928,7 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
       method: "GET",
       query: { pocketbase_id: found.id },
     });
-    if (!res.ok) throw new CliError(`Hook list failed (${res.status}).`, 1);
+    if (!res.ok) throw await httpError(res, "Hook list");
     const body = await res.json() as {
       hooks?: { filename: string; active?: boolean; updated?: string }[];
     };
@@ -579,7 +955,7 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
       pocketbase_id: found.id,
       hook_filename: filename,
     });
-    if (!res.ok) throw new CliError(`Hook delete failed (${res.status}).`, 1);
+    if (!res.ok) throw await httpError(res, "Hook delete");
     console.log(
       ctx.flags.json ? JSON.stringify({ ok: true }) : `Deleted ${filename}.`,
     );
@@ -587,6 +963,7 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
   };
 
   return {
+    "cloud pb create": create,
     "cloud pb deploy": deploy,
     "cloud pb ls": ls,
     "cloud pb info": info,

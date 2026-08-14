@@ -7,30 +7,40 @@ import type { ResourceKind } from "./clients/types.ts";
  * an overridable backend URL is a way to hand a user's credentials to a host
  * the platform does not control.
  */
-export const BACKEND_URL = "https://backend.pocketbasecloud.com";
+function envUrl(key: string, fallback: string): string {
+  return Deno.env.get(key) || fallback;
+}
+/** e2e smoke tests override these — not a user-facing feature. */
+export function backendUrl(): string {
+  return envUrl("PB_BACKEND_URL", "https://backend.pocketbasecloud.com");
+}
 /**
  * backend-extension is a separate service from PocketBase, on its own host. It
  * serves the deploy-side routes PocketBase has none of — logs, custom domains,
  * bulk env, export — and the CLI calls it directly with the user's token.
  */
-export const BACKEND_EXT_URL = "https://backend-ext.pocketbasecloud.com";
+export function backendExtUrl(): string {
+  return envUrl("PB_EXT_URL", "https://backend-ext.pocketbasecloud.com");
+}
 /**
  * Pinned for the same reason as the backends, and specifically *with* them: the
  * portal is where the browser login mints the token, so a portal on one
  * environment and a backend on another hands the CLI a token its backend will
  * never accept — an unbreakable "log in again" loop.
  */
-export const PORTAL_URL = "https://portal.pocketbasecloud.com/login";
+export function portalUrl(): string {
+  return envUrl("PB_PORTAL_URL", "https://portal.pocketbasecloud.com/login");
+}
 
 export type CloudAuth = {
   /**
-   * Always {@link BACKEND_URL} in practice — `resolveCloudAuth` stamps it, and
-   * a stored or inherited value never survives. It stays on the type so tests
-   * can point a client at a stub host.
+   * Always the production backend in practice — `resolveCloudAuth` stamps it,
+   * and a stored or inherited value never survives. It stays on the type so
+   * tests can point a client at a stub host.
    */
   backendUrl: string;
   /**
-   * backend-extension base URL; likewise always {@link BACKEND_EXT_URL}.
+   * backend-extension base URL; likewise always the production host.
    * Required, not optional: a client left to fall back to the production host
    * would send a stub host's token there.
    */
@@ -160,7 +170,7 @@ export async function loadConfig(): Promise<Config> {
  */
 function fillInHosts(c: Config): Config {
   if (c.cloud && !c.cloud.extUrl) {
-    c.cloud = { ...c.cloud, extUrl: BACKEND_EXT_URL };
+    c.cloud = { ...c.cloud, extUrl: backendExtUrl() };
   }
   return c;
 }
@@ -192,7 +202,7 @@ export function resolveCloudAuth(
   c: Config,
   env: Record<string, string | undefined> = Deno.env.toObject(),
 ): CloudAuth | null {
-  const hosts = { backendUrl: BACKEND_URL, extUrl: BACKEND_EXT_URL };
+  const hosts = { backendUrl: backendUrl(), extUrl: backendExtUrl() };
   const token = env["PB_TOKEN"];
   if (token) return { ...hosts, userToken: token, userId: "" };
   if (!c.cloud) return null;

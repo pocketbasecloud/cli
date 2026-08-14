@@ -272,3 +272,74 @@ Deno.test("env ls emits a flat [{key}] array under --json", async () => {
     console.log = origLog;
   }
 });
+
+Deno.test("env ls announces the project resolved from config.currentProject", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  await client.createResource("backends", { name: "api", project: p.id });
+  const config: Config = {
+    ...defaultConfig(),
+    cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
+    currentProject: p.id,
+  };
+  const logs: string[] = [];
+  const origLog = console.log;
+  console.log = (s: string) => logs.push(s);
+  try {
+    const cmds = makeEnvCommands({
+      requireAuth: () =>
+        Promise.resolve({ client, config, auth: config.cloud! }),
+      loadConfig: () => Promise.resolve(config),
+      saveConfig: () => Promise.resolve(),
+      cwd: () => "/tmp",
+      envStatePath: tempStatePath(),
+    });
+    const code = await cmds["cloud env ls"]({
+      args: [],
+      flags: { json: false, yes: false, noInput: true, interactive: false },
+      raw: { target: "backend", name: "api" },
+    });
+    assertEquals(code, 0);
+    assertEquals(logs[0].includes(`Project: ${p.name}`), true);
+    assertEquals(logs[0].includes("pb cloud project use"), true);
+  } finally {
+    console.log = origLog;
+  }
+});
+
+Deno.test("env ls does not announce the project when --project names it", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  await client.createResource("backends", { name: "api", project: p.id });
+  const config: Config = {
+    ...defaultConfig(),
+    cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
+  };
+  const logs: string[] = [];
+  const origLog = console.log;
+  console.log = (s: string) => logs.push(s);
+  try {
+    const cmds = makeEnvCommands({
+      requireAuth: () =>
+        Promise.resolve({ client, config, auth: config.cloud! }),
+      loadConfig: () => Promise.resolve(config),
+      saveConfig: () => Promise.resolve(),
+      cwd: () => "/tmp",
+      envStatePath: tempStatePath(),
+    });
+    await cmds["cloud env ls"]({
+      args: [],
+      flags: {
+        json: false,
+        yes: false,
+        noInput: true,
+        interactive: false,
+        project: p.id,
+      },
+      raw: { target: "backend", name: "api" },
+    });
+    assertEquals(logs.some((l) => l.startsWith("Project:")), false);
+  } finally {
+    console.log = origLog;
+  }
+});

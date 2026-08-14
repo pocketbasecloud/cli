@@ -1,5 +1,5 @@
 import type { CmdCtx, Handler } from "../router.ts";
-import type { CloudAuth, Config } from "../config.ts";
+import type { BuildConfig, CloudAuth, Config } from "../config.ts";
 import {
   clearEnvironments,
   readOwnPbJson,
@@ -18,6 +18,8 @@ import { confirm } from "../ui/prompt.ts";
 import type { PromptIO } from "../ui/prompt.ts";
 import { resolveProject } from "../resolve/project.ts";
 import { kindLabel, resolveLinkTarget } from "../resolve/link.ts";
+import { mergeEnvBuild } from "../build/config.ts";
+import { envFileEntry, resolveEnvFile } from "./deploy-helper.ts";
 
 export type CloudCmdDeps = {
   requireAuth: () => Promise<
@@ -134,6 +136,7 @@ export function makeProjectCommands(
       cwd,
       flagProject: ctx.flags.project,
       noInput: ctx.flags.noInput,
+      log: ctx.flags.json ? undefined : (m) => console.log(m),
     });
     const { kind, resource } = await resolveLinkTarget({
       client,
@@ -159,11 +162,36 @@ export function makeProjectCommands(
       own,
       { noInput: ctx.flags.noInput || ctx.flags.json, io: deps.io },
     )).name;
+
+    // Frontends have no cloud env store; ask nothing there. An environment
+    // that already has an answer (from an earlier link or deploy) has
+    // nothing left to record, so resolveEnvFile is skipped entirely rather
+    // than let it re-read a file link never pushes — a file already recorded
+    // need not still exist on disk for a plain re-link to succeed.
+    let build: { build?: BuildConfig } = {};
+    if (
+      kind !== "frontends" &&
+      mergeEnvBuild(own, environment).envFile === undefined
+    ) {
+      const decision = await resolveEnvFile({
+        cwd,
+        build: {},
+        environment,
+        flag: ctx.raw["env-file"] as string | undefined,
+        skip: ctx.raw["skip-env"] === true,
+        noInput: ctx.flags.noInput || ctx.flags.json,
+        io: deps.io,
+      });
+      build = await envFileEntry(cwd, environment, decision, (m) => {
+        if (!ctx.flags.json) console.log(m);
+      });
+    }
+
     await upsertEnvironment(cwd, {
       projectId: p.id,
       kind,
       environment,
-      entry: { id: resource.id, name: resource.name },
+      entry: { id: resource.id, name: resource.name, ...build },
     });
     console.log(
       ctx.flags.json

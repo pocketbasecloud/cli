@@ -73,11 +73,28 @@ export function mapAdminError(e: unknown): CliError {
   return new CliError(String(e), 1);
 }
 
+function generateTraceId(): string {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+}
+
 export class PocketBaseAdminClient implements IAdminClient {
   private pb: PocketBase;
   constructor(url: string, token?: string) {
     this.pb = new PocketBase(url);
     if (token) this.pb.authStore.save(token, null);
+
+    // Inject trace headers for cross-service correlation.
+    this.pb.beforeSend = (url, options) => {
+      options.headers = Object.assign(options.headers || {}, {
+        "X-Trace-Id": generateTraceId(),
+        "X-Client-Type": "cli",
+      });
+      return { url, options };
+    };
   }
 
   private async guard<T>(fn: () => Promise<T>): Promise<T> {

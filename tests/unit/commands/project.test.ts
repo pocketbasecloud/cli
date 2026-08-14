@@ -335,6 +335,223 @@ Deno.test("link refuses a directory already bound to another kind", async () => 
   }
 });
 
+function captureLog() {
+  const lines: string[] = [];
+  const original = console.log;
+  console.log = (...args: unknown[]) => lines.push(args.map(String).join(" "));
+  return { lines, restore: () => console.log = original };
+}
+
+Deno.test("link announces the project resolved from config.currentProject", async () => {
+  const f = await linkFixture(fakeIO([""]));
+  const log = captureLog();
+  try {
+    const code = await f.cmds["cloud link"]({
+      args: ["frontend", "web"],
+      flags: { ...FLAGS, json: false, noInput: false },
+      raw: {},
+    });
+    assertEquals(code, 0);
+    assertEquals(log.lines[0].includes("Project: app"), true);
+    assertEquals(log.lines[0].includes("pb cloud project use"), true);
+  } finally {
+    log.restore();
+    await f.cleanup();
+  }
+});
+
+Deno.test("link does not announce the project when --project names it", async () => {
+  const f = await linkFixture();
+  const log = captureLog();
+  try {
+    await f.cmds["cloud link"]({
+      args: ["frontend", "web"],
+      flags: { ...FLAGS, json: false, project: f.seeded.fe.project },
+      raw: {},
+    });
+    assertEquals(log.lines.some((l) => l.startsWith("Project:")), false);
+  } finally {
+    log.restore();
+    await f.cleanup();
+  }
+});
+
+Deno.test("link records the env file chosen for a fresh environment", async () => {
+  const f = await linkFixture(fakeIO(["", "2"]));
+  try {
+    await Deno.writeTextFile(join(f.dir, ".env"), "A=1\n");
+    const code = await f.cmds["cloud link"]({
+      args: ["pb", "my-db"],
+      flags: { ...FLAGS, json: false, noInput: false },
+      raw: {},
+    });
+    assertEquals(code, 0);
+    const file = await f.read();
+    assertEquals(
+      file.environments.production.build,
+      { envFile: ".env" },
+    );
+    assertEquals(f.client.calls.ext, []);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+Deno.test('link records "no env file" when the user declines', async () => {
+  const f = await linkFixture(fakeIO(["", "1"]));
+  try {
+    await Deno.writeTextFile(join(f.dir, ".env"), "A=1\n");
+    await f.cmds["cloud link"]({
+      args: ["pb", "my-db"],
+      flags: { ...FLAGS, json: false, noInput: false },
+      raw: {},
+    });
+    const file = await f.read();
+    assertEquals(file.environments.production.build, { envFile: "" });
+  } finally {
+    await f.cleanup();
+  }
+});
+
+Deno.test("link asks nothing when the directory has no dotenv file", async () => {
+  const f = await linkFixture(fakeIO(["", "should not be read"]));
+  try {
+    const code = await f.cmds["cloud link"]({
+      args: ["pb", "my-db"],
+      flags: { ...FLAGS, json: false, noInput: false },
+      raw: {},
+    });
+    assertEquals(code, 0);
+    const file = await f.read();
+    assertEquals(file.environments.production.build, undefined);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+Deno.test("link asks nothing for a frontend even with a dotenv file present", async () => {
+  const f = await linkFixture(fakeIO(["", "should not be read"]));
+  try {
+    await Deno.writeTextFile(join(f.dir, ".env"), "A=1\n");
+    const code = await f.cmds["cloud link"]({
+      args: ["frontend", "web"],
+      flags: { ...FLAGS, json: false, noInput: false },
+      raw: {},
+    });
+    assertEquals(code, 0);
+    const file = await f.read();
+    assertEquals(file.environments.production.build, undefined);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+Deno.test("link --env-file records the named file without prompting", async () => {
+  const f = await linkFixture();
+  try {
+    await Deno.writeTextFile(join(f.dir, ".env.custom"), "A=1\n");
+    const code = await f.cmds["cloud link"]({
+      args: ["pb", "my-db"],
+      flags: FLAGS,
+      raw: { "env-file": ".env.custom" },
+    });
+    assertEquals(code, 0);
+    const file = await f.read();
+    assertEquals(file.environments.production.build, {
+      envFile: ".env.custom",
+    });
+  } finally {
+    await f.cleanup();
+  }
+});
+
+Deno.test("link --env-file naming a missing file fails before pb.json is written", async () => {
+  const f = await linkFixture();
+  try {
+    const err = await assertRejects(
+      () =>
+        f.cmds["cloud link"]({
+          args: ["pb", "my-db"],
+          flags: FLAGS,
+          raw: { "env-file": ".env.missing" },
+        }),
+      CliError,
+    );
+    assertEquals(err.exitCode, 2);
+    await assertRejects(() => Deno.readTextFile(join(f.dir, "pb.json")));
+  } finally {
+    await f.cleanup();
+  }
+});
+
+Deno.test("link --skip-env records nothing even with a dotenv file present", async () => {
+  const f = await linkFixture();
+  try {
+    await Deno.writeTextFile(join(f.dir, ".env"), "A=1\n");
+    const code = await f.cmds["cloud link"]({
+      args: ["pb", "my-db"],
+      flags: FLAGS,
+      raw: { "skip-env": true },
+    });
+    assertEquals(code, 0);
+    const file = await f.read();
+    assertEquals(file.environments.production.build, undefined);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+Deno.test("re-linking an environment with a recorded env file asks nothing and needs no file on disk", async () => {
+  const f = await linkFixture();
+  try {
+    await Deno.writeTextFile(
+      join(f.dir, "pb.json"),
+      JSON.stringify({
+        projectId: f.seeded.pb.project,
+        kind: "pocketbases",
+        defaultEnvironment: "production",
+        environments: {
+          production: {
+            id: f.seeded.pb.id,
+            name: "my-db",
+            build: { envFile: ".env.gone" },
+          },
+        },
+      }),
+    );
+    const code = await f.cmds["cloud link"]({
+      args: ["pb", "my-db"],
+      flags: FLAGS,
+      raw: { "env-file": ".env.also-ignored" },
+    });
+    assertEquals(code, 0);
+    const file = await f.read();
+    assertEquals(file.environments.production.build, { envFile: ".env.gone" });
+  } finally {
+    await f.cleanup();
+  }
+});
+
+Deno.test("link suppresses the recorded-envFile line under --json", async () => {
+  const f = await linkFixture();
+  const log = captureLog();
+  try {
+    await Deno.writeTextFile(join(f.dir, ".env.custom"), "A=1\n");
+    await f.cmds["cloud link"]({
+      args: ["pb", "my-db"],
+      flags: FLAGS,
+      raw: { "env-file": ".env.custom" },
+    });
+    assertEquals(
+      log.lines.some((l) => l.includes("Recorded envFile")),
+      false,
+    );
+  } finally {
+    log.restore();
+    await f.cleanup();
+  }
+});
+
 Deno.test("unlink clears the binding and keeps the rest of pb.json", async () => {
   const dir = await Deno.makeTempDir();
   try {

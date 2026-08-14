@@ -77,12 +77,32 @@ export const COMMANDS: Record<string, CommandSpec> = {
       "a terminal, a directory that names no environment yet is asked which\n" +
       "one to record, defaulting to production.\n\n" +
       "Link a second environment to give this directory a second target:\n" +
-      "  pb cloud link frontend web-staging --env staging",
+      "  pb cloud link frontend web-staging --env staging\n\n" +
+      "For a pb or backend link, an environment with no envFile recorded yet is\n" +
+      "also asked which dotenv file it uses (or none), the same question the\n" +
+      "first deploy of that environment would ask — link only records the\n" +
+      "answer in pb.json, it never pushes. --env-file names one outright and\n" +
+      "--skip-env asks nothing; both are no-ops once the environment already\n" +
+      "has an answer recorded. Frontends have no env vars, so nothing is asked.",
     args: [
       { name: "kind", required: false },
       { name: "name|id", required: false },
     ],
-    flags: [],
+    flags: [
+      {
+        name: "skip-env",
+        type: "boolean",
+        required: false,
+        description: "Don't ask which env file this environment uses.",
+      },
+      {
+        name: "env-file",
+        type: "string",
+        required: false,
+        description:
+          "Dotenv file to record for this environment when it has none yet.",
+      },
+    ],
   },
   "cloud unlink": {
     usage: "pb cloud unlink [--all]",
@@ -109,6 +129,59 @@ export const COMMANDS: Record<string, CommandSpec> = {
       "Environments are created by deploying or linking with --env:\n" +
       "  pb cloud frontend deploy --env staging --name web-staging",
     args: [],
+    flags: [],
+  },
+
+  "cloud deploy": {
+    usage: "pb cloud deploy [pb|frontend|backend] [<name>] [<deploy flags>]",
+    summary: "Deploy this directory, detecting what kind of resource it is.",
+    details:
+      `Works out whether the directory holds a PocketBase instance, a static
+site, or a backend, then runs that kind's deploy — \`pb cloud pb deploy\`,
+\`pb cloud frontend deploy\`, or \`pb cloud backend deploy\`. Every flag those
+commands accept works here and is passed straight through, and the deploy
+itself is identical: this command only makes the choice.
+
+The answer comes from the first of these that applies:
+
+  1. The "kind" recorded in pb.json, which a previous deploy or
+     \`pb cloud link\` wrote. A deployed directory is never re-guessed.
+  2. A pb_hooks, pb_migrations, or pb_public directory — a PocketBase project.
+  3. next.config.*, read for its "output": "export" builds a static site,
+     anything else runs a Next.js server.
+  4. vite / svelte / vue config, or angular.json — a frontend.
+  5. deno.json(c) — a backend.
+  6. package.json: a server dependency (express, fastify, hono, nest, …) is a
+     backend and a bundler dependency (vite, react-scripts, parcel, …) is a
+     frontend; failing both, a "start" script is a backend and a "build"
+     script alone is a frontend.
+  7. index.html in the directory or in public/, dist/, build/, or out/ —
+     a frontend.
+
+The detected kind and the file that decided it are printed before the deploy
+runs, so a wrong guess is visible rather than surprising.
+
+A leading kind word overrides the detection outright:
+
+  pb cloud deploy backend            # deploy as a backend, whatever is here
+  pb cloud deploy frontend web       # …and call the new resource "web"
+
+When nothing in the directory points either way, you are asked on a terminal
+and get an error naming the three explicit commands under --no-input or
+--json.`,
+    args: [
+      {
+        name: "kind",
+        required: false,
+        description:
+          "pb, frontend, or backend; detected from the directory when omitted",
+      },
+      {
+        name: "name",
+        required: false,
+        description: "Passed to the underlying deploy, same as --name",
+      },
+    ],
     flags: [],
   },
 
@@ -143,6 +216,107 @@ records it as the default, so the first deploy has nothing left to ask.`,
   },
 
   // PocketBase instances (cloud-managed)
+  "cloud pb create": {
+    usage:
+      "pb cloud pb create [<name>] [--env <name>] [--location <loc>] [--compute <id>] [--admin-email <e>] [--admin-password <p>] [--pb-version <v>] [--project <id>]",
+    summary: "Create an empty PocketBase instance.",
+    details: `Provisions a running instance with nothing deployed to it — no
+pb_public, pb_hooks or pb_migrations — and waits until it answers.
+
+Nothing is built, packaged, or uploaded, and no env file is asked about. Use it
+to get a database from a script, from a directory that holds no project, or
+before there is anything to deploy.
+
+The new instance is recorded in this directory's pb.json, under the environment
+this command targets, exactly as a deploy would record it — so the next
+\`pb cloud pb deploy\` here needs no --name:
+
+  pb cloud pb create my-app-db
+  pb cloud pb deploy              # ships this directory to it
+
+--env names the environment (default: production, or the file's own default).
+A directory bound to frontends or backends is refused, and so is an environment
+that already names an instance: repointing it would leave the old one with
+nothing pointing at it. Pass --env <other>, or run this somewhere else.
+
+\`pb cloud pb deploy\` also creates an instance when there is none yet, and
+creates it bare when the directory holds none of the three directories — so
+this command is the explicit way to do the same thing when there is nothing to
+package.
+
+The name comes from the argument or --name, and is asked for on a terminal
+(defaulting to the directory's name) when neither is given. A name already used
+by an instance in this project is refused rather than duplicated: redeploy that
+one with \`pb cloud pb deploy --name <name>\` instead.
+
+The instance gets a superuser account — your account email, and a generated
+password printed once when it finishes (and readable afterwards with
+\`pb cloud pb info\`). Override either with --admin-email/--admin-password.
+
+The compute is chosen exactly as a deploy chooses it: on Pro, and in a project
+shared with an organization, the owner's compute is used, asked about when
+there is more than one, and settled outright by --compute. On the free and
+starter plans the platform picks from its shared pool.`,
+    args: [{
+      name: "name",
+      required: false,
+      description: "Positional name, alternative to --name",
+    }],
+    flags: [
+      {
+        name: "name",
+        type: "string",
+        required: false,
+        description:
+          "What to call the instance. Asked for on a terminal when omitted.",
+      },
+      {
+        name: "env",
+        type: "string",
+        required: false,
+        description:
+          "Which pb.json environment to record the instance under. Defaults " +
+          "to the file's default, or production.",
+      },
+      {
+        name: "location",
+        type: "string",
+        required: false,
+        description:
+          "Region for the instance, on Starter. Optional — without it the " +
+          "platform picks the region with the most free capacity.",
+      },
+      {
+        name: "compute",
+        type: "string",
+        required: false,
+        description:
+          "Compute to create the instance on. Asked for when the project owner " +
+          "has more than one; required under --no-input/--json.",
+      },
+      {
+        name: "admin-email",
+        type: "string",
+        required: false,
+        description:
+          "Superuser login for the new instance. Defaults to your account email.",
+      },
+      {
+        name: "admin-password",
+        type: "string",
+        required: false,
+        description:
+          "Superuser password, 12-20 characters. Generated and printed once when omitted.",
+      },
+      {
+        name: "pb-version",
+        type: "string",
+        required: false,
+        description:
+          "PocketBase release to install. Defaults to pocketbaseVersion in pb.json.",
+      },
+    ],
+  },
   "cloud pb deploy": {
     usage:
       "pb cloud pb deploy [--name <name>] [--location <loc>] [--compute <id>] [--admin-email <e>] [--admin-password <p>] [--pb-version <v>] [--skip-env] [--project <id>]",
@@ -160,6 +334,11 @@ migrations are applied by the restart that follows.
 
 Hooks are stored as flat files, so a subdirectory of pb_hooks is not uploaded
 and the deploy says which ones it skipped.
+
+None of the three directories is required. A directory that holds none of them
+still deploys: no archive is sent at all, a new instance is created empty, and
+the deploy says so rather than reporting a silent success. \`pb cloud pb create\`
+does the same thing without involving a directory.
 
 A new instance gets a superuser account: your account email, and a generated
 password printed once when the deploy finishes (and readable afterwards with

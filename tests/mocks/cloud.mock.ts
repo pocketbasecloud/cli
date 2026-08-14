@@ -44,8 +44,17 @@ export function createMockCloudClient(
   const kinds = new Map<string, ResourceKind>();
 
   const base: ICloudClient = {
+    // `role` is staff by default: creating an organization is staff-only, so
+    // an ordinary account here would fail every org test for the wrong reason.
     whoami: () =>
-      Promise.resolve({ id: "u1", email: "u@e.com", plan: "pro" } as User),
+      Promise.resolve(
+        {
+          id: "u1",
+          email: "u@e.com",
+          plan: "pro",
+          role: "system_admin",
+        } as User,
+      ),
     listProjects: (orgId?: string) =>
       Promise.resolve(
         orgId

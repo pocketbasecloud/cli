@@ -4,7 +4,7 @@ import type { ResourceKind } from "../clients/types.ts";
 
 export type PackageManager = "npm" | "yarn" | "pnpm" | "bun";
 
-async function exists(path: string): Promise<boolean> {
+export async function exists(path: string): Promise<boolean> {
   try {
     await Deno.stat(path);
     return true;
@@ -13,16 +13,24 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-/** True when any file in `dir` starts with `stem` and has an extension. */
-async function hasConfig(dir: string, stem: string): Promise<boolean> {
+/** The first file in `dir` starting with `stem` and an extension, if any. */
+export async function findConfig(
+  dir: string,
+  stem: string,
+): Promise<string | undefined> {
   try {
     for await (const entry of Deno.readDir(dir)) {
-      if (entry.isFile && entry.name.startsWith(`${stem}.`)) return true;
+      if (entry.isFile && entry.name.startsWith(`${stem}.`)) return entry.name;
     }
   } catch {
     // Unreadable directory behaves like an absent config.
   }
-  return false;
+  return undefined;
+}
+
+/** True when any file in `dir` starts with `stem` and has an extension. */
+async function hasConfig(dir: string, stem: string): Promise<boolean> {
+  return await findConfig(dir, stem) !== undefined;
 }
 
 /** Lockfile → manager, in precedence order. `bun.lock` is bun 1.2's text form. */

@@ -1,7 +1,7 @@
 import type { CmdCtx, Handler } from "../router.ts";
 import type { CloudCmdDeps } from "./project.ts";
 import type { ResourceKind } from "../clients/types.ts";
-import { CliError } from "../errors.ts";
+import { CliError, httpError } from "../errors.ts";
 import { resolveProject } from "../resolve/project.ts";
 import {
   envDigest,
@@ -76,6 +76,7 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
       cwd: deps.cwd(),
       flagProject: ctx.flags.project,
       noInput: ctx.flags.noInput || ctx.flags.json,
+      log: ctx.flags.json ? undefined : (m) => console.log(m),
     });
     const { kind, type } = targetOf(ctx);
     const target = await resolveTarget(
@@ -106,7 +107,7 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
       target_id: targetId,
       type,
     });
-    if (!res.ok) throw new CliError(`List failed (${res.status}).`, 1);
+    if (!res.ok) throw await httpError(res, "List");
     // Values come back encrypted, so `ls` reports names only — a table for
     // humans, a flat [{ key }] array under --json to match every other `ls`.
     const keys = envKeysOf(await res.json());
@@ -135,7 +136,7 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
       key,
       value,
     });
-    if (!res.ok) throw new CliError(`Set failed (${res.status}).`, 1);
+    if (!res.ok) throw await httpError(res, "Set");
     // The cloud store no longer matches whatever a deploy last pushed, so the
     // next deploy must not trust its digest and skip.
     await forgetEnvDigest(envStateKey(type, targetId), deps.envStatePath?.());
@@ -157,7 +158,7 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
       type,
       key,
     });
-    if (!res.ok) throw new CliError(`Delete failed (${res.status}).`, 1);
+    if (!res.ok) throw await httpError(res, "Delete");
     await forgetEnvDigest(envStateKey(type, targetId), deps.envStatePath?.());
     console.log(
       ctx.flags.json ? JSON.stringify({ ok: true }) : `Removed ${key}.`,
@@ -196,7 +197,7 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
       variables: vars,
       prune: deleteMissing,
     });
-    if (!res.ok) throw new CliError(`Import failed (${res.status}).`, 1);
+    if (!res.ok) throw await httpError(res, "Import");
     // An import writes exactly what a deploy's push writes, so it records the
     // same digest rather than invalidating: importing the file a deploy would
     // have pushed leaves that deploy nothing to do.

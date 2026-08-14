@@ -3,6 +3,7 @@
     "dev": "deno run -A main.ts",
     "check": "deno check main.ts",
     "test": "deno test -A tests/unit/",
+    "test:e2e": "deno test -A tests/e2e/",
     "lint": "deno lint",
     "fmt": "deno fmt",
     "build": "deno run -A scripts/release.ts --build-only",

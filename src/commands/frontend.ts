@@ -2,7 +2,7 @@ import type { CmdCtx, Handler } from "../router.ts";
 import type { CloudCmdDeps } from "./project.ts";
 import type { ICloudClient } from "../clients/cloud.ts";
 import type { Resource } from "../clients/types.ts";
-import { CliError } from "../errors.ts";
+import { CliError, httpError } from "../errors.ts";
 import { printResult } from "../ui/output.ts";
 import { confirm } from "../ui/prompt.ts";
 import { resolveProject } from "../resolve/project.ts";
@@ -36,7 +36,7 @@ import { reportRemoval } from "./environments.ts";
 export function makeFrontendCommands(
   deps: CloudCmdDeps,
 ): Record<string, Handler> {
-  async function ctxProject(ctx: CmdCtx) {
+  async function ctxProject(ctx: CmdCtx, log?: (m: string) => void) {
     const { client, config, auth } = await deps.requireAuth();
     const p = await resolveProject({
       client,
@@ -44,6 +44,7 @@ export function makeFrontendCommands(
       cwd: deps.cwd(),
       flagProject: ctx.flags.project,
       noInput: ctx.flags.noInput || ctx.flags.json,
+      log: log ?? (ctx.flags.json ? undefined : (m) => console.log(m)),
     });
     return { client, project: p, auth };
   }
@@ -77,7 +78,7 @@ export function makeFrontendCommands(
     const progress = deployProgress(ctx.flags.json);
     const { client, project: p, auth } = await progress.step(
       "Connecting to PocketBase Cloud",
-      () => ctxProject(ctx),
+      () => ctxProject(ctx, progress.log),
     );
     const cwd = deps.cwd();
     const name = (ctx.raw.name as string) ?? ctx.args[0];
@@ -283,13 +284,11 @@ export function makeFrontendCommands(
         frontend_id: found.id,
         custom_domain: domain,
       });
-      const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new CliError(
-          `Domain op failed (${res.status}): ${JSON.stringify(body)}`,
-          1,
-        );
+        // The route's own sentence, not a JSON dump of its whole body.
+        throw await httpError(res, `Domain ${path.split("/").pop()}`);
       }
+      const body = await res.json().catch(() => ({}));
       console.log(
         ctx.flags.json
           ? JSON.stringify(body)

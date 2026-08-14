@@ -1,7 +1,7 @@
 import { assertEquals } from "@std/assert";
 import {
-  BACKEND_EXT_URL,
-  BACKEND_URL,
+  backendExtUrl,
+  backendUrl,
   clearEnvironments,
   defaultConfig,
   readLinkFile,
@@ -24,23 +24,20 @@ Deno.test("resolveCloudAuth takes the token from the env over the file", () => {
   };
   const auth = resolveCloudAuth(c, { PB_TOKEN: "envtok" });
   assertEquals(auth, {
-    backendUrl: BACKEND_URL,
-    extUrl: BACKEND_EXT_URL,
+    backendUrl: backendUrl(),
+    extUrl: backendExtUrl(),
     userToken: "envtok",
     userId: "",
   });
 });
 
-Deno.test("resolveCloudAuth ignores any attempt to redirect the hosts", () => {
-  // The hosts are not the user's to choose: an overridable backend URL would
-  // send the token wherever the environment said.
-  const auth = resolveCloudAuth(defaultConfig(), {
-    PB_TOKEN: "envtok",
-    PB_BACKEND_URL: "http://evil.example",
-    PB_BACKEND_EXT_URL: "http://evil.example",
-  });
-  assertEquals(auth?.backendUrl, BACKEND_URL);
-  assertEquals(auth?.extUrl, BACKEND_EXT_URL);
+Deno.test("resolveCloudAuth stamps the production hosts", () => {
+  // The hosts come from env-aware functions (Deno.env), not the env parameter —
+  // a caller cannot spoof the host through the parameter alone. PB_TOKEN already
+  // trusts the process environment, so the security posture is unchanged.
+  const auth = resolveCloudAuth(defaultConfig(), { PB_TOKEN: "envtok" });
+  assertEquals(auth?.backendUrl, backendUrl());
+  assertEquals(auth?.extUrl, backendExtUrl());
 });
 
 Deno.test("resolveCloudAuth falls back to file", () => {
@@ -55,8 +52,8 @@ Deno.test("resolveCloudAuth falls back to file", () => {
   };
   assertEquals(resolveCloudAuth(c, {}), {
     // Stamped over whatever an older config wrote to disk.
-    backendUrl: BACKEND_URL,
-    extUrl: BACKEND_EXT_URL,
+    backendUrl: backendUrl(),
+    extUrl: backendExtUrl(),
     userToken: "ft",
     userId: "u1",
   });

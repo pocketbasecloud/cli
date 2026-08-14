@@ -1,7 +1,8 @@
 import { basename, join } from "@std/path";
 import type { ICloudClient } from "../clients/cloud.ts";
 import type { Resource, ResourceKind } from "../clients/types.ts";
-import { CliError } from "../errors.ts";
+import { describeSubStatus } from "../deploy-status.ts";
+import { CliError, httpError } from "../errors.ts";
 import type { BuildConfig } from "../config.ts";
 import { readLinkFile, readOwnPbJson } from "../config.ts";
 import {
@@ -84,6 +85,21 @@ export async function resolveTarget(
     environment: choice.name,
     hasEnvironments: environments.length > 0,
   };
+  // When --name is explicit on a deploy and the file already binds this
+  // environment to a different name, the user may not realise the binding
+  // exists. Error rather than silently overwriting it. Only on deploy paths
+  // (allowNewEnvironment) — rm/info/logs target any resource.
+  if (opts.allowNewEnvironment && token.name && link?.kind === kind) {
+    const envEntry = link.environments?.[choice.name];
+    if (envEntry?.name && envEntry.name !== token.name) {
+      throw new CliError(
+        `pb.json binds environment "${choice.name}" to ${kind} "${envEntry.name}", ` +
+        `but --name "${token.name}" was passed. Drop --name to redeploy the bound ` +
+        `resource, or deploy from a different directory to create a new one.`,
+        2,
+      );
+    }
+  }
   if (token.id || token.name) return { ...token, fromBinding: false, ...base };
   const entry = entryFor(link, kind, choice);
   if (entry) return { id: entry.id, fromBinding: true, ...base };
@@ -99,7 +115,8 @@ export function missingTargetMessage(target: Target, label: string): string {
   return target.hasEnvironments
     ? `Environment "${target.environment}" is not configured — pass --name to ` +
       `create it.`
-    : `Pass --name to create the first ${label}.`;
+    : `Pass --name to create the first ${label}, or remove --no-input / --json ` +
+      `to be asked interactively.`;
 }
 
 /** A directory name turned into something usable as a resource name. */
@@ -405,6 +422,14 @@ export async function deployResource(
      * on a redeploy.
      */
     createData?: () => Promise<Record<string, unknown>>;
+    /**
+     * Run on the update path only, before the request — the mirror of
+     * `createData`'s laziness, for a check that applies to an upload but not
+     * to a create. A PocketBase archive is the case: creation extracts it
+     * wholesale (pb_hooks is a fine seed), while the upload route installs
+     * `pb_migrations`/`pb_public` and nothing else.
+     */
+    beforeUpdate?: () => void | Promise<void>;
     // When the target came from a pb.json binding, a missing resource means the
     // binding is stale: run onStale (to clear it) and error instead of creating.
     requireExisting?: boolean;
@@ -421,6 +446,7 @@ export async function deployResource(
     throw new CliError(`Multiple ${kind} named "${opts.name}". Pass --id.`, 2);
   }
   if (existing) {
+    await opts.beforeUpdate?.();
     return {
       resource: await client.updateResource(kind, existing.id, {
         ...opts.data,
@@ -467,6 +493,16 @@ export type Bundle = {
   build: BuildConfig;
   bytes: Uint8Array;
   fileName: string;
+  /**
+   * The archive holds no files, so there is nothing to upload — packaging a
+   * PocketBase directory that configures none of `pb_public` / `pb_hooks` /
+   * `pb_migrations` is the supported way to deploy a bare instance. Attaching
+   * the archive anyway sends 22 bytes of end-of-central-directory, and the
+   * platform's `unzip` fails the whole deploy with "zipfile is empty".
+   *
+   * Always false for `--zip`: that archive is passed through unread.
+   */
+  empty: boolean;
   /** Suggested startCommand from the packager (Next.js standalone). */
   startCommand?: string;
 };
@@ -477,7 +513,7 @@ export type Bundle = {
  * archive fails before the upload, with its size in the message, rather than
  * as a PocketBase field-validation error after transferring the whole thing.
  */
-export const MAX_ARCHIVE_BYTES = 100 * 1024 * 1024;
+export const MAX_ARCHIVE_BYTES = 150 * 1024 * 1024;
 
 function formatMb(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -517,6 +553,7 @@ export async function buildBundle(o: BundleOptions): Promise<Bundle> {
       build: mergeEnvBuild(own, o.environment),
       bytes,
       fileName: basename(o.zipPath),
+      empty: false,
     };
   }
 
@@ -541,6 +578,7 @@ export async function buildBundle(o: BundleOptions): Promise<Bundle> {
     build,
     bytes: packed.bytes,
     fileName: packed.fileName,
+    empty: packed.fileCount === 0,
     startCommand: packed.startCommand,
   };
 }
@@ -763,7 +801,7 @@ export async function pushEnvFile(
         prune: o.deleteMissing === true,
       });
       if (!res.ok) {
-        throw new CliError(`Env push failed (${res.status}).`, 1);
+        throw await httpError(res, "Env push");
       }
       const removed = prunedKeysOf(await res.json());
       // Only after the platform accepted it: a failed push must leave the
@@ -931,7 +969,13 @@ export async function awaitDeployment(
     progress: Progress;
     /** Creating and redeploying look identical from here; say which it is. */
     created: boolean;
-    environment: string;
+    /**
+     * Which of the directory's environments this deploy belongs to. Optional
+     * because not every create belongs to one: `pb cloud pb create` writes no
+     * pb.json, so naming an environment here would claim a binding that does
+     * not exist.
+     */
+    environment?: string;
     /** Human word for the resource, e.g. "backend" / "PocketBase". */
     label: string;
     /** Command group to name for recovery, e.g. "pb" / "backend". */
@@ -940,8 +984,8 @@ export async function awaitDeployment(
     intervalMs?: number;
   },
 ): Promise<Resource> {
-  const head = `${o.created ? "Creating" : "Redeploying"} ${resource.name} ` +
-    `(environment: ${o.environment})`;
+  const head = `${o.created ? "Creating" : "Redeploying"} ${resource.name}` +
+    (o.environment ? ` (environment: ${o.environment})` : "");
   return await o.progress.step(head, async (step) => {
     const final = await pollStatus(client, kind, resource.id, {
       terminal: ["running", "error", "failed"],
@@ -951,9 +995,19 @@ export async function awaitDeployment(
       checkCommand: o.checkCommand,
       onTick: (s) => step.update(`${head} — ${s}`),
     });
-    const settled = `${final.name} is ${final.status}`;
-    if (final.status === "running") step.done(settled);
-    else step.fail(settled);
+    if (final.status === "running") {
+      step.done(`${final.name} is ${final.status}`);
+    } else {
+      // "my-app is error" and nothing else was the whole message here, which
+      // left the portal as the only place to find out what happened — and it
+      // reads the same fields. `statusMessage` wins when the platform wrote
+      // one: it is the only one that can name the file that caused this.
+      const reason = final.statusMessage?.trim() ||
+        describeSubStatus(final.subStatus);
+      step.fail(
+        `${final.name} is ${final.status}${reason ? ` — ${reason}` : ""}`,
+      );
+    }
     return final;
   });
 }

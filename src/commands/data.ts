@@ -33,6 +33,7 @@ export function makeDataCommands(deps: CloudCmdDeps): Record<string, Handler> {
       cwd: deps.cwd(),
       flagProject: ctx.flags.project,
       noInput: ctx.flags.noInput || ctx.flags.json,
+      log: ctx.flags.json ? undefined : (m) => console.log(m),
     });
     const target = await resolveTarget(
       {

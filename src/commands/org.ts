@@ -5,6 +5,9 @@ import { printResult } from "../ui/output.ts";
 import { confirm } from "../ui/prompt.ts";
 import { resolveProject } from "../resolve/project.ts";
 
+/** `users.role` values allowed to create and own an organization. */
+const ORG_OWNER_ROLES = ["system_admin", "moderator"];
+
 export function makeOrgCommands(deps: CloudCmdDeps): Record<string, Handler> {
   const ls: Handler = async (ctx: CmdCtx) => {
     const { client } = await deps.requireAuth();
@@ -20,6 +23,18 @@ export function makeOrgCommands(deps: CloudCmdDeps): Record<string, Handler> {
     const name = ctx.args[0];
     if (!name) throw new CliError("Usage: pb cloud org create <name>", 2);
     const { client } = await deps.requireAuth();
+    // organizations.createRule is checked before any hook runs, so the platform
+    // refuses this with a bare "Failed to create record." Ask who we are first
+    // and say the actual reason. Being *invited* into an org is open to
+    // everyone — only starting one is staff-only.
+    const me = await client.whoami();
+    if (!ORG_OWNER_ROLES.includes(me.role ?? "")) {
+      throw new CliError(
+        "Creating an organization is limited to platform staff accounts. " +
+          "Ask an organization owner to invite you instead.",
+        3,
+      );
+    }
     const o = await client.createOrg(name);
     console.log(
       ctx.flags.json ? JSON.stringify(o) : `Created org ${o.name} (${o.id}).`,

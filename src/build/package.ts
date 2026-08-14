@@ -20,6 +20,12 @@ export type Strategy = "static" | "source" | "standalone" | "pbdirs";
 export type PackageResult = {
   bytes: Uint8Array;
   fileName: string;
+  /**
+   * Files in the archive. Only `pbdirs` can legitimately produce zero (a bare
+   * instance), and callers must not upload that archive: an entry-less zip is
+   * 22 bytes of end-of-central-directory, which `unzip` refuses outright.
+   */
+  fileCount: number;
   /** Set by `standalone`, which knows how its bundle must be started. */
   startCommand?: string;
 };
@@ -310,7 +316,12 @@ export async function packageResource(opts: {
     step.done(
       `Packaged ${entries.length} file(s), ${formatSize(bytes.length)}.`,
     );
-    return { bytes, fileName: fileNameFor(kind), startCommand };
+    return {
+      bytes,
+      fileName: fileNameFor(kind),
+      fileCount: entries.length,
+      startCommand,
+    };
   });
 }
 

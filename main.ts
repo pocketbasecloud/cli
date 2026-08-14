@@ -36,12 +36,21 @@ export async function run(argv: string[]): Promise<number> {
 }
 
 if (import.meta.main) {
-  const code = await run(Deno.args);
-  // After the command, never before: the notice is a courtesy and must not
-  // delay the work. Imported here so `run()` stays importable without it.
+  // The update notice is a courtesy and must never delay the work, so it runs
+  // twice with different budgets. The pass before the command reads the cache
+  // and nothing else — free, and the only pass a command that never returns
+  // (`pb cloud logs --follow`) will ever reach. The pass after is the one
+  // allowed to hit the network and refresh that cache, and it is skipped when
+  // the first already spoke. Imported here so `run()` stays importable without
+  // it.
   const { buildNotifyDeps, notifyUpdate } = await import(
     "./src/self/notify.ts"
   );
-  await notifyUpdate(Deno.args, buildNotifyDeps());
+  const notifyDeps = buildNotifyDeps();
+  const first = await notifyUpdate(Deno.args, notifyDeps, { before: true });
+  const code = await run(Deno.args);
+  // "unknown" is the only verdict a second look can improve on, so on all but
+  // the once-a-day refresh this costs nothing at all.
+  if (first === "unknown") await notifyUpdate(Deno.args, notifyDeps);
   Deno.exit(code);
 }

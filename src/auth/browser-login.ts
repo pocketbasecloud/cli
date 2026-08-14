@@ -1,4 +1,4 @@
-import { BACKEND_EXT_URL, BACKEND_URL, type CloudAuth } from "../config.ts";
+import { backendExtUrl, backendUrl, type CloudAuth } from "../config.ts";
 import { CliError } from "../errors.ts";
 
 export function buildLoginUrl(
@@ -54,8 +54,8 @@ export function browserLogin(opts: {
       try {
         const { userToken, userId } = parseCallback(url, state);
         resolve({
-          backendUrl: BACKEND_URL,
-          extUrl: BACKEND_EXT_URL,
+          backendUrl: backendUrl(),
+          extUrl: backendExtUrl(),
           userToken,
           userId,
         });

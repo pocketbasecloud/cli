@@ -103,7 +103,7 @@ pb init            # download PocketBase + scaffold a project here
 pb cloud login                   # authenticate via browser
 pb cloud project create my-app   # create a project
 pb cloud project use my-app      # make it the current one
-pb cloud pb deploy               # deploy a PocketBase instance
+pb cloud deploy                  # detect what's in this directory, deploy it
 pb cloud logs pb                 # stream its logs
 ```
 
@@ -217,8 +217,54 @@ only. `pb cloud environments` lists what the file records, and
 
 ```sh
 cd web
-pb cloud frontend deploy --name web   # runs the build, zips it, ships it
+pb cloud deploy --name web            # detects the kind, then does all that
+pb cloud frontend deploy --name web   # the same deploy, kind named yourself
 ```
+
+### One deploy command for all three
+
+`pb cloud deploy` works out whether the directory holds a PocketBase instance,
+a static site, or a backend, and runs that kind's deploy. Nothing else changes:
+every flag the three commands take works here and is passed straight through,
+so the deploy that runs is the one you would have typed.
+
+It says what it decided, and on the strength of which file:
+
+```
+$ pb cloud deploy
+Detected a frontend (vite.config.ts) — running `pb cloud frontend deploy`.
+```
+
+The answer comes from the first of these that applies:
+
+| # | Evidence | Kind |
+| - | -------- | ---- |
+| 1 | the `kind` in `pb.json` (written by a previous deploy or `pb cloud link`) | as recorded |
+| 2 | `pb_hooks/`, `pb_migrations/`, or `pb_public/` | PocketBase |
+| 3 | `next.config.*` with `output: "export"` … | frontend |
+|   | … `next.config.*` with anything else | backend |
+| 4 | `vite` / `svelte` / `vue` config, or `angular.json` | frontend |
+| 5 | `deno.json(c)` | backend |
+| 6 | a server dependency in `package.json` (express, fastify, hono, nest, …) | backend |
+|   | a bundler dependency (vite, react-scripts, parcel, …) | frontend |
+|   | failing both: a `start` script | backend |
+|   | failing that: a `build` script | frontend |
+| 7 | `index.html` in the directory or in `public/`, `dist/`, `build/`, `out/` | frontend |
+
+Rule 1 is why a redeploy is never re-guessed: once the platform holds a
+frontend for this directory, adding a `deno.json` cannot start deploying a
+backend over it.
+
+A leading kind word overrides the detection outright, which is also how you
+deploy a directory that matches none of the rules:
+
+```sh
+pb cloud deploy backend        # deploy as a backend, whatever is here
+pb cloud deploy frontend web   # …and call the new resource "web"
+```
+
+When nothing points either way, a terminal is asked; `--no-input` and `--json`
+get an error naming the three explicit commands instead of a prompt.
 
 How to build and what to package lives in a `build` block in `pb.json`. You
 never have to write it — the first deploy infers it from the directory, prints
@@ -434,6 +480,41 @@ Each deploy prints what it packaged, records the binding in that directory's
 `pb.json`, and asks once which dotenv file this environment uses. From then on a bare
 `pb cloud <kind> deploy` in the same directory redeploys it.
 
+### Create a database with nothing in it
+
+`pb cloud pb create` provisions an instance and stops there — no build, no
+archive, nothing uploaded. It is the command for a script, a CI step, or the
+moment before there is anything to deploy:
+
+```sh
+pb cloud pb create my-app-db                  # asks for the name if you omit it
+pb cloud pb create my-app-db --json           # id, URL and the generated login
+```
+
+The superuser password is generated and printed once (`pb cloud pb info`
+recovers it). A name already used in the project is refused rather than
+duplicated — redeploy that one with `pb cloud pb deploy --name my-app-db`.
+
+The instance is recorded in the directory's `pb.json` exactly as a deploy would
+record it, so shipping files to it later takes no flags:
+
+```sh
+pb cloud pb create my-app-db   # in the directory the project will live in
+# …add pb_hooks/, pb_migrations/, pb_public/
+pb cloud pb deploy             # no --name: the binding is already there
+```
+
+`--env <name>` records it under another environment (default: `production`, or
+whatever the file's default is). A directory bound to frontends or backends is
+refused, and so is an environment that already names an instance — repointing
+it would leave the old one with nothing pointing at it.
+
+`pb cloud pb deploy` creates an instance too, and creates it **empty** when the
+directory holds no `pb_public`, `pb_hooks` or `pb_migrations` — it sends no
+archive at all and says so, rather than reporting a silent success. So neither
+command requires you to have files ready; `create` is the one that never builds
+or uploads anything.
+
 ### Promote staging to production
 
 ```sh
@@ -587,17 +668,25 @@ pb cloud pb deploy --pb-version 0.39.9  # or set it per deploy
 
 ### Keep `pb` itself current
 
-`pb` checks for a newer release of itself at most once a day and, when there is
-one, prints a single line on stderr after the command it was already running:
+`pb` checks for a newer release of itself at most once a day, and every command
+prints a single line on stderr while one is available:
 
 ```
 Update available: pb 0.2.3 → 0.2.4. Run `pb upgrade`.
 ```
 
-The command it suggests matches how this copy was installed. The check is
-skipped under `--json`, when `CI` is set, and when output is redirected — so it
-never lands in a pipe or a log. `PB_NO_UPDATE_CHECK=1` turns it off entirely,
-and `pb upgrade --check` asks on demand.
+The command it suggests matches how this copy was installed.
+
+The answer is cached, so the line normally appears **before** the command — it
+costs a file read, which is what lets a command that never returns
+(`pb cloud logs --follow`) show it at all. On the once-a-day refresh there is
+nothing to say yet, so the check runs **after** the command instead and the line
+appears at the end. Either way it never delays the work, and never appears
+twice.
+
+The check is skipped under `--json`, when `CI` is set, and when output is
+redirected — so it never lands in a pipe or a log. `PB_NO_UPDATE_CHECK=1` turns
+it off entirely, and `pb upgrade --check` asks on demand.
 
 ## What you can do
 

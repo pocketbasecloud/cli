@@ -21,11 +21,15 @@ Deno.test("normalizeDownloadUrl repairs the platform's single slash", () => {
   );
 });
 
-function setup(client: ReturnType<typeof createMockCloudClient>) {
+function setup(
+  client: ReturnType<typeof createMockCloudClient>,
+  currentProject = "",
+) {
   const dir = Deno.makeTempDirSync();
   const config: Config = {
     ...defaultConfig(),
     cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
+    currentProject,
   };
   return {
     dir,
@@ -122,6 +126,74 @@ Deno.test("data export reports the platform's reason for failing", async () => {
     Error,
     "Export failed (500): No collections to export.",
   );
+});
+
+function captureLog() {
+  const lines: string[] = [];
+  const original = console.log;
+  console.log = (...args: unknown[]) => lines.push(args.map(String).join(" "));
+  return { lines, restore: () => console.log = original };
+}
+
+Deno.test("data export announces the project resolved from config.currentProject", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  await client.createResource("pocketbases", { name: "db1", project: p.id });
+  client.ext = () =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({ success: false, error: "No collections to export" }),
+        { status: 500 },
+      ),
+    );
+  const { cmds } = setup(client, p.id);
+  const log = captureLog();
+  try {
+    await assertRejects(() =>
+      cmds["cloud data export"]({
+        args: [],
+        flags: { json: false, yes: true, noInput: true, interactive: false },
+        raw: { name: "db1" },
+      })
+    );
+    assertEquals(log.lines[0].includes(`Project: ${p.name}`), true);
+    assertEquals(log.lines[0].includes("pb cloud project use"), true);
+  } finally {
+    log.restore();
+  }
+});
+
+Deno.test("data export does not announce the project when --project names it", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  await client.createResource("pocketbases", { name: "db1", project: p.id });
+  client.ext = () =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({ success: false, error: "No collections to export" }),
+        { status: 500 },
+      ),
+    );
+  const { cmds } = setup(client);
+  const log = captureLog();
+  try {
+    await assertRejects(() =>
+      cmds["cloud data export"]({
+        args: [],
+        flags: {
+          json: false,
+          yes: true,
+          noInput: true,
+          interactive: false,
+          project: p.id,
+        },
+        raw: { name: "db1" },
+      })
+    );
+    assertEquals(log.lines.some((l) => l.startsWith("Project:")), false);
+  } finally {
+    log.restore();
+  }
 });
 
 Deno.test("data import says what it needs instead of sending a doomed request", async () => {

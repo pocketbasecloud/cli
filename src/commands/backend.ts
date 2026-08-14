@@ -33,7 +33,7 @@ import { reportRemoval } from "./environments.ts";
 export function makeBackendCommands(
   deps: CloudCmdDeps,
 ): Record<string, Handler> {
-  async function ctxProject(ctx: CmdCtx) {
+  async function ctxProject(ctx: CmdCtx, log?: (m: string) => void) {
     const { client, config, auth } = await deps.requireAuth();
     const p = await resolveProject({
       client,
@@ -41,6 +41,7 @@ export function makeBackendCommands(
       cwd: deps.cwd(),
       flagProject: ctx.flags.project,
       noInput: ctx.flags.noInput || ctx.flags.json,
+      log: log ?? (ctx.flags.json ? undefined : (m) => console.log(m)),
     });
     return { client, project: p, auth };
   }
@@ -49,7 +50,7 @@ export function makeBackendCommands(
     const progress = deployProgress(ctx.flags.json);
     const { client, project: p, auth } = await progress.step(
       "Connecting to PocketBase Cloud",
-      () => ctxProject(ctx),
+      () => ctxProject(ctx, progress.log),
     );
     const cwd = deps.cwd();
     const name = (ctx.raw.name as string) ?? ctx.args[0];

@@ -278,7 +278,8 @@ Deno.test("missingTargetMessage distinguishes an unconfigured env from a fresh d
       { fromBinding: false, environment: "production", hasEnvironments: false },
       "frontend",
     ),
-    "Pass --name to create the first frontend.",
+    "Pass --name to create the first frontend, or remove --no-input / --json " +
+      "to be asked interactively.",
   );
 });
 
@@ -319,7 +320,7 @@ Deno.test("ensureTarget keeps the usage error when it cannot ask", async () => {
         noInput: true,
       }),
     Error,
-    "Pass --name to create the first frontend.",
+    "Pass --name to create the first frontend, or",
   );
 });
 
@@ -842,9 +843,12 @@ Deno.test("assertArchiveWithinLimit rejects an over-limit archive by name and si
   );
 
   // The point of failing here rather than on upload: the user is told what
-  // went wrong and roughly what to do, before transferring 100MB.
+  // went wrong and roughly what to do, before transferring the whole archive.
+  // Both figures are derived from MAX_ARCHIVE_BYTES so that raising the cap
+  // cannot leave this asserting the old one, which is what it did.
+  const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   assertStringIncludes(err.message, "app.zip");
-  assertStringIncludes(err.message, "101.0 MB");
-  assertStringIncludes(err.message, "100.0 MB limit");
+  assertStringIncludes(err.message, mb(MAX_ARCHIVE_BYTES + 1024 * 1024));
+  assertStringIncludes(err.message, `${mb(MAX_ARCHIVE_BYTES)} limit`);
   assertEquals(err.exitCode, 2);
 });

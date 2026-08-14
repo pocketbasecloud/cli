@@ -1,6 +1,6 @@
 import type { CmdCtx, Handler } from "../../router.ts";
 import type { AdminCmdDeps } from "./deps.ts";
-import { CliError } from "../../errors.ts";
+import { CliError, httpError } from "../../errors.ts";
 import { printResult } from "../../ui/output.ts";
 import { confirm } from "../../ui/prompt.ts";
 
@@ -127,7 +127,7 @@ export function makeSettingsCommands(
     const url = await client.backupDownloadUrl(key);
     const out = (ctx.raw.out as string) ?? key;
     const res = await fetch(url);
-    if (!res.ok) throw new CliError(`Download failed (${res.status}).`, 1);
+    if (!res.ok) throw await httpError(res, "Download");
     await Deno.writeFile(out, new Uint8Array(await res.arrayBuffer()));
     console.log(
       ctx.flags.json ? JSON.stringify({ out }) : `Downloaded ${key} → ${out}.`,

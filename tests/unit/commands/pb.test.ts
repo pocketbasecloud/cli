@@ -8,7 +8,11 @@ import {
   readLinkFile,
 } from "../../../src/config.ts";
 import type { CloudCmdDeps } from "../../../src/commands/project.ts";
+import { CliError } from "../../../src/errors.ts";
+import { suggestName } from "../../../src/commands/deploy-helper.ts";
+import type { PromptIO } from "../../../src/ui/prompt.ts";
 import { FALLBACK_VERSIONS } from "../../../src/local/releases.ts";
+import { extractEntry } from "../../../src/local/unzip.ts";
 
 function deps(
   client = createMockCloudClient(),
@@ -59,6 +63,16 @@ const runningNow = (client: ReturnType<typeof createMockCloudClient>) => {
     status: "running",
   });
 };
+
+/** Canned answers for the one question `create` asks. */
+function fakeIO(inputs: string[]): PromptIO {
+  const q = [...inputs];
+  return {
+    read: () => Promise.resolve(q.shift() ?? null),
+    write: () => {},
+    isTTY: true,
+  };
+}
 
 const flags = (over: Record<string, unknown> = {}) => ({
   json: true,
@@ -504,6 +518,437 @@ function pushedNames(
   return body.hooks.map((h) => h.filename).sort();
 }
 
+// --- pb create -------------------------------------------------------------
+//
+// `create` is the sibling of `pb cloud project create`, not a second deploy:
+// it provisions an instance and touches no file in the working directory.
+
+Deno.test("pb create makes a running instance and sends no archive", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d } = deps(client);
+  runningNow(client);
+  const code = await makePbCommands(d)["cloud pb create"]({
+    args: [],
+    flags: flags({ project: p.id }),
+    raw: { name: "db1" },
+  });
+  assertEquals(code, 0);
+  assertEquals(client.calls.createResource.length, 1);
+  const [kind, data] = client.calls.createResource[0];
+  assertEquals(kind, "pocketbases");
+  assertEquals(data.name, "db1");
+  assertEquals(data.project, p.id);
+  // Required by the collection, and what the slot check reads.
+  assertEquals(data.user, "u1");
+  assertEquals(data.status, "creating");
+  // Nothing is packaged, so nothing is attached — an entry-less archive is
+  // refused by the platform's unzip.
+  assertEquals(data.zipFile, undefined);
+  assertEquals(data.zipFileSize, undefined);
+  // The platform never invents these; a blank one fails the deploy outright.
+  assertEquals(data.adminUsername, "u@e.com");
+  assertEquals(typeof data.adminPassword, "string");
+  assertEquals((data.adminPassword as string).length, 20);
+  // Never blank: an empty version strands the instance in `creating` with no
+  // error status ever written.
+  assertEquals(typeof data.version, "string");
+  assertEquals((data.version as string).length > 0, true);
+});
+
+Deno.test("pb create records the instance in pb.json", async () => {
+  // So the next `pb cloud pb deploy` in this directory needs no --name — the
+  // same binding a deploy would have written, minus the build block, which
+  // nothing was packaged from.
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d, cwd } = deps(client);
+  runningNow(client);
+  await makePbCommands(d)["cloud pb create"]({
+    args: [],
+    flags: flags({ project: p.id }),
+    raw: { name: "db1" },
+  });
+  const link = await readLinkFile(cwd);
+  assertEquals(link?.projectId, p.id);
+  assertEquals(link?.kind, "pocketbases");
+  assertEquals(link?.defaultEnvironment, "production");
+  assertEquals(link?.environments, {
+    production: {
+      id: (await client.listResources("pocketbases", p.id))[0].id,
+      name: "db1",
+    },
+  });
+  // No envFile: nothing was pushed, so the first deploy here still gets to ask
+  // which dotenv file this environment uses.
+  assertEquals(
+    "envFile" in (link?.environments?.production ?? {}),
+    false,
+  );
+  // Nothing was packaged, so there is no build block to record either.
+  assertEquals(link?.build, undefined);
+});
+
+Deno.test("pb create records under --env, leaving the default alone", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d, cwd } = deps(client);
+  runningNow(client);
+  // A directory that already deploys production: a second environment is
+  // added beside it, and production keeps its binding.
+  await Deno.writeTextFile(
+    `${cwd}/pb.json`,
+    JSON.stringify({
+      projectId: p.id,
+      kind: "pocketbases",
+      defaultEnvironment: "production",
+      environments: { production: { id: "existing", name: "db-prod" } },
+    }),
+  );
+  const code = await makePbCommands(d)["cloud pb create"]({
+    args: [],
+    flags: flags({ project: p.id }),
+    raw: { name: "db-staging", env: "staging" },
+  });
+  assertEquals(code, 0);
+  const link = await readLinkFile(cwd);
+  assertEquals(link?.defaultEnvironment, "production");
+  assertEquals(link?.environments?.production, {
+    id: "existing",
+    name: "db-prod",
+  });
+  assertEquals(link?.environments?.staging?.name, "db-staging");
+});
+
+Deno.test("pb create refuses to repoint an environment that already binds one", async () => {
+  // Overwriting it would silently orphan the binding to a live instance —
+  // the directory would stop being able to reach it at all.
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d, cwd } = deps(client);
+  runningNow(client);
+  await Deno.writeTextFile(
+    `${cwd}/pb.json`,
+    JSON.stringify({
+      projectId: p.id,
+      kind: "pocketbases",
+      defaultEnvironment: "production",
+      environments: { production: { id: "bound1", name: "db-prod" } },
+    }),
+  );
+  const err = await assertRejects(
+    () =>
+      makePbCommands(d)["cloud pb create"]({
+        args: [],
+        flags: flags({ project: p.id }),
+        raw: { name: "db2" },
+      }),
+    CliError,
+    "already binds",
+  );
+  assertEquals(err.exitCode, 2);
+  assertEquals(err.message.includes("--env"), true);
+  // Refused before anything was provisioned, so there is nothing to clean up.
+  assertEquals(client.calls.createResource.length, 0);
+});
+
+Deno.test("pb create refuses a directory bound to another kind", async () => {
+  // `kind` is shared by every environment in a pb.json, so a frontend
+  // directory cannot also bind a PocketBase.
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d, cwd } = deps(client);
+  runningNow(client);
+  await Deno.writeTextFile(
+    `${cwd}/pb.json`,
+    JSON.stringify({
+      projectId: p.id,
+      kind: "frontends",
+      defaultEnvironment: "production",
+      environments: { production: { id: "fe1", name: "web" } },
+    }),
+  );
+  const err = await assertRejects(
+    () =>
+      makePbCommands(d)["cloud pb create"]({
+        args: [],
+        flags: flags({ project: p.id }),
+        raw: { name: "db1" },
+      }),
+    CliError,
+    "bound to frontends",
+  );
+  assertEquals(err.exitCode, 2);
+  assertEquals(client.calls.createResource.length, 0);
+});
+
+Deno.test("pb create records the binding even when provisioning fails", async () => {
+  // The record exists either way, and the binding is how `info`, `logs` and
+  // `rm` reach it. Losing it would leave an instance nothing can name.
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d, cwd } = deps(client);
+  const orig = client.getResource.bind(client);
+  client.getResource = async (k, id) => ({
+    ...(await orig(k, id)),
+    status: "error",
+  });
+  const code = await makePbCommands(d)["cloud pb create"]({
+    args: [],
+    flags: flags({ project: p.id }),
+    raw: { name: "db1" },
+  });
+  assertEquals(code, 6);
+  assertEquals(
+    (await readLinkFile(cwd))?.environments?.production?.name,
+    "db1",
+  );
+});
+
+Deno.test("pb create takes the name positionally", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d } = deps(client);
+  runningNow(client);
+  const code = await makePbCommands(d)["cloud pb create"]({
+    args: ["db2"],
+    flags: flags({ project: p.id }),
+    raw: {},
+  });
+  assertEquals(code, 0);
+  assertEquals(client.calls.createResource[0][1].name, "db2");
+});
+
+Deno.test("pb create refuses a name the project already uses, naming deploy", async () => {
+  // The one thing that separates create from deploy. Creating a second
+  // instance under the same name would also make every later --name lookup
+  // ambiguous.
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const pb = await client.createResource("pocketbases", {
+    name: "db1",
+    project: p.id,
+  });
+  client.calls.createResource.length = 0; // seeding is not the command's doing
+  const { d } = deps(client);
+  runningNow(client);
+  const err = await assertRejects(
+    () =>
+      makePbCommands(d)["cloud pb create"]({
+        args: [],
+        flags: flags({ project: p.id }),
+        raw: { name: "db1" },
+      }),
+    CliError,
+    "already exists",
+  );
+  assertEquals(err.exitCode, 2);
+  // The way out has to be in the message, or the refusal is just a wall.
+  assertEquals(err.message.includes("pb cloud pb deploy --name db1"), true);
+  assertEquals(err.message.includes(pb.id), true);
+  assertEquals(client.calls.createResource.length, 0);
+});
+
+Deno.test("pb create with no name and no terminal says how to pass one", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d } = deps(client);
+  const err = await assertRejects(
+    () =>
+      makePbCommands(d)["cloud pb create"]({
+        args: [],
+        flags: flags({ project: p.id }),
+        raw: {},
+      }),
+    CliError,
+    "pb cloud pb create <name>",
+  );
+  assertEquals(err.exitCode, 2);
+  assertEquals(client.calls.createResource.length, 0);
+});
+
+Deno.test("pb create asks for a name on a terminal, defaulting to the directory", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d, cwd } = deps(client);
+  runningNow(client);
+  // Two questions, both answered with a bare return: the name, then which
+  // environment to record it under — the same one `deploy` and `link` ask in a
+  // directory that names none yet. Empty means "take the suggestion".
+  d.io = fakeIO(["", ""]);
+  const code = await makePbCommands(d)["cloud pb create"]({
+    args: [],
+    flags: flags({ project: p.id, json: false, noInput: false }),
+    raw: {},
+  });
+  assertEquals(code, 0);
+  assertEquals(client.calls.createResource[0][1].name, suggestName(cwd));
+  assertEquals((await readLinkFile(cwd))?.defaultEnvironment, "production");
+});
+
+Deno.test("pb create records the environment answered on a terminal", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d, cwd } = deps(client);
+  runningNow(client);
+  d.io = fakeIO(["staging"]);
+  const code = await makePbCommands(d)["cloud pb create"]({
+    args: ["db1"],
+    flags: flags({ project: p.id, json: false, noInput: false }),
+    raw: {},
+  });
+  assertEquals(code, 0);
+  const link = await readLinkFile(cwd);
+  assertEquals(link?.defaultEnvironment, "staging");
+  assertEquals(link?.environments?.staging?.name, "db1");
+});
+
+Deno.test("pb create honours the admin flags", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d } = deps(client);
+  runningNow(client);
+  const code = await makePbCommands(d)["cloud pb create"]({
+    args: [],
+    flags: flags({ project: p.id }),
+    raw: {
+      name: "db1",
+      "admin-email": "ops@example.com",
+      "admin-password": "correcthorsebattery",
+    },
+  });
+  assertEquals(code, 0);
+  const [, data] = client.calls.createResource[0];
+  assertEquals(data.adminUsername, "ops@example.com");
+  assertEquals(data.adminPassword, "correcthorsebattery");
+});
+
+Deno.test("pb create rejects an unusable --admin-password", async () => {
+  // The field is 12-20 characters wherever the platform validates it, so a
+  // password that cannot be used is caught before anything is provisioned.
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d } = deps(client);
+  runningNow(client);
+  await assertRejects(
+    () =>
+      makePbCommands(d)["cloud pb create"]({
+        args: [],
+        flags: flags({ project: p.id }),
+        raw: { name: "db2", "admin-password": "short" },
+      }),
+    CliError,
+    "12 to 20",
+  );
+  assertEquals(client.calls.createResource.length, 0);
+});
+
+Deno.test("pb create sends an explicit --pb-version", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d } = deps(client);
+  runningNow(client);
+  const code = await makePbCommands(d)["cloud pb create"]({
+    args: [],
+    flags: flags({ project: p.id }),
+    raw: { name: "db1", "pb-version": "0.30.1" },
+  });
+  assertEquals(code, 0);
+  assertEquals(client.calls.createResource[0][1].version, "0.30.1");
+});
+
+Deno.test("pb create forwards --location and --compute", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d } = deps(client);
+  runningNow(client);
+  client.deployContext = () => {
+    throw new Error("a named compute must not be second-guessed");
+  };
+  const code = await makePbCommands(d)["cloud pb create"]({
+    args: [],
+    flags: flags({ project: p.id }),
+    raw: { name: "db1", location: "GRA", compute: "srv1" },
+  });
+  assertEquals(code, 0);
+  const [, data] = client.calls.createResource[0];
+  assertEquals(data.location, "GRA");
+  assertEquals(data.server, "srv1");
+});
+
+Deno.test("pb create lands on the owner's Pro compute, which is never auto-selected", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d } = deps(client);
+  runningNow(client);
+  withComputes(client, [{ id: "srv9", name: "pro-1", location: "GRA" }]);
+  const code = await makePbCommands(d)["cloud pb create"]({
+    args: [],
+    flags: flags({ project: p.id }),
+    raw: { name: "db1" },
+  });
+  assertEquals(code, 0);
+  assertEquals(client.calls.createResource[0][1].server, "srv9");
+});
+
+Deno.test("pb create prints the generated login once, and where it was recorded", async () => {
+  // The superuser account exists only on the new instance and the platform
+  // never rotates it, so a generated password that is not printed is lost.
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d } = deps(client);
+  runningNow(client);
+  const log = captureLog();
+  try {
+    const code = await makePbCommands(d)["cloud pb create"]({
+      args: [],
+      flags: flags({ project: p.id, json: false }),
+      raw: { name: "db1" },
+    });
+    assertEquals(code, 0);
+  } finally {
+    log.restore();
+  }
+  const password = client.calls.createResource[0][1].adminPassword as string;
+  assertEquals(
+    log.lines.some((l) => l.includes(`u@e.com / ${password}`)),
+    true,
+  );
+  // And that the directory now points at it, which is what makes the next
+  // deploy a bare `pb cloud pb deploy`.
+  assertEquals(
+    log.lines.some((l) =>
+      l.includes('Recorded in pb.json as environment "production"')
+    ),
+    true,
+  );
+});
+
+Deno.test("pb create --json prints the instance with its credentials", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d } = deps(client);
+  runningNow(client);
+  const log = captureLog();
+  try {
+    await makePbCommands(d)["cloud pb create"]({
+      args: [],
+      flags: flags({ project: p.id }),
+      raw: { name: "db1" },
+    });
+  } finally {
+    log.restore();
+  }
+  const out = JSON.parse(log.lines.at(-1) as string);
+  assertEquals(out.name, "db1");
+  assertEquals(out.status, "running");
+  assertEquals(out.adminUsername, "u@e.com");
+  assertEquals(
+    out.adminPassword,
+    client.calls.createResource[0][1].adminPassword,
+  );
+});
+
 Deno.test("pushHooks uploads .js and .json, not just *.pb.js", async () => {
   const client = createMockCloudClient();
   const dir = hooksDir({
@@ -571,6 +1016,74 @@ Deno.test("pushHooks accepts a directory sitting exactly on the limit", async ()
   assertEquals(client.calls.pbApi.length, 1);
 });
 
+Deno.test("pushHooks refuses a file longer than the content limit", async () => {
+  // A push sends active: true, so the agent — which accepts up to 1MB — writes
+  // the file to the running instance before the database refuses to store it.
+  // Catching it here is what keeps the instance and the portal editor in
+  // agreement.
+  const client = createMockCloudClient();
+  const dir = hooksDir({
+    "checkout.js": "x".repeat(300_001),
+    "helpers.js": "// fine\n",
+  });
+  await assertRejects(
+    () => pushHooks(client, "pb1", dir),
+    Error,
+    "checkout.js (300,001 characters)",
+  );
+  // The whole batch is refused: a partial push leaves the instance running
+  // some files from this version and some from the last.
+  assertEquals(client.calls.pbApi.length, 0);
+});
+
+Deno.test("pushHooks accepts a file sitting exactly on the content limit", async () => {
+  const client = createMockCloudClient();
+  const dir = hooksDir({ "checkout.js": "x".repeat(300_000) });
+  const r = await pushHooks(client, "pb1", dir);
+  assertEquals(r.sent, 1);
+  assertEquals(client.calls.pbApi.length, 1);
+});
+
+Deno.test("pushHooks repeats the platform's reason on a rejected push", async () => {
+  // The route answers a failure with { error, details }, and `details` carries
+  // the sentence worth reading. Reporting only the status code — which is what
+  // this did — leaves the user with a bare number.
+  const client = createMockCloudClient();
+  client.pbApi = (path, body) => {
+    client.calls.pbApi.push([path, body]);
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          error: "Failed to write hooks",
+          details:
+            "checkout.js is 60,000 characters — the limit is 50,000 per hook file.",
+        }),
+        { status: 400 },
+      ),
+    );
+  };
+  const dir = hooksDir({ "main.pb.js": "// hook\n" });
+  await assertRejects(
+    () => pushHooks(client, "pb1", dir),
+    Error,
+    "Hook push failed (400): checkout.js is 60,000 characters — the limit is 50,000 per hook file.",
+  );
+});
+
+Deno.test("pushHooks falls back to the status code when the body says nothing", async () => {
+  const client = createMockCloudClient();
+  client.pbApi = (path, body) => {
+    client.calls.pbApi.push([path, body]);
+    return Promise.resolve(new Response("not json", { status: 502 }));
+  };
+  const dir = hooksDir({ "main.pb.js": "// hook\n" });
+  await assertRejects(
+    () => pushHooks(client, "pb1", dir),
+    Error,
+    "Hook push failed (502).",
+  );
+});
+
 Deno.test("pushHooks reports what the platform stored, not what it sent", async () => {
   // A 200 only means the batch was accepted — details.results[] still carries
   // per-file failures, and counting the files we sent hides them.
@@ -613,9 +1126,11 @@ Deno.test("pushHooks errors when the directory is missing", async () => {
   );
 });
 
-Deno.test("pb redeploy pushes the hook directory's .js helpers", async () => {
+Deno.test("pb redeploy ships the hook directory's .js helpers in the archive", async () => {
   // The end-to-end shape of the bug: main.pb.js reached the instance on a
-  // redeploy while the helper it requires stayed behind.
+  // redeploy while the helper it requires stayed behind. The route changed —
+  // hooks now travel in the archive and the platform installs them — but the
+  // guarantee has not: every file in pb_hooks must arrive.
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   const pb = await client.createResource("pocketbases", {
@@ -642,5 +1157,84 @@ Deno.test("pb redeploy pushes the hook directory's .js helpers", async () => {
     raw: {},
   });
   assertEquals(code, 0);
-  assertEquals(pushedNames(client), ["helpers.js", "main.pb.js", "seed.json"]);
+  const [, , data] = client.calls.updateResource[0];
+  const zip = new Uint8Array(await (data.zipFile as File).arrayBuffer());
+  const dec = new TextDecoder();
+  assertEquals(
+    dec.decode(await extractEntry(zip, "pb_hooks/helpers.js")),
+    "module.exports = {}\n",
+  );
+  assertEquals(
+    dec.decode(await extractEntry(zip, "pb_hooks/seed.json")),
+    "[]\n",
+  );
+  assertEquals(
+    dec.decode(await extractEntry(zip, "pb_hooks/main.pb.js")),
+    "// hook\n",
+  );
+  // Pushing separately as well would write every file twice and restart the
+  // instance twice — the platform installs them from the archive.
+  assertEquals(pushedNames(client), []);
+});
+
+function captureLog() {
+  const lines: string[] = [];
+  const original = console.log;
+  console.log = (...args: unknown[]) => lines.push(args.map(String).join(" "));
+  return { lines, restore: () => console.log = original };
+}
+
+Deno.test("pb ls announces the project resolved from config.currentProject", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d, config } = deps(client);
+  config.currentProject = p.id;
+  const log = captureLog();
+  try {
+    const code = await makePbCommands(d)["cloud pb ls"]({
+      args: [],
+      flags: flags({ json: false }),
+      raw: {},
+    });
+    assertEquals(code, 0);
+    assertEquals(log.lines[0].includes(`Project: ${p.name}`), true);
+    assertEquals(log.lines[0].includes("pb cloud project use"), true);
+  } finally {
+    log.restore();
+  }
+});
+
+Deno.test("pb ls does not announce the project when --project names it", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d } = deps(client);
+  const log = captureLog();
+  try {
+    await makePbCommands(d)["cloud pb ls"]({
+      args: [],
+      flags: flags({ json: false, project: p.id }),
+      raw: {},
+    });
+    assertEquals(log.lines.some((l) => l.startsWith("Project:")), false);
+  } finally {
+    log.restore();
+  }
+});
+
+Deno.test("pb ls announces nothing under --json", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d, config } = deps(client);
+  config.currentProject = p.id;
+  const log = captureLog();
+  try {
+    await makePbCommands(d)["cloud pb ls"]({
+      args: [],
+      flags: flags({ json: true }),
+      raw: {},
+    });
+    assertEquals(log.lines.some((l) => l.startsWith("Project:")), false);
+  } finally {
+    log.restore();
+  }
 });

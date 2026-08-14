@@ -302,6 +302,42 @@ function newConfig(esm: boolean): string {
 }
 
 /**
+ * What the directory's Next config says its build produces, or null when the
+ * directory has no Next config at all.
+ *
+ * Shared by the deploy path below and by kind detection, which asks the same
+ * question for a different reason: `output: "export"` is the one setting that
+ * makes a Next.js directory a *frontend* rather than a backend.
+ */
+export async function readNextOutput(
+  cwd: string,
+): Promise<{ file: string; output: string | "computed" | null } | null> {
+  const found = await findNextConfig(cwd);
+  if (!found) return null;
+  const { code, mask } = scanSource(found.src);
+  const open = findConfigObject(mask);
+  const close = open === -1 ? -1 : matchDelimiter(mask, open, "{", "}");
+  return {
+    file: found.file,
+    output: readOutput(
+      code,
+      found.src,
+      close === -1 ? undefined : { mask, open, close },
+    ),
+  };
+}
+
+async function findNextConfig(
+  cwd: string,
+): Promise<{ file: string; src: string } | null> {
+  for (const name of CONFIG_NAMES) {
+    const text = await readIfFile(join(cwd, name));
+    if (text !== null) return { file: name, src: text };
+  }
+  return null;
+}
+
+/**
  * Guarantees that a `next build` in `cwd` produces `.next/standalone`, writing
  * the config change when it does not. Idempotent: a config that already builds
  * standalone is left untouched.
@@ -313,16 +349,9 @@ function newConfig(esm: boolean): string {
 export async function ensureStandaloneOutput(
   cwd: string,
 ): Promise<StandaloneResult> {
-  let file: string | undefined;
-  let src: string | undefined;
-  for (const name of CONFIG_NAMES) {
-    const text = await readIfFile(join(cwd, name));
-    if (text !== null) {
-      file = name;
-      src = text;
-      break;
-    }
-  }
+  const found = await findNextConfig(cwd);
+  const file = found?.file;
+  const src = found?.src;
 
   if (file === undefined || src === undefined) {
     const created = await isEsm(cwd) ? "next.config.mjs" : "next.config.js";

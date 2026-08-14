@@ -271,7 +271,7 @@ Deno.test("a bare deploy still errors without a terminal to ask on", async () =>
         raw: { "skip-build": true },
       }),
     Error,
-    "Pass --name to create the first frontend.",
+    "Pass --name to create the first frontend, or",
   );
 });
 
@@ -532,4 +532,47 @@ Deno.test("a frontend redeploy never re-picks the compute", async () => {
   assertEquals(code, 0);
   assertEquals(client.calls.createResource.length, 0);
   assertEquals(client.calls.updateResource[0][2].server, undefined);
+});
+
+function captureLog() {
+  const lines: string[] = [];
+  const original = console.log;
+  console.log = (...args: unknown[]) => lines.push(args.map(String).join(" "));
+  return { lines, restore: () => console.log = original };
+}
+
+Deno.test("frontend ls announces the project resolved from config.currentProject", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const cmds = makeFrontendCommands(deps(client, p.id));
+  const log = captureLog();
+  try {
+    const code = await cmds["cloud frontend ls"]({
+      args: [],
+      flags: flags({ json: false }),
+      raw: {},
+    });
+    assertEquals(code, 0);
+    assertEquals(log.lines[0].includes(`Project: ${p.name}`), true);
+    assertEquals(log.lines[0].includes("pb cloud project use"), true);
+  } finally {
+    log.restore();
+  }
+});
+
+Deno.test("frontend ls does not announce the project when --project names it", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const cmds = makeFrontendCommands(deps(client, p.id));
+  const log = captureLog();
+  try {
+    await cmds["cloud frontend ls"]({
+      args: [],
+      flags: flags({ json: false, project: p.id }),
+      raw: {},
+    });
+    assertEquals(log.lines.some((l) => l.startsWith("Project:")), false);
+  } finally {
+    log.restore();
+  }
 });

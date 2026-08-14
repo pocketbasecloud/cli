@@ -13,6 +13,12 @@ export type ResolveCtx = {
   flagProject?: string;
   noInput: boolean;
   io?: PromptIO;
+  /**
+   * Called once, only when the project was resolved implicitly (a linked
+   * pb.json or the globally `use`d project) — an explicit --project needs no
+   * confirmation, and an interactive pick is already visible on screen.
+   */
+  log?: (msg: string) => void;
 };
 
 export function matchProject(
@@ -44,10 +50,18 @@ export async function resolveProject(ctx: ResolveCtx): Promise<Project> {
   if (ctx.flagProject) return byToken(ctx.client, ctx.flagProject);
 
   const link = await readLinkFile(ctx.cwd);
-  if (link) return byToken(ctx.client, link.projectId);
+  if (link) {
+    const p = await byToken(ctx.client, link.projectId);
+    ctx.log?.(`Project: ${p.name} (${p.id}) — linked in ./pb.json`);
+    return p;
+  }
 
   if (ctx.config.currentProject) {
-    return byToken(ctx.client, ctx.config.currentProject);
+    const p = await byToken(ctx.client, ctx.config.currentProject);
+    ctx.log?.(
+      `Project: ${p.name} (${p.id}) — set with \`pb cloud project use\``,
+    );
+    return p;
   }
 
   const projects = await ctx.client.listProjects();

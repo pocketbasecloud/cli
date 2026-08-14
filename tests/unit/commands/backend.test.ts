@@ -330,3 +330,54 @@ Deno.test("backend deploy refuses to create a backend that cannot start", async 
   );
   assertEquals(client.calls.createResource.length, 0);
 });
+
+function captureLog() {
+  const lines: string[] = [];
+  const original = console.log;
+  console.log = (...args: unknown[]) => lines.push(args.map(String).join(" "));
+  return { lines, restore: () => console.log = original };
+}
+
+Deno.test("backend ls announces the project resolved from config.currentProject", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const cwd = seedSource();
+  const cmds = makeBackendCommands(backendDeps(client, cwd, p.id));
+  const log = captureLog();
+  try {
+    const code = await cmds["cloud backend ls"]({
+      args: [],
+      flags: { json: false, yes: true, noInput: true, interactive: false },
+      raw: {},
+    });
+    assertEquals(code, 0);
+    assertEquals(log.lines[0].includes(`Project: ${p.name}`), true);
+    assertEquals(log.lines[0].includes("pb cloud project use"), true);
+  } finally {
+    log.restore();
+  }
+});
+
+Deno.test("backend ls does not announce the project when --project names it", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const cwd = seedSource();
+  const cmds = makeBackendCommands(backendDeps(client, cwd, p.id));
+  const log = captureLog();
+  try {
+    await cmds["cloud backend ls"]({
+      args: [],
+      flags: {
+        json: false,
+        yes: true,
+        noInput: true,
+        interactive: false,
+        project: p.id,
+      },
+      raw: {},
+    });
+    assertEquals(log.lines.some((l) => l.startsWith("Project:")), false);
+  } finally {
+    log.restore();
+  }
+});

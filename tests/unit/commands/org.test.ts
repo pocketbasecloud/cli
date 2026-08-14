@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
+import { CliError } from "../../../src/errors.ts";
 import { makeOrgCommands } from "../../../src/commands/org.ts";
 import { createMockCloudClient } from "../../mocks/cloud.mock.ts";
 import { type Config, defaultConfig } from "../../../src/config.ts";
@@ -27,6 +28,35 @@ Deno.test("org create makes an org", async () => {
   });
   assertEquals(code, 0);
   assertEquals((await client.listOrgs()).some((o) => o.name === "acme"), true);
+});
+
+Deno.test("org create is refused for a non-staff account", async () => {
+  // organizations.createRule is evaluated before any hook, so the platform's
+  // own refusal is a bare "Failed to create record." The CLI asks who we are
+  // first and says the real reason instead.
+  const client = createMockCloudClient({
+    whoami: () =>
+      Promise.resolve({
+        id: "u1",
+        email: "u@e.com",
+        plan: "pro",
+        role: "user",
+      }),
+  });
+  const cmds = makeOrgCommands(deps(client));
+  const err = await assertRejects(
+    () =>
+      cmds["cloud org create"]({
+        args: ["acme"],
+        flags: { json: true, yes: true, noInput: true, interactive: false },
+        raw: {},
+      }),
+    CliError,
+  );
+  assertEquals(err.message.includes("platform staff"), true);
+  assertEquals(err.exitCode, 3);
+  // Refused before the platform was ever asked to create anything.
+  assertEquals((await client.listOrgs()).length, 0);
 });
 
 Deno.test("org share sets organization on a project", async () => {
