@@ -1,5 +1,6 @@
 import PocketBase, { ClientResponseError } from "pocketbase";
 import { CliError, fieldErrors } from "../errors.ts";
+import { type RetryOpts, withBusyRetry } from "../retry.ts";
 import type {
   AdminRecord,
   BackupInfo,
@@ -83,8 +84,10 @@ function generateTraceId(): string {
 
 export class PocketBaseAdminClient implements IAdminClient {
   private pb: PocketBase;
-  constructor(url: string, token?: string) {
+  private retry: RetryOpts;
+  constructor(url: string, token?: string, retry: RetryOpts = {}) {
     this.pb = new PocketBase(url);
+    this.retry = retry;
     if (token) this.pb.authStore.save(token, null);
 
     // Inject trace headers for cross-service correlation.
@@ -97,9 +100,17 @@ export class PocketBaseAdminClient implements IAdminClient {
     };
   }
 
+  /**
+   * Every call to the instance goes through here, and every one of them is
+   * retried while SQLite reports the database busy.
+   *
+   * Safe for the writes as well as the reads: `isBusyError` only matches
+   * failures that were refused before anything was committed, so resending is
+   * not a second create. Whatever survives the retries is mapped as before.
+   */
   private async guard<T>(fn: () => Promise<T>): Promise<T> {
     try {
-      return await fn();
+      return await withBusyRetry(fn, this.retry);
     } catch (e) {
       throw mapAdminError(e);
     }

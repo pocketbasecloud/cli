@@ -31,6 +31,7 @@ import {
   recordEnvDigest,
 } from "../env-state.ts";
 import { parseDotenv, prunedKeysOf } from "./env.ts";
+import { pollDelayMs } from "../retry.ts";
 
 export type Target = {
   id?: string;
@@ -898,7 +899,7 @@ export async function awaitReachable(
     "Waiting for it to become reachable",
     async (step) => {
       const deadline = Date.now() + (o.timeoutMs ?? 120_000);
-      while (true) {
+      for (let attempt = 1;; attempt++) {
         if (await isReachable(client, o.type, o.resource.id)) {
           step.done("Reachable.");
           return true;
@@ -910,7 +911,18 @@ export async function awaitReachable(
           );
           return false;
         }
-        await new Promise((res) => setTimeout(res, o.intervalMs ?? 5_000));
+        // DNS and ACME take as long as they take, and nothing here makes them
+        // faster — so the probe spaces itself out rather than asking the
+        // platform to verify reachability twenty-four times a minute.
+        await new Promise((res) =>
+          setTimeout(
+            res,
+            pollDelayMs(attempt, {
+              baseMs: o.intervalMs ?? 5_000,
+              maxMs: 20_000,
+            }),
+          )
+        );
       }
     },
   );
@@ -1032,7 +1044,7 @@ export async function pollStatus(
   // five-minute wait into a hundred identical "status: creating" lines — noise
   // for a person and pure token burn for an agent.
   let reported: string | undefined;
-  while (true) {
+  for (let attempt = 1;; attempt++) {
     const r = await client.getResource(kind, id);
     if (r.status !== reported) {
       reported = r.status;
@@ -1057,6 +1069,25 @@ export async function pollStatus(
         5,
       );
     }
-    await new Promise((res) => setTimeout(res, opts.intervalMs));
+    // Every tick is a read against the same SQLite the deploy itself is
+    // writing to, so a five-minute provision no longer costs a hundred of
+    // them: the interval holds while a fast deploy is still plausible, then
+    // stretches towards `MAX_POLL_INTERVAL_MS`.
+    await new Promise((res) =>
+      setTimeout(
+        res,
+        pollDelayMs(attempt, {
+          baseMs: opts.intervalMs,
+          maxMs: MAX_POLL_INTERVAL_MS,
+        }),
+      )
+    );
   }
 }
+
+/**
+ * The longest a status poll will wait between checks. Bounded so the reported
+ * status never lags the platform's by more than this, however long the wait
+ * runs.
+ */
+export const MAX_POLL_INTERVAL_MS = 15_000;

@@ -3,6 +3,7 @@ import type { AdminCmdDeps } from "./deps.ts";
 import { CliError } from "../../errors.ts";
 import { printResult } from "../../ui/output.ts";
 import { confirm } from "../../ui/prompt.ts";
+import { isNoOpWrite } from "../../unchanged.ts";
 
 /**
  * A collection definition passed as JSON. Rejecting a bad body here, with the
@@ -86,6 +87,21 @@ export function makeCollectionsCommands(
     }
     const { client } = await deps.requireAdmin();
     const data = JSON.parse(json) as Record<string, unknown>;
+    // A collection update is the most expensive write PocketBase takes: it
+    // rebuilds the collection's table and can rewrite every row in it. Pushing
+    // an unchanged definition — what a CI job that re-applies its schema every
+    // run does — is worth the read it takes to notice.
+    if (ctx.raw.force !== true) {
+      const current = await client.getCollection(name).catch(() => undefined);
+      if (isNoOpWrite(current, data)) {
+        console.log(
+          ctx.flags.json
+            ? JSON.stringify({ ...current, skipped: true })
+            : `${current?.name ?? name} already matches — nothing written.`,
+        );
+        return 0;
+      }
+    }
     const c = await client.updateCollection(name, data);
     console.log(ctx.flags.json ? JSON.stringify(c) : `Updated ${c.name}.`);
     return 0;

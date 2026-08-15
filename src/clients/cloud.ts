@@ -1,6 +1,7 @@
 import PocketBase, { ClientResponseError } from "pocketbase";
 import type { CloudAuth } from "../config.ts";
 import { CliError, fieldErrors } from "../errors.ts";
+import { fetchWithBusyRetry, type RetryOpts, withBusyRetry } from "../retry.ts";
 import type {
   DeployContext,
   Org,
@@ -113,7 +114,7 @@ function generateTraceId(): string {
 export class PocketBaseCloudClient implements ICloudClient {
   private pb: PocketBase;
   private cachedUserId?: string;
-  constructor(private auth: CloudAuth) {
+  constructor(private auth: CloudAuth, private retry: RetryOpts = {}) {
     this.pb = new PocketBase(auth.backendUrl);
     this.pb.authStore.save(auth.userToken, null);
 
@@ -127,9 +128,13 @@ export class PocketBaseCloudClient implements ICloudClient {
     };
   }
 
+  /**
+   * Retries while the platform's SQLite is busy — see `withBusyRetry` for why
+   * that is safe for a create as well as a read — then maps whatever is left.
+   */
   private async guard<T>(fn: () => Promise<T>): Promise<T> {
     try {
-      return await fn();
+      return await withBusyRetry(fn, this.retry);
     } catch (e) {
       // A CliError raised inside is already the message we want the user to
       // see; only platform failures need mapping.
@@ -375,16 +380,22 @@ export class PocketBaseCloudClient implements ICloudClient {
     const query = opts.query
       ? `?${new URLSearchParams(opts.query).toString()}`
       : "";
-    return fetch(`${base}${path}${query}`, {
-      method,
-      headers: {
-        // Both hosts want a scheme: PocketBase strips an optional "Bearer ",
-        // and backend-extension's authenticated middleware reads the token as
-        // the second whitespace-separated part, so a bare token reads as none.
-        "Authorization": `Bearer ${this.auth.userToken}`,
-        ...(method === "POST" ? { "Content-Type": "application/json" } : {}),
-      },
-      body: method === "POST" ? JSON.stringify(body ?? {}) : undefined,
-    });
+    // The custom routes answer a busy database with a status rather than an
+    // exception, so they get the same policy the SDK calls get. The bulk
+    // routes this carries (`/api/env/bulk-set`, `/api/hooks/bulk-write`) are
+    // the heaviest writers the CLI has, and the ones most likely to collide.
+    return fetchWithBusyRetry(() =>
+      fetch(`${base}${path}${query}`, {
+        method,
+        headers: {
+          // Both hosts want a scheme: PocketBase strips an optional "Bearer ",
+          // and backend-extension's authenticated middleware reads the token
+          // as the second whitespace-separated part, so a bare token reads as
+          // none.
+          "Authorization": `Bearer ${this.auth.userToken}`,
+          ...(method === "POST" ? { "Content-Type": "application/json" } : {}),
+        },
+        body: method === "POST" ? JSON.stringify(body ?? {}) : undefined,
+      }), this.retry);
   }
 }

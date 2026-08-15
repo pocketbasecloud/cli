@@ -3,6 +3,7 @@ import type { AdminCmdDeps } from "./deps.ts";
 import { CliError, httpError } from "../../errors.ts";
 import { printResult } from "../../ui/output.ts";
 import { confirm } from "../../ui/prompt.ts";
+import { isNoOpWrite } from "../../unchanged.ts";
 
 export function makeSettingsCommands(
   deps: AdminCmdDeps,
@@ -11,6 +12,41 @@ export function makeSettingsCommands(
     const { client } = await deps.requireAdmin();
     const all = await client.getSettings();
     return all[name];
+  }
+
+  /**
+   * Writes one settings section, unless the instance already holds exactly it.
+   *
+   * `settings.update` rewrites the whole settings record, so re-applying an
+   * unchanged SMTP block from a provisioning script is a full write for no
+   * change. PocketBase masks stored secrets in what it returns, so a section
+   * carrying a password never compares equal and always writes — which is the
+   * side to fall on.
+   */
+  async function setSection(
+    ctx: CmdCtx,
+    name: string,
+    json: string,
+    label: string,
+  ): Promise<number> {
+    const { client } = await deps.requireAdmin();
+    const value = JSON.parse(json) as unknown;
+    if (ctx.raw.force !== true) {
+      const all = await client.getSettings().catch(() => undefined);
+      if (isNoOpWrite(all, { [name]: value })) {
+        console.log(
+          ctx.flags.json
+            ? JSON.stringify({ ok: true, skipped: true })
+            : `${label} already match — nothing written.`,
+        );
+        return 0;
+      }
+    }
+    await client.updateSettings({ [name]: value });
+    console.log(
+      ctx.flags.json ? JSON.stringify({ ok: true }) : `Updated ${label}.`,
+    );
+    return 0;
   }
 
   const get: Handler = async (_ctx: CmdCtx) => {
@@ -24,15 +60,10 @@ export function makeSettingsCommands(
     return 0;
   };
 
-  const mailSet: Handler = async (ctx: CmdCtx) => {
+  const mailSet: Handler = (ctx: CmdCtx) => {
     const json = ctx.args[0] ?? (ctx.raw.data as string | undefined);
     if (!json) throw new CliError("Usage: pb settings mail set '<json>'", 2);
-    const { client } = await deps.requireAdmin();
-    await client.updateSettings({ smtp: JSON.parse(json) });
-    console.log(
-      ctx.flags.json ? JSON.stringify({ ok: true }) : "Updated SMTP settings.",
-    );
-    return 0;
+    return setSection(ctx, "smtp", json, "SMTP settings");
   };
 
   const mailTest: Handler = async (ctx: CmdCtx) => {
@@ -53,15 +84,10 @@ export function makeSettingsCommands(
     return 0;
   };
 
-  const s3Set: Handler = async (ctx: CmdCtx) => {
+  const s3Set: Handler = (ctx: CmdCtx) => {
     const json = ctx.args[0] ?? (ctx.raw.data as string | undefined);
     if (!json) throw new CliError("Usage: pb settings s3 set '<json>'", 2);
-    const { client } = await deps.requireAdmin();
-    await client.updateSettings({ s3: JSON.parse(json) });
-    console.log(
-      ctx.flags.json ? JSON.stringify({ ok: true }) : "Updated S3 settings.",
-    );
-    return 0;
+    return setSection(ctx, "s3", json, "S3 settings");
   };
 
   const s3Test: Handler = async (ctx: CmdCtx) => {

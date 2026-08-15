@@ -3,6 +3,7 @@ import type { AdminCmdDeps } from "./deps.ts";
 import { CliError } from "../../errors.ts";
 import { printResult } from "../../ui/output.ts";
 import { confirm } from "../../ui/prompt.ts";
+import { isNoOpWrite } from "../../unchanged.ts";
 
 export function makeRecordsCommands(
   deps: AdminCmdDeps,
@@ -73,6 +74,24 @@ export function makeRecordsCommands(
     }
     const { client } = await deps.requireAdmin();
     const data = JSON.parse(json) as Record<string, unknown>;
+    // Reading first costs a query that does not take the write lock; writing
+    // costs one that does, and serialises against everything else on the
+    // instance. When the record already holds these values the read is the
+    // whole command. `--force` restores the unconditional write for the case
+    // where bumping `updated` is the point.
+    if (ctx.raw.force !== true) {
+      const current = await client.getRecord(collection, id).catch(() =>
+        undefined
+      );
+      if (isNoOpWrite(current, data)) {
+        console.log(
+          ctx.flags.json
+            ? JSON.stringify({ ...current, skipped: true })
+            : `Record ${id} already matches — nothing written.`,
+        );
+        return 0;
+      }
+    }
     const r = await client.updateRecord(collection, id, data);
     console.log(ctx.flags.json ? JSON.stringify(r) : `Updated record ${r.id}.`);
     return 0;

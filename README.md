@@ -556,6 +556,28 @@ pb records create tasks '{"title":"first"}'
 pb rules set tasks --list-rule '@request.auth.id != ""'
 ```
 
+#### Writes that change nothing are not sent
+
+PocketBase stores everything in SQLite, which allows one writer at a time — so
+the cheapest write is the one never made. Four commands read the current value
+first and skip the write when it already matches: `records update`,
+`collections update`, `settings mail set` and `settings s3 set`.
+
+```sh
+pb records update tasks abc123 '{"title":"first"}'
+# Record abc123 already matches — nothing written.
+```
+
+Only the fields you name are compared, and anything the instance does not
+report back — a password, a masked secret — counts as a difference, so the
+write still goes. Pass `--force` to write regardless, which is what you want
+when bumping `updated` is the point.
+
+When an instance is busy anyway — a backup running, a hook fanning out records,
+two jobs in the same CI run — a rejected request is retried with a jittered
+backoff rather than failing the command. Only failures that changed nothing are
+retried, so a create is never sent twice.
+
 ### Back up, export, restore
 
 ```sh

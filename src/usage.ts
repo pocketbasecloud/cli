@@ -1070,13 +1070,21 @@ container for as long as the connection is open.`,
     }],
   },
   "collections update": {
-    usage: "pb collections update <idOrName> '<json>'",
+    usage: "pb collections update <idOrName> '<json>' [--force]",
     summary: "Update a collection.",
+    details:
+      "Skips the write when the definition already matches, so re-applying a " +
+      "schema costs no table rebuild. --force writes regardless.",
     args: [{ name: "idOrName", required: true }, {
       name: "json",
       required: true,
     }],
-    flags: [],
+    flags: [{
+      name: "force",
+      type: "boolean",
+      required: false,
+      description: "Write even if the stored value already matches.",
+    }],
   },
   "collections rm": {
     usage: "pb collections rm <idOrName> [--yes]",
@@ -1130,14 +1138,22 @@ container for as long as the connection is open.`,
     flags: [],
   },
   "records update": {
-    usage: "pb records update <collection> <id> '<json>'",
+    usage: "pb records update <collection> <id> '<json>' [--force]",
     summary: "Update a record.",
+    details:
+      "Skips the write when the record already holds these values, so a " +
+      "repeated update takes no write lock. --force writes regardless.",
     args: [
       { name: "collection", required: true },
       { name: "id", required: true },
       { name: "json", required: true },
     ],
-    flags: [],
+    flags: [{
+      name: "force",
+      type: "boolean",
+      required: false,
+      description: "Write even if the stored value already matches.",
+    }],
   },
   "records rm": {
     usage: "pb records rm <collection> <id> [--yes]",
@@ -1221,10 +1237,18 @@ container for as long as the connection is open.`,
     flags: [],
   },
   "settings mail set": {
-    usage: "pb settings mail set '<json>'",
+    usage: "pb settings mail set '<json>' [--force]",
     summary: "Update SMTP settings.",
+    details:
+      "Skips the write when the stored SMTP block already matches. --force " +
+      "writes regardless.",
     args: [{ name: "json", required: true }],
-    flags: [],
+    flags: [{
+      name: "force",
+      type: "boolean",
+      required: false,
+      description: "Write even if the stored value already matches.",
+    }],
   },
   "settings mail test": {
     usage: "pb settings mail test <email>",
@@ -1239,10 +1263,18 @@ container for as long as the connection is open.`,
     flags: [],
   },
   "settings s3 set": {
-    usage: "pb settings s3 set '<json>'",
+    usage: "pb settings s3 set '<json>' [--force]",
     summary: "Update S3 storage settings.",
+    details:
+      "Skips the write when the stored S3 block already matches. --force " +
+      "writes regardless.",
     args: [{ name: "json", required: true }],
-    flags: [],
+    flags: [{
+      name: "force",
+      type: "boolean",
+      required: false,
+      description: "Write even if the stored value already matches.",
+    }],
   },
   "settings s3 test": {
     usage: "pb settings s3 test",
