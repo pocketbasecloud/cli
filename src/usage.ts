@@ -526,7 +526,7 @@ always the wrong one.`,
   // Frontends
   "cloud frontend deploy": {
     usage:
-      "pb cloud frontend deploy [--name <name>] [--subdomain <sub>] [--skip-build] [--zip <file>] [--location <loc>] [--compute <id>]",
+      "pb cloud frontend deploy [--name <name>] [--skip-build] [--zip <file>] [--location <loc>] [--compute <id>]",
     summary: "Build, package, and deploy a static site.",
     details:
       `Runs the build command, zips the output directory, and uploads it. Both
@@ -548,6 +548,10 @@ under --json.
 Frontends have no cloud env store — build-time variables are baked into the
 bundle, so --env-file is rejected here.
 
+A site is served from an address the platform assigns and never changes:
+<id>.<compute>.pocketbasecloud.com. To put a domain of your own in front of it,
+use pb cloud frontend domain add.
+
 With no --name and nothing bound in pb.json, deploy asks which frontend to
 redeploy — or what to call a new one — the way it already asks which project
 to use. Pass --no-input (or --json) to get the usage error instead.
@@ -566,13 +570,6 @@ an existing site.`,
         required: false,
         description:
           "Which frontend to deploy. Asked for when omitted and pb.json has no binding.",
-      },
-      {
-        name: "subdomain",
-        type: "string",
-        required: false,
-        description:
-          "Address to serve the new site from. Defaults to the name; only used when creating.",
       },
       {
         name: "zip",
@@ -950,6 +947,24 @@ container for as long as the connection is open.`,
     summary:
       "List the compute your account can deploy to (alias of compute ls).",
     args: [],
+    flags: [],
+  },
+
+  // Locations
+  "cloud locations": {
+    usage: "pb cloud locations [--project <id>]",
+    summary: "List the regions a deploy can actually land in.",
+    details:
+      "The regions of the shared platform pool for the plan a deploy is placed\n" +
+      "against — what `--location <loc>` accepts on `pb create` and\n" +
+      "`cloud frontend deploy`. Not the provider catalog: most regions a\n" +
+      "provider sells hold no server of ours, and a deploy aimed at one fails\n" +
+      "with `noServerAvailable`.\n\n" +
+      "With `--project`, the answer is for that project's owner (org-aware);\n" +
+      "without it, for the caller.",
+    args: [],
+    // `--project` is a global flag, documented once in the global list — a
+    // command spec that repeats one fails `usage.test.ts`.
     flags: [],
   },
 

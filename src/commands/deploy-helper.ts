@@ -193,6 +193,37 @@ export function computeFlag(
 }
 
 /**
+ * Refuses a `--location` the platform cannot honour.
+ *
+ * `--location` only means anything when the platform auto-selects a shared
+ * server (no `--compute` on the record), and `deploy-context`'s `locations` is
+ * the set of regions that pool actually exists in for the project owner's
+ * plan. Anything else — every other region the provider sells, most of which
+ * hold no server of ours — creates a record that dies with
+ * `noServerAvailable` seconds later. A missing `locations` (older backend) is
+ * passed through: it is safer to let the platform answer than to guess here.
+ */
+export async function validateLocationChoice(
+  client: ICloudClient,
+  projectId: string,
+  location: string,
+): Promise<void> {
+  const context = await client.deployContext(projectId);
+  if (!context.locations || context.locations.includes(location)) return;
+
+  const available = context.locations.length
+    ? `Regions with platform servers for this project: ${
+      context.locations.join(", ")
+    }.`
+    : "No region currently has platform servers for this project.";
+  throw new CliError(
+    `--location "${location}" is not available. ${available} Omit ` +
+      `--location and the platform picks the least-loaded one.`,
+    2,
+  );
+}
+
+/**
  * Which compute a new resource is created on, when the command line did not
  * say. Answered from the project OWNER's context, because that is whose
  * compute it is: on a project shared into an organization, a developer — on
@@ -265,9 +296,8 @@ export async function chooseCompute(
 /**
  * `chooseCompute`, asked at most once however often the caller retries.
  *
- * A create can run more than once — a frontend whose subdomain turns out to be
- * taken deploys again with a suffixed one — and neither a second deploy-context
- * request nor a second identical menu is something the user should sit through.
+ * A create can run more than once, and neither a second deploy-context request
+ * nor a second identical menu is something the user should sit through.
  */
 export function computeChooser(
   client: ICloudClient,
@@ -324,36 +354,6 @@ export function generatePassword(): string {
   const alphabet = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   const bytes = crypto.getRandomValues(new Uint8Array(20));
   return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
-}
-
-/**
- * A DNS label for a resource name: what the frontends collection's `subdomain`
- * pattern (^[a-z0-9]([a-z0-9-]*[a-z0-9])?$, 63 max) will accept.
- */
-export function toSubdomain(name: string): string {
-  const slug = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+/, "")
-    .slice(0, 63)
-    .replace(/-+$/, "");
-  return slug.length > 0 ? slug : "site";
-}
-
-export function isSubdomain(value: string): boolean {
-  return /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(value) && value.length <= 63;
-}
-
-/** Subdomains are globally unique across frontends and backends. */
-export function subdomainTaken(e: unknown): boolean {
-  return e instanceof CliError &&
-    e.fields?.subdomain === "validation_not_unique";
-}
-
-/** A second candidate for a taken subdomain, still within the 63-char limit. */
-export function suffixSubdomain(base: string): string {
-  const rand = Math.random().toString(36).slice(2, 6);
-  return `${base.slice(0, 63 - rand.length - 1).replace(/-+$/, "")}-${rand}`;
 }
 
 export function findExisting(

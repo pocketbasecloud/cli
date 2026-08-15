@@ -21,15 +21,12 @@ import {
   deployProgress,
   deployResource,
   ensureTarget,
-  isSubdomain,
   reportUrl,
   resolveExisting,
   resolveOwnerId,
   resolveTarget,
-  subdomainTaken,
-  suffixSubdomain,
-  toSubdomain,
   uploadLabel,
+  validateLocationChoice,
 } from "./deploy-helper.ts";
 import { reportRemoval } from "./environments.ts";
 
@@ -122,79 +119,59 @@ export function makeFrontendCommands(
     // page does. Unset, the compute is chosen on the create path below.
     const compute = computeFlag(ctx.raw);
     if (compute) data.server = compute;
-    // Memoized: the subdomain-clash retry below runs create() twice, and the
-    // second run must not re-ask.
     const askCompute = computeChooser(client, p.id, {
       noInput: ctx.flags.noInput || ctx.flags.json,
       log,
     });
     attachZip(data, bundle);
 
-    // A frontend's subdomain is required, globally unique, and permanent: it is
-    // the DNS record the site is served from. Derived from the name unless
-    // --subdomain says otherwise, and only ever sent when creating — a redeploy
-    // must not move a live site to a new address.
-    const chosen = ctx.raw.subdomain as string | undefined;
-    if (chosen && !isSubdomain(chosen)) {
-      throw new CliError(
-        `Invalid --subdomain "${chosen}" — use lowercase letters, digits, and ` +
-          `dashes (max 63, no leading or trailing dash).`,
-        2,
-      );
-    }
-    const base = chosen ?? toSubdomain(target.name ?? "");
-    let subdomain = base;
+    // No subdomain is sent: the platform assigns
+    // `<frontendId>.<compute shortKey>`, served by that compute's wildcard DNS
+    // record, so a site costs no DNS record of its own. Use
+    // `pb cloud frontend domain` for an address a human types.
+    //
     // The archive goes up inside this call — the longest silent stretch of a
     // deploy on a slow link.
-    const create = () =>
-      progress.step(
-        uploadLabel(bundle),
-        () =>
-          deployResource(client, "frontends", p.id, {
-            id: target.id,
-            name: target.name,
-            data,
-            createData: async () => {
-              const fields: Record<string, unknown> = {
-                user: await resolveOwnerId(client, auth),
-                subdomain,
-                status: "pending",
-              };
-              // Only on create: a redeploy must never move a live site to
-              // another compute.
-              if (!data.server) {
-                const picked = await askCompute();
-                if (picked) fields.server = picked;
+    const outcome = await progress.step(
+      uploadLabel(bundle),
+      () =>
+        deployResource(client, "frontends", p.id, {
+          id: target.id,
+          name: target.name,
+          data,
+          createData: async () => {
+            const fields: Record<string, unknown> = {
+              user: await resolveOwnerId(client, auth),
+              status: "pending",
+            };
+            // Only on create: a redeploy must never move a live site to
+            // another compute.
+            if (!data.server) {
+              const picked = await askCompute();
+              if (picked) fields.server = picked;
+              // `--location` only means anything when the platform
+              // auto-selects; refuse one the pool cannot honour.
+              else if (ctx.raw.location) {
+                await validateLocationChoice(
+                  client,
+                  p.id,
+                  String(ctx.raw.location),
+                );
               }
-              return fields;
-            },
-            // frontend.service.ts only redeploys a record whose status says a
-            // new archive is waiting.
-            updateData: { status: "uploading" },
-            requireExisting: target.fromBinding,
-            environment: target.environment,
-            onStale: async () => {
-              await removeEnvironment(cwd, target.environment);
-            },
-          }),
-      );
+            }
+            return fields;
+          },
+          // frontend.service.ts only redeploys a record whose status says a
+          // new archive is waiting.
+          updateData: { status: "uploading" },
+          requireExisting: target.fromBinding,
+          environment: target.environment,
+          onStale: async () => {
+            await removeEnvironment(cwd, target.environment);
+          },
+        }),
+    );
 
-    let outcome: Awaited<ReturnType<typeof create>>;
-    try {
-      outcome = await create();
-    } catch (e) {
-      if (!subdomainTaken(e)) throw e;
-      if (chosen) {
-        throw new CliError(
-          `Subdomain "${chosen}" is already taken — pass a different ` +
-            `--subdomain.`,
-          2,
-        );
-      }
-      subdomain = suffixSubdomain(base);
-      log(`Subdomain "${base}" is taken — using "${subdomain}".`);
-      outcome = await create();
-    }
     const { resource, created } = outcome;
     await upsertEnvironment(cwd, {
       projectId: p.id,
@@ -234,7 +211,7 @@ export function makeFrontendCommands(
       { header: "ID", get: (r) => r.id },
       { header: "NAME", get: (r) => r.name },
       { header: "STATUS", get: (r) => r.status },
-      { header: "DOMAIN", get: (r) => r.domain ?? r.subdomain ?? "-" },
+      { header: "DOMAIN", get: (r) => r.domain ?? "-" },
       { header: "CREATED BY", get: (r) => r.createdBy },
     ], ctx.flags.json);
     return 0;

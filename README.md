@@ -607,7 +607,7 @@ so while the platform has yet to verify it:
 
 ```
 ✓ web is running
-  https://web-a1b2.pocketbasecloud.com
+  https://k3n9x2vqp8rt1zw.a1b2.pocketbasecloud.com
   https://app.mysite.com (custom domain)
 ```
 

@@ -14,7 +14,6 @@ import {
   deployResource,
   ensureTarget,
   findExisting,
-  isSubdomain,
   MAX_ARCHIVE_BYTES,
   missingTargetMessage,
   pollStatus,
@@ -22,10 +21,8 @@ import {
   resolveExisting,
   resolveOwnerId,
   resolveTarget,
-  subdomainTaken,
-  suffixSubdomain,
   suggestName,
-  toSubdomain,
+  validateLocationChoice,
 } from "../../../src/commands/deploy-helper.ts";
 import type { Target } from "../../../src/commands/deploy-helper.ts";
 import { CliError } from "../../../src/errors.ts";
@@ -357,49 +354,6 @@ Deno.test("ensureTarget skips the menu and defaults the name when nothing exists
     io: fakeIO([""]),
   });
   assertEquals(t.name, "my-react-app");
-});
-
-Deno.test("toSubdomain produces a label the frontends pattern accepts", () => {
-  for (
-    const [name, want] of [
-      ["My Site", "my-site"],
-      ["  Trailing!! ", "trailing"],
-      ["9lives", "9lives"],
-      ["!!!", "site"],
-    ] as const
-  ) {
-    assertEquals(toSubdomain(name), want);
-    assertEquals(isSubdomain(toSubdomain(name)), true);
-  }
-  const long = toSubdomain("x".repeat(200));
-  assertEquals(long.length, 63);
-  assertEquals(isSubdomain(long), true);
-});
-
-Deno.test("isSubdomain rejects what the collection rejects", () => {
-  for (const bad of ["-lead", "trail-", "Upper", "has_underscore", ""]) {
-    assertEquals(isSubdomain(bad), false);
-  }
-});
-
-Deno.test("suffixSubdomain stays a valid label, even at the length limit", () => {
-  const s = suffixSubdomain("x".repeat(63));
-  assertEquals(s.length <= 63, true);
-  assertEquals(isSubdomain(s), true);
-});
-
-Deno.test("subdomainTaken only matches the uniqueness code", () => {
-  assertEquals(
-    subdomainTaken(
-      new CliError("x", 1, { subdomain: "validation_not_unique" }),
-    ),
-    true,
-  );
-  assertEquals(
-    subdomainTaken(new CliError("x", 1, { subdomain: "validation_required" })),
-    false,
-  );
-  assertEquals(subdomainTaken(new Error("x")), false);
 });
 
 Deno.test("resolveOwnerId prefers the stored id and falls back to whoami", async () => {
@@ -852,3 +806,58 @@ Deno.test("assertArchiveWithinLimit rejects an over-limit archive by name and si
   assertStringIncludes(err.message, `${mb(MAX_ARCHIVE_BYTES)} limit`);
   assertEquals(err.exitCode, 2);
 });
+
+Deno.test("validateLocationChoice - accepts a region the pool has", async () => {
+  const client = createMockCloudClient();
+  client.deployContext = () =>
+    Promise.resolve({
+      ownerPlan: "starter",
+      isOwner: true,
+      organization: "",
+      servers: [],
+      locations: ["hil", "sin"],
+    });
+
+  await validateLocationChoice(client, "p1", "sin");
+});
+
+Deno.test(
+  "validateLocationChoice - rejects an unbacked region with the pool list",
+  async () => {
+    const client = createMockCloudClient();
+    client.deployContext = () =>
+      Promise.resolve({
+        ownerPlan: "starter",
+        isOwner: true,
+        organization: "",
+        servers: [],
+        locations: ["hil", "sin"],
+      });
+
+    const err = await assertRejects(
+      () => validateLocationChoice(client, "p1", "fsn1"),
+      CliError,
+    );
+    assertStringIncludes(err.message, `--location "fsn1" is not available`);
+    assertStringIncludes(err.message, "hil, sin");
+    assertEquals(err.exitCode, 2);
+  },
+);
+
+Deno.test(
+  "validateLocationChoice - passes through when the backend predates locations",
+  async () => {
+    const client = createMockCloudClient();
+    client.deployContext = () =>
+      Promise.resolve({
+        ownerPlan: "starter",
+        isOwner: true,
+        organization: "",
+        servers: [],
+      });
+
+    // Must not throw: against an older backend there is nothing to check, and
+    // guessing would break deploys the platform would have placed fine.
+    await validateLocationChoice(client, "p1", "fsn1");
+  },
+);

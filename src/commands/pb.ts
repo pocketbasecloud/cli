@@ -43,6 +43,7 @@ import {
   resolveTarget,
   suggestName,
   uploadLabel,
+  validateLocationChoice,
 } from "./deploy-helper.ts";
 import { reportRemoval } from "./environments.ts";
 
@@ -515,6 +516,14 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
     const compute = computeFlag(ctx.raw) ??
       await chooseCompute(client, p.id, { noInput, log, io: deps.io });
     if (compute) data.server = compute;
+    // `--location` only means anything when the platform auto-selects, so it
+    // is validated only once no compute has been settled on — a Pro or org
+    // deploy lands on the named compute and ignores the flag, and checking it
+    // against the shared pool there would reject a region that was never
+    // going to be consulted.
+    if (!compute && ctx.raw.location) {
+      await validateLocationChoice(client, p.id, String(ctx.raw.location));
+    }
 
     const resource = await progress.step(
       "Sending the create request",

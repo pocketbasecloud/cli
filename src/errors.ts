@@ -24,8 +24,8 @@ export class CliError extends Error {
   exitCode: number;
   /**
    * PocketBase's per-field validation codes (field -> code), when the platform
-   * sent any. Kept structured so a caller can react to one — a taken subdomain
-   * is retryable, everything else is not.
+   * sent any. Kept structured so a caller can react to a specific field's
+   * failure rather than pattern-matching the rendered message.
    */
   fields?: Record<string, string>;
   constructor(message: string, exitCode = 1, fields?: Record<string, string>) {

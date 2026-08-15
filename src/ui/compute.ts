@@ -34,6 +34,13 @@ export const KNOWN_LOCATIONS: Record<string, string> = {
   VIN: "Vint Hill, VA",
   SGP: "Singapore",
   SYD: "Sydney",
+  // OVHcloud's IATA-style spelling of Ho Chi Minh City (Saigon)
+  SGN: "Ho Chi Minh City",
+  // Custom ("bring your own") servers — no catalog supplies these, so the
+  // codes an admin types when registering a machine live here.
+  "vn-han": "Hanoi",
+  "vn-sgn": "Ho Chi Minh City",
+  "vn-dad": "Da Nang",
 };
 
 /** A datacenter code with no entry above, made as readable as it can be. */

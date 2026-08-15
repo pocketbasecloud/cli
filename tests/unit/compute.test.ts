@@ -23,3 +23,29 @@ Deno.test("an unknown datacenter code is humanized rather than hidden", () => {
   assertEquals(humanizeLocationCode("new-region"), "NEW Region");
   assertEquals(computeLabel(0, "waw2"), "Compute 1 — Waw2");
 });
+
+Deno.test("every provider and custom location code names a real city", () => {
+  // Hetzner, OVHcloud, and the custom ("bring your own") codes an admin types
+  // when registering a machine — a deployable-regions listing must never show
+  // a code where a city is known. Mirrors the portal's KNOWN_LOCATIONS.
+  assertEquals(locationCity("fsn1"), "Falkenstein");
+  assertEquals(locationCity("nbg1"), "Nuremberg");
+  assertEquals(locationCity("hel1"), "Helsinki");
+  assertEquals(locationCity("ash"), "Ashburn, VA");
+  assertEquals(locationCity("hil"), "Hillsboro, OR");
+  assertEquals(locationCity("sin"), "Singapore");
+  assertEquals(locationCity("GRA"), "Gravelines");
+  assertEquals(locationCity("SBG"), "Strasbourg");
+  assertEquals(locationCity("RBX"), "Roubaix");
+  assertEquals(locationCity("DE"), "Frankfurt");
+  assertEquals(locationCity("UK"), "London");
+  assertEquals(locationCity("WAW"), "Warsaw");
+  assertEquals(locationCity("BHS"), "Beauharnois");
+  assertEquals(locationCity("VIN"), "Vint Hill, VA");
+  assertEquals(locationCity("SGP"), "Singapore");
+  assertEquals(locationCity("SYD"), "Sydney");
+  assertEquals(locationCity("SGN"), "Ho Chi Minh City");
+  assertEquals(locationCity("vn-han"), "Hanoi");
+  assertEquals(locationCity("vn-sgn"), "Ho Chi Minh City");
+  assertEquals(locationCity("vn-dad"), "Da Nang");
+});

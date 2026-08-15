@@ -3,7 +3,6 @@ import { makeFrontendCommands } from "../../../src/commands/frontend.ts";
 import { createMockCloudClient } from "../../mocks/cloud.mock.ts";
 import { type Config, defaultConfig } from "../../../src/config.ts";
 import type { CloudCmdDeps } from "../../../src/commands/project.ts";
-import { CliError } from "../../../src/errors.ts";
 
 function deps(
   client = createMockCloudClient(),
@@ -276,7 +275,7 @@ Deno.test("a bare deploy still errors without a terminal to ask on", async () =>
 });
 
 /** The fields a create must carry, as the collection and hooks demand them. */
-Deno.test("creating a frontend sends the owner, subdomain, and status", async () => {
+Deno.test("creating a frontend sends the owner and status, and no subdomain", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   const d = deps(client, p.id);
@@ -291,94 +290,29 @@ Deno.test("creating a frontend sends the owner, subdomain, and status", async ()
   const [kind, data] = client.calls.createResource[0];
   assertEquals(kind, "frontends");
   assertEquals(data.user, "u1");
-  assertEquals(data.subdomain, "my-site");
   assertEquals(data.status, "pending");
   assertEquals(data.name, "My Site");
+  // The platform assigns <id>.<compute shortKey>; sending one would be a
+  // user-chosen address again, and one DNS record per site.
+  assertEquals(data.subdomain, undefined);
 });
 
-Deno.test("--subdomain wins over the name", async () => {
+Deno.test("a --subdomain left in a pinned script is ignored, not sent", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   const d = deps(client, p.id);
   Deno.writeTextFileSync(`${d.cwd()}/index.html`, "<html></html>");
   runningNow(client);
-  await makeFrontendCommands(d)["cloud frontend deploy"]({
+  const code = await makeFrontendCommands(d)["cloud frontend deploy"]({
     args: [],
     flags: flags({ project: p.id }),
     raw: { name: "web", subdomain: "tom-web", "skip-build": true },
   });
-  assertEquals(client.calls.createResource[0][1].subdomain, "tom-web");
-});
-
-Deno.test("an invalid --subdomain is rejected before anything is built", async () => {
-  const client = createMockCloudClient();
-  const p = await client.createProject("app");
-  const d = deps(client, p.id);
-  Deno.writeTextFileSync(`${d.cwd()}/index.html`, "<html></html>");
-  await assertRejects(
-    () =>
-      makeFrontendCommands(d)["cloud frontend deploy"]({
-        args: [],
-        flags: flags({ project: p.id }),
-        raw: { name: "web", subdomain: "Not_Valid", "skip-build": true },
-      }),
-    Error,
-    'Invalid --subdomain "Not_Valid"',
-  );
-  assertEquals(client.calls.createResource.length, 0);
-});
-
-/** PocketBase's answer when the unique index on `subdomain` rejects a create. */
-const taken = () =>
-  new CliError("Platform error (400): Failed to create record.", 1, {
-    subdomain: "validation_not_unique",
-  });
-
-Deno.test("a taken subdomain is retried once with a suffix", async () => {
-  const client = createMockCloudClient();
-  const p = await client.createProject("app");
-  const d = deps(client, p.id);
-  Deno.writeTextFileSync(`${d.cwd()}/index.html`, "<html></html>");
-  runningNow(client);
-  const create = client.createResource.bind(client);
-  let attempts = 0;
-  client.createResource = (kind, data) => {
-    if (++attempts === 1) return Promise.reject(taken());
-    return create(kind, data);
-  };
-  const code = await makeFrontendCommands(d)["cloud frontend deploy"]({
-    args: [],
-    flags: flags({ project: p.id }),
-    raw: { name: "web", "skip-build": true },
-  });
   assertEquals(code, 0);
-  assertEquals(attempts, 2);
-  // Only the second attempt reached the mock's recorder.
-  assertEquals(client.calls.createResource.length, 1);
-  const retried = client.calls.createResource[0][1].subdomain as string;
-  assertEquals(retried.startsWith("web-"), true);
-  assertEquals(retried !== "web", true);
+  assertEquals(client.calls.createResource[0][1].subdomain, undefined);
 });
 
-Deno.test("a taken explicit --subdomain is reported, not worked around", async () => {
-  const client = createMockCloudClient();
-  const p = await client.createProject("app");
-  const d = deps(client, p.id);
-  Deno.writeTextFileSync(`${d.cwd()}/index.html`, "<html></html>");
-  client.createResource = () => Promise.reject(taken());
-  await assertRejects(
-    () =>
-      makeFrontendCommands(d)["cloud frontend deploy"]({
-        args: [],
-        flags: flags({ project: p.id }),
-        raw: { name: "web", subdomain: "taken", "skip-build": true },
-      }),
-    Error,
-    'Subdomain "taken" is already taken',
-  );
-});
-
-Deno.test("a redeploy leaves the owner and subdomain alone", async () => {
+Deno.test("a redeploy leaves the owner and address alone", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   const fe = await client.createResource("frontends", {
@@ -476,41 +410,6 @@ Deno.test("creating a frontend in an org project uses the organization's compute
   });
   assertEquals(code, 0);
   assertEquals(client.calls.createResource[0][1].server, "org-srv");
-});
-
-Deno.test("a subdomain retry does not ask for the compute twice", async () => {
-  // create() runs again with a suffixed subdomain; a second deploy-context
-  // request — or a second identical menu — is not something to sit through.
-  const client = createMockCloudClient();
-  const p = await client.createProject("app");
-  const d = deps(client, p.id);
-  Deno.writeTextFileSync(`${d.cwd()}/index.html`, "<html></html>");
-  runningNow(client);
-  let contexts = 0;
-  client.deployContext = () => {
-    contexts++;
-    return Promise.resolve({
-      ownerPlan: "pro",
-      isOwner: true,
-      organization: "",
-      servers: [{ id: "srv9", name: "pro-1", location: "GRA" }],
-    });
-  };
-  const create = client.createResource.bind(client);
-  let attempts = 0;
-  client.createResource = (kind, data) => {
-    if (++attempts === 1) return Promise.reject(taken());
-    return create(kind, data);
-  };
-  const code = await makeFrontendCommands(d)["cloud frontend deploy"]({
-    args: [],
-    flags: flags({ project: p.id }),
-    raw: { name: "web", "skip-build": true },
-  });
-  assertEquals(code, 0);
-  assertEquals(attempts, 2);
-  assertEquals(contexts, 1);
-  assertEquals(client.calls.createResource[0][1].server, "srv9");
 });
 
 Deno.test("a frontend redeploy never re-picks the compute", async () => {

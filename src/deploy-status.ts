@@ -37,6 +37,8 @@ const FAILURE_REASONS: Record<string, string> = {
     "the admin email and password were missing, so the instance could not be created",
   incompleteRecord:
     "a required field was missing from the deployment record — contact support",
+  invalidServerAssignment:
+    "it was pointed at compute that isn't yours — create it again and pick your own compute",
 };
 
 /**

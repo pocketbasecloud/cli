@@ -75,6 +75,14 @@ export type DeployContext = {
   organization: string;
   /** The owner's running compute, newest first. */
   servers: DeployContextServer[];
+  /**
+   * Region codes a deploy can actually land in — the distinct locations of the
+   * platform servers this owner's plan may use. Absent on older backends. This
+   * is what a `--location` must be checked against, never the provider catalog:
+   * most regions the provider sells hold no server of ours, and a deploy aimed
+   * at one dies with `noServerAvailable` seconds later.
+   */
+  locations?: string[];
 };
 
 export type DeployContextServer = {

@@ -59,6 +59,10 @@ export function parseGlobal(argv: string[]): { path: string[]; ctx: CmdCtx } {
       "runtime",
       "start",
       "zip",
+      // Retired with the uid-based frontend address, but still declared as a
+      // string flag: dropping it would make `--subdomain mysite` parse as a
+      // boolean plus a stray positional, which reads as a different command.
+      // Parsed and ignored.
       "subdomain",
       "lines",
       "env",

@@ -40,7 +40,7 @@ export interface ICloudClient {
    * project owned by someone else's organization, since both collections are
    * unreadable to a developer.
    */
-  deployContext(projectId: string): Promise<DeployContext>;
+  deployContext(projectId?: string): Promise<DeployContext>;
   listOrgs(): Promise<Org[]>;
   createOrg(name: string): Promise<Org>;
   deleteOrg(id: string): Promise<void>;
@@ -257,11 +257,13 @@ export class PocketBaseCloudClient implements ICloudClient {
     });
   }
 
-  deployContext(projectId: string): Promise<DeployContext> {
+  deployContext(projectId?: string): Promise<DeployContext> {
     return this.guard(async () => {
+      // No projectId answers about the caller — the project they are about to
+      // create and will own — which is the pre-project case for `--location`.
       const res = await this.pbApi("/api/deploy-context", undefined, {
         method: "GET",
-        query: { projectId },
+        query: projectId ? { projectId } : undefined,
       });
       if (!res.ok) {
         await res.body?.cancel();
