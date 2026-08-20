@@ -96,8 +96,7 @@ export function makeLogsCommands(deps: CloudCmdDeps): Record<string, Handler> {
       { id: target.id, name: target.name },
       {
         label: which === "pb" ? "PocketBase" : "backend",
-        interactive: ctx.flags.interactive,
-        noInput: ctx.flags.noInput,
+        noInput: ctx.flags.noInput || ctx.flags.json,
       },
     );
     const follow = ctx.raw.follow === true;

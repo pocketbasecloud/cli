@@ -93,8 +93,7 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
       { id: target.id, name: target.name },
       {
         label: type,
-        interactive: ctx.flags.interactive,
-        noInput: ctx.flags.noInput,
+        noInput: ctx.flags.noInput || ctx.flags.json,
         errorMessage: `Specify a unique --name or --id for the ${type}.`,
       },
     );

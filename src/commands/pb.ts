@@ -854,8 +854,7 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
       { id: target.id, name: target.name },
       {
         label: "PocketBase",
-        interactive: ctx.flags.interactive,
-        noInput: ctx.flags.noInput,
+        noInput: ctx.flags.noInput || ctx.flags.json,
       },
     );
     return { client, found, environment: target.environment };
@@ -971,6 +970,37 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
     return 0;
   };
 
+  function domainHandler(path: string): Handler {
+    return async (ctx: CmdCtx) => {
+      const domain = ctx.args[0];
+      if (!domain) {
+        throw new CliError(
+          "Usage: pb cloud pb domain <add|verify|remove> <domain> --name <instance>",
+          2,
+        );
+      }
+      const { client, found } = await resolveOne({
+        ...ctx,
+        args: ctx.args.slice(1),
+      });
+      const res = await client.ext(path, {
+        pocketbase_id: found.id,
+        custom_domain: domain,
+      });
+      if (!res.ok) {
+        // The route's own sentence, not a JSON dump of its whole body.
+        throw await httpError(res, `Domain ${path.split("/").pop()}`);
+      }
+      const body = await res.json().catch(() => ({}));
+      console.log(
+        ctx.flags.json
+          ? JSON.stringify(body)
+          : `OK: ${path.split("/").pop()} ${domain}.`,
+      );
+      return 0;
+    };
+  }
+
   return {
     "cloud pb create": create,
     "cloud pb deploy": deploy,
@@ -980,5 +1010,14 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
     "cloud pb hooks push": hooksPush,
     "cloud pb hooks ls": hooksLs,
     "cloud pb hooks rm": hooksRm,
+    "cloud pb domain add": domainHandler(
+      "/api/pocketbases/custom-domain/add",
+    ),
+    "cloud pb domain verify": domainHandler(
+      "/api/pocketbases/custom-domain/verify",
+    ),
+    "cloud pb domain remove": domainHandler(
+      "/api/pocketbases/custom-domain/remove",
+    ),
   };
 }

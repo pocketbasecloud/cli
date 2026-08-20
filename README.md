@@ -630,9 +630,12 @@ resource stays with its owner.
 
 ### Run in CI (no browser, no prompts)
 
-**Setting up GitHub Actions? Follow
-[Deploy from GitHub Actions](https://pocketbasecloud.com/docs/ci-cd/deploying-from-github-actions)**
-— copy your token from the portal's Account page, add one workflow file, done.
+**Setting up GitHub Actions? Run `pb cloud ci init`** — it writes the workflow
+file for you, wired to the official
+[`pocketbasecloud/cli/action`](./action) (installs `pb`, deploys, masks a
+PocketBase deploy's admin credentials before anything reads the JSON). See
+[Deploy from GitHub Actions](https://pocketbasecloud.com/docs/ci-cd/deploying-from-github-actions)
+for the walkthrough.
 
 The mechanics, for any other CI: authenticate with a token instead of
 `pb cloud login`, and make every command fail rather than ask:

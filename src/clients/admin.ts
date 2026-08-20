@@ -1,4 +1,5 @@
 import PocketBase, { ClientResponseError } from "pocketbase";
+import { VERSION } from "../version.ts";
 import { CliError, fieldErrors } from "../errors.ts";
 import type {
   AdminRecord,
@@ -92,6 +93,13 @@ export class PocketBaseAdminClient implements IAdminClient {
       options.headers = Object.assign(options.headers || {}, {
         "X-Trace-Id": generateTraceId(),
         "X-Client-Type": "cli",
+        // Named explicitly so the platform's request metrics can tell CLI
+        // traffic from browser traffic. PocketBase's own request log records a
+        // User-Agent but no X-Client-Type, and that log is where the
+        // portal->backend and cli->backend hops are measured — without this
+        // the two are indistinguishable and CLI usage vanishes into the
+        // portal's numbers.
+        "User-Agent": `pb-cloud-cli/${VERSION}`,
       });
       return { url, options };
     };

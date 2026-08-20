@@ -42,6 +42,7 @@ export function parseGlobal(argv: string[]): { path: string[]; ctx: CmdCtx } {
     string: [
       "project",
       "profile",
+      "branch",
       "dir",
       "os",
       "arch",

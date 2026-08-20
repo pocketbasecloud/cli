@@ -62,6 +62,14 @@ Deno.test("cloud backend deploy has a choices-constrained runtime flag", () => {
   assertEquals(runtime?.required, false);
 });
 
+Deno.test("cloud ci init --env does not claim PB_ENV is honoured", () => {
+  const spec = COMMANDS["cloud ci init"];
+  const env = spec.flags.find((f) => f.name === "env");
+  assertEquals(env?.type, "string");
+  assertEquals(env?.description?.includes("PB_ENV is ignored"), true);
+  assertEquals(env?.description?.includes("PB_ENV sets it"), false);
+});
+
 Deno.test("no command spec repeats a global flag", () => {
   const globalNames = [
     "json",

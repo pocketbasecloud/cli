@@ -31,8 +31,8 @@ export type Resource = {
   subdomain?: string;
   /**
    * A domain of the user's own, pointed at this resource with
-   * `<kind> domain add`. Frontends and backends have one; PocketBase instances
-   * have no such field, and simply never carry it.
+   * `<kind> domain add`. Frontends, backends and PocketBase instances all
+   * carry one.
    */
   custom_domain?: string;
   /** "pending" until the platform has verified the DNS record, then "verified". */

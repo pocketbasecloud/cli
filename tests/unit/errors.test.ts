@@ -123,3 +123,50 @@ Deno.test("describeSubStatus explains a failure and stays quiet otherwise", () =
   assertEquals(describeSubStatus(""), undefined);
   assertEquals(describeSubStatus(undefined), undefined);
 });
+
+// ---------------------------------------------------------------------------
+// Paused instances
+// ---------------------------------------------------------------------------
+//
+// The platform refuses deploys, hook writes and env writes on an instance it
+// paused for exceeding the free plan's storage limit, and the sentence it
+// sends is the only place the user is told what to do about it (upgrade, or
+// free up space). These pin the shapes each of those refusals actually
+// arrives in, because a wrapper winning over the sentence would leave the CLI
+// printing a bare status code for the one error a user can act on.
+
+const PAUSED =
+  "This instance is paused because it is over the Free plan storage limit. " +
+  "Upgrade to resume it, or free up space and it restarts automatically.";
+
+Deno.test("httpError surfaces a paused instance on a hook push", async () => {
+  // /api/hooks/bulk-write relays backend-extension's 409 as
+  // { error: <wrapper>, details: <sentence> }.
+  const e = await httpError(
+    res({ error: "Failed to write hooks", details: PAUSED }, 409),
+    "Hook push",
+  );
+  assertStringIncludes(e.message, "paused");
+  assertStringIncludes(e.message, "Upgrade to resume it");
+});
+
+Deno.test("httpError surfaces a paused instance on an env write", async () => {
+  const e = await httpError(
+    res({ error: "Failed to set env vars", details: PAUSED }, 409),
+    "Set",
+  );
+  assertStringIncludes(e.message, "paused");
+});
+
+Deno.test("httpError surfaces a paused instance from the extension directly", async () => {
+  // `pb cloud deploy` pushes env vars straight to backend-extension's CORS
+  // route, which answers in its own envelope rather than PocketBase's.
+  const e = await httpError(
+    res(
+      { success: false, message: "Failed to set env vars", error: PAUSED },
+      409,
+    ),
+    "Env push",
+  );
+  assertStringIncludes(e.message, "paused");
+});

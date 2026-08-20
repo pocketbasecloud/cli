@@ -215,6 +215,61 @@ records it as the default, so the first deploy has nothing left to ask.`,
     }],
   },
 
+  "cloud ci init": {
+    usage:
+      "pb cloud ci init [pb|frontend|backend] [--out <path>] [--branch <name>] [--force] [--env <name>]",
+    summary: "Write a GitHub Actions workflow that deploys this directory.",
+    details:
+      `Writes .github/workflows/deploy.yml (or deploy-<path>.yml, when this
+directory is not the repo root — nested folders become deploy-apps-web.yml),
+using the official pocketbasecloud/cli/action. Nothing in the cloud is
+touched, and no login is needed — like \`cloud init\`, it only inspects the
+directory and the surrounding git repo.
+
+The kind comes from the argument, or from pb.json's existing binding. The
+branch defaults to the one currently checked out; --branch overrides it.
+--out picks a different file path. An existing file is left alone unless
+--force is passed.
+
+Prints the two remaining one-time steps: copying an access token from the
+portal's Account page, and adding it as a repository secret named PB_TOKEN.`,
+    args: [{
+      name: "kind",
+      required: false,
+      description: "pb, frontend, or backend; defaults to the bound resource",
+    }],
+    flags: [
+      {
+        name: "out",
+        type: "string",
+        required: false,
+        description: "Workflow file path. Defaults under .github/workflows/.",
+      },
+      {
+        name: "branch",
+        type: "string",
+        required: false,
+        description:
+          "Branch to deploy on push. Defaults to the branch currently " +
+          "checked out.",
+      },
+      {
+        name: "force",
+        type: "boolean",
+        required: false,
+        description: "Overwrite an existing workflow file.",
+      },
+      {
+        name: "env",
+        type: "string",
+        required: false,
+        description:
+          "pb.json environment to pin in the workflow. Only --env is " +
+          "written; PB_ENV is ignored, because the answer is committed.",
+      },
+    ],
+  },
+
   // PocketBase instances (cloud-managed)
   "cloud pb create": {
     usage:
@@ -466,6 +521,7 @@ never moves an existing instance.`,
   "cloud pb info": {
     usage: "pb cloud pb info (<name>|--name <name>|--id <id>) [--project <id>]",
     summary: "Show PocketBase instance details.",
+    details: "Without --name/--id, a terminal offers a picker.",
     args: [{
       name: "name",
       required: false,
@@ -479,6 +535,7 @@ never moves an existing instance.`,
   "cloud pb rm": {
     usage: "pb cloud pb rm (<name>|--name <name>|--id <id>) [--yes]",
     summary: "Delete a PocketBase instance.",
+    details: "Without --name/--id, a terminal offers a picker.",
     args: [{
       name: "name",
       required: false,
@@ -520,6 +577,27 @@ always the wrong one.`,
       "pb cloud pb hooks rm <filename> [--name <instance>] [--project <id>]",
     summary: "Delete a hook file.",
     args: [{ name: "filename", required: true }],
+    flags: [{ name: "name", type: "string", required: false }],
+  },
+  "cloud pb domain add": {
+    usage:
+      "pb cloud pb domain add <domain> [--name <instance>] [--project <id>]",
+    summary: "Add a custom domain.",
+    args: [{ name: "domain", required: true }],
+    flags: [{ name: "name", type: "string", required: false }],
+  },
+  "cloud pb domain verify": {
+    usage:
+      "pb cloud pb domain verify <domain> [--name <instance>] [--project <id>]",
+    summary: "Verify a custom domain.",
+    args: [{ name: "domain", required: true }],
+    flags: [{ name: "name", type: "string", required: false }],
+  },
+  "cloud pb domain remove": {
+    usage:
+      "pb cloud pb domain remove <domain> [--name <instance>] [--project <id>]",
+    summary: "Remove a custom domain.",
+    args: [{ name: "domain", required: true }],
     flags: [{ name: "name", type: "string", required: false }],
   },
 
@@ -610,6 +688,7 @@ an existing site.`,
   "cloud frontend info": {
     usage: "pb cloud frontend info (<name>|--name <name>|--id <id>)",
     summary: "Show frontend details.",
+    details: "Without --name/--id, a terminal offers a picker.",
     args: [{
       name: "name",
       required: false,
@@ -623,6 +702,7 @@ an existing site.`,
   "cloud frontend rm": {
     usage: "pb cloud frontend rm (<name>|--name <name>|--id <id>) [--yes]",
     summary: "Delete a frontend.",
+    details: "Without --name/--id, a terminal offers a picker.",
     args: [{
       name: "name",
       required: false,
@@ -636,18 +716,21 @@ an existing site.`,
   "cloud frontend domain add": {
     usage: "pb cloud frontend domain add <domain> --name <site>",
     summary: "Add a custom domain.",
+    details: "Without --name/--id, a terminal offers a picker.",
     args: [{ name: "domain", required: true }],
     flags: [{ name: "name", type: "string", required: true }],
   },
   "cloud frontend domain verify": {
     usage: "pb cloud frontend domain verify <domain> --name <site>",
     summary: "Verify a custom domain.",
+    details: "Without --name/--id, a terminal offers a picker.",
     args: [{ name: "domain", required: true }],
     flags: [{ name: "name", type: "string", required: true }],
   },
   "cloud frontend domain remove": {
     usage: "pb cloud frontend domain remove <domain> --name <site>",
     summary: "Remove a custom domain.",
+    details: "Without --name/--id, a terminal offers a picker.",
     args: [{ name: "domain", required: true }],
     flags: [{ name: "name", type: "string", required: true }],
   },
@@ -783,6 +866,7 @@ outright. A redeploy never moves an existing backend.`,
   "cloud backend info": {
     usage: "pb cloud backend info (<name>|--name <name>|--id <id>)",
     summary: "Show backend details.",
+    details: "Without --name/--id, a terminal offers a picker.",
     args: [{
       name: "name",
       required: false,
@@ -796,6 +880,7 @@ outright. A redeploy never moves an existing backend.`,
   "cloud backend rm": {
     usage: "pb cloud backend rm (<name>|--name <name>|--id <id>) [--yes]",
     summary: "Delete a backend.",
+    details: "Without --name/--id, a terminal offers a picker.",
     args: [{
       name: "name",
       required: false,
@@ -814,7 +899,8 @@ outright. A redeploy never moves an existing backend.`,
     details:
       "Names only. The platform stores values encrypted and its list endpoint\n" +
       "never returns plaintext, so there is nothing for the CLI to show —\n" +
-      "read a value from the app itself, or overwrite it with `env set`.",
+      "read a value from the app itself, or overwrite it with `env set`.\n" +
+      "Without --name/--id, a terminal offers a picker.",
     args: [],
     flags: [
       {
@@ -829,6 +915,7 @@ outright. A redeploy never moves an existing backend.`,
   "cloud env set": {
     usage: "pb cloud env set KEY=VALUE --target pb|backend --name <n>",
     summary: "Set an environment variable.",
+    details: "Without --name/--id, a terminal offers a picker.",
     args: [{ name: "KEY=VALUE", required: true }],
     flags: [
       {
@@ -843,6 +930,7 @@ outright. A redeploy never moves an existing backend.`,
   "cloud env rm": {
     usage: "pb cloud env rm KEY --target pb|backend --name <n>",
     summary: "Remove an environment variable.",
+    details: "Without --name/--id, a terminal offers a picker.",
     args: [{ name: "KEY", required: true }],
     flags: [
       {
@@ -863,7 +951,9 @@ outright. A redeploy never moves an existing backend.`,
 are left alone. Pass --delete-missing to make the file the whole truth — cloud
 variables it does not list are removed from the instance too, which asks for
 confirmation unless --yes is given. --no-input does not waive it: without a way
-to ask, the import stops and names --yes.`,
+to ask, the import stops and names --yes.
+
+Without --name/--id, a terminal offers a picker.`,
     args: [{ name: ".env", required: true }],
     flags: [
       {
@@ -915,7 +1005,9 @@ sending a request that cannot succeed.`,
     details:
       `Prints the last --lines entries (50 by default, 1000 max) and stops. With
 --follow it keeps printing until interrupted, since the platform tails the
-container for as long as the connection is open.`,
+container for as long as the connection is open.
+
+Without --name/--id, a terminal offers a picker.`,
     args: [{ name: "pb|backend", required: true }],
     flags: [
       { name: "name", type: "string", required: true },

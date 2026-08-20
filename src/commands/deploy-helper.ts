@@ -3,6 +3,7 @@ import type { ICloudClient } from "../clients/cloud.ts";
 import type { Resource, ResourceKind } from "../clients/types.ts";
 import { describeSubStatus } from "../deploy-status.ts";
 import { CliError, httpError } from "../errors.ts";
+import { MAX_ARCHIVE_BYTES } from "../limits.ts";
 import type { BuildConfig } from "../config.ts";
 import { readLinkFile, readOwnPbJson } from "../config.ts";
 import {
@@ -371,16 +372,18 @@ export function findExisting(
 
 /**
  * Resolve a single existing resource by name/id. When the token is missing or
- * ambiguous and `interactive` is set, present a selection menu of the existing
- * resources instead of erroring — the "custom" interactive path for the
- * name-or-id OR-lookups that `info`/`rm`/`logs`/`env` use.
+ * ambiguous and a terminal is available, present a selection menu of the
+ * existing resources instead of erroring — the same unconditional prompt as
+ * project selection, used by the name-or-id OR-lookups that `info`/`rm`/`logs`/
+ * `env`/hooks share. A caller that cannot ask (`--no-input`, `--json`, a pipe)
+ * still gets the actionable error rather than a menu that would hang or corrupt
+ * the output.
  */
 export async function resolveExisting(
   resources: Resource[],
   token: { id?: string; name?: string },
   opts: {
     label: string;
-    interactive: boolean;
     noInput: boolean;
     errorMessage?: string;
     io?: PromptIO;
@@ -388,7 +391,7 @@ export async function resolveExisting(
 ): Promise<Resource> {
   const found = findExisting(resources, token);
   if (found && found !== "ambiguous") return found;
-  if (opts.interactive) {
+  if (canPrompt({ noInput: opts.noInput, io: opts.io })) {
     if (resources.length === 0) {
       throw new CliError(`No ${opts.label} found.`, 2);
     }
@@ -508,18 +511,25 @@ export type Bundle = {
 };
 
 /**
- * Largest archive the platform accepts, matching the `zipFile` maxSize on
- * `pocketbases` / `frontends` / `backends`. Checked here so an over-limit
- * archive fails before the upload, with its size in the message, rather than
- * as a PocketBase field-validation error after transferring the whole thing.
+ * Largest archive the platform accepts, re-exported from `../limits.ts` for
+ * the import sites that already read it from here. `clients/cloud.ts` reads
+ * the same number to explain a 413 — see there for why an archive inside the
+ * limit can still be rejected.
  */
-export const MAX_ARCHIVE_BYTES = 150 * 1024 * 1024;
+export { MAX_ARCHIVE_BYTES };
 
 function formatMb(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-/** Throws when the packaged archive is too large for the platform to accept. */
+/**
+ * Throws when the packaged archive is too large for the platform to accept.
+ *
+ * Runs before the upload so an over-limit archive fails with its own size in
+ * the message, rather than after transferring the whole thing — as a
+ * PocketBase field-validation error, or as Cloudflare's 413, whose HTML body
+ * carries no usable message at all.
+ */
 export function assertArchiveWithinLimit(
   bytes: Uint8Array,
   fileName: string,

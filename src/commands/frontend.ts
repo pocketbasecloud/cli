@@ -64,8 +64,7 @@ export function makeFrontendCommands(
       { id: target.id, name: target.name },
       {
         label: "frontend",
-        interactive: ctx.flags.interactive,
-        noInput: ctx.flags.noInput,
+        noInput: ctx.flags.noInput || ctx.flags.json,
       },
     );
     return { client, found, environment: target.environment };

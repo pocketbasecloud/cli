@@ -1,6 +1,8 @@
 import PocketBase, { ClientResponseError } from "pocketbase";
+import { VERSION } from "../version.ts";
 import type { CloudAuth } from "../config.ts";
 import { CliError, fieldErrors } from "../errors.ts";
+import { MAX_ARCHIVE_MB } from "../limits.ts";
 import type {
   DeployContext,
   Org,
@@ -66,6 +68,29 @@ export type ApiOpts = {
   query?: Record<string, string>;
 };
 
+/**
+ * What to say about a failure whose response carried no message — the status
+ * is all there is. A 5xx says "try again" and a 4xx does not, because that is
+ * the one distinction the caller can act on: a 5xx is the platform's and may
+ * pass, a 4xx is the request and will not.
+ */
+function bodylessMessage(status: number): string {
+  // The SDK uses 0 for a request that never got a response at all.
+  if (status === 0) {
+    return "Could not reach PocketBase Cloud. Check your connection (and `pb cloud whoami` for the configured URL), then try again.";
+  }
+  if (status === 502 || status === 503) {
+    return `Platform error (${status}): the platform is unreachable right now. This is usually brief — try again in a moment.`;
+  }
+  if (status === 504 || status === 408) {
+    return `Platform error (${status}): the platform took too long to respond. Try again in a moment.`;
+  }
+  if (status >= 500) {
+    return `Platform error (${status}): the platform had a problem handling that request. Try again in a moment.`;
+  }
+  return `Platform error (${status}): the request was rejected and the response carried no detail.`;
+}
+
 export function mapPbError(e: unknown): CliError {
   if (e instanceof ClientResponseError) {
     if (e.status === 403) {
@@ -85,7 +110,27 @@ export function mapPbError(e: unknown): CliError {
     if (e.status === 401) {
       return new CliError("Not authenticated. Run `pb cloud login`.", 4);
     }
-    const msg = e.response?.message ?? e.message;
+    if (e.status === 413) {
+      // A proxy in front of the platform rejects an oversized body before
+      // PocketBase sees it, answering with an HTML error page the SDK cannot
+      // parse — so `message` is a contentless "Something went wrong…" and the
+      // status is the only thing that identifies it. `assertArchiveWithinLimit`
+      // catches this ahead of the upload, but it measures the archive while a
+      // proxy measures the whole multipart body, so one right at the limit
+      // still gets here — as does any host still on an older Caddyfile.
+      return new CliError(
+        `The upload is over the ${MAX_ARCHIVE_MB} MB limit. Trim the build output (or exclude node_modules and source maps) and deploy again.`,
+        2,
+      );
+    }
+    // No body: a proxy's HTML error page, or a request that never got a
+    // response (status 0). The SDK invents "Something went wrong." for both,
+    // and repeating that back names neither a cause nor a fix — the status is
+    // the whole content of the failure, so say what it means instead.
+    if (!e.response?.message) {
+      return new CliError(bodylessMessage(e.status), 1);
+    }
+    const msg = e.response.message;
     // "Failed to create record." on its own says nothing; the reason is always
     // in `data`, one entry per rejected field.
     const { detail, fields } = fieldErrors(e.response?.data);
@@ -122,6 +167,13 @@ export class PocketBaseCloudClient implements ICloudClient {
       options.headers = Object.assign(options.headers || {}, {
         "X-Trace-Id": generateTraceId(),
         "X-Client-Type": "cli",
+        // Named explicitly so the platform's request metrics can tell CLI
+        // traffic from browser traffic. PocketBase's own request log records a
+        // User-Agent but no X-Client-Type, and that log is where the
+        // portal->backend and cli->backend hops are measured — without this
+        // the two are indistinguishable and CLI usage vanishes into the
+        // portal's numbers.
+        "User-Agent": `pb-cloud-cli/${VERSION}`,
       });
       return { url, options };
     };

@@ -242,8 +242,7 @@ export function makeBackendCommands(
       { id: target.id, name: target.name },
       {
         label: "backend",
-        interactive: ctx.flags.interactive,
-        noInput: ctx.flags.noInput,
+        noInput: ctx.flags.noInput || ctx.flags.json,
       },
     );
     return { client, found, environment: target.environment };

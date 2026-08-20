@@ -68,26 +68,24 @@ Deno.test("findExisting flags duplicate names", () => {
 Deno.test("resolveExisting returns the unique match by name", async () => {
   const found = await resolveExisting([R("a", "one"), R("b", "two")], {
     name: "two",
-  }, { label: "backend", interactive: false, noInput: false });
+  }, { label: "backend", noInput: false });
   assertEquals(found.id, "b");
 });
 
-Deno.test("resolveExisting selects from the list when interactive and unresolved", async () => {
+Deno.test("resolveExisting selects from the list when it can prompt", async () => {
   const found = await resolveExisting([R("a", "one"), R("b", "two")], {}, {
     label: "backend",
-    interactive: true,
     noInput: false,
     io: fakeIO(["2"]),
   });
   assertEquals(found.id, "b");
 });
 
-Deno.test("resolveExisting errors when interactive but nothing exists", async () => {
+Deno.test("resolveExisting errors when nothing exists", async () => {
   await assertRejects(
     () =>
       resolveExisting([], {}, {
         label: "backend",
-        interactive: true,
         noInput: false,
         io: fakeIO([]),
       }),
@@ -96,13 +94,25 @@ Deno.test("resolveExisting errors when interactive but nothing exists", async ()
   );
 });
 
-Deno.test("resolveExisting throws the standard error when non-interactive and unresolved", async () => {
+Deno.test("resolveExisting throws the standard error when it cannot ask", async () => {
   await assertRejects(
     () =>
       resolveExisting([R("a", "one"), R("b", "one")], { name: "one" }, {
         label: "backend",
-        interactive: false,
         noInput: false,
+      }),
+    Error,
+    "Specify a unique --name or --id.",
+  );
+});
+
+Deno.test("resolveExisting refuses to prompt under --json even on a TTY", async () => {
+  await assertRejects(
+    () =>
+      resolveExisting([R("a", "one"), R("b", "two")], {}, {
+        label: "backend",
+        noInput: true,
+        io: fakeIO(["2"]),
       }),
     Error,
     "Specify a unique --name or --id.",
@@ -114,7 +124,6 @@ Deno.test("resolveExisting honors a custom error message", async () => {
     () =>
       resolveExisting([R("a", "one")], {}, {
         label: "pocketbase",
-        interactive: false,
         noInput: false,
         errorMessage: "Specify a unique --name or --id for the pocketbase.",
       }),
