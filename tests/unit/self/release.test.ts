@@ -91,7 +91,7 @@ Deno.test("hostAsset rejects a host with no prebuilt binary", () => {
   assertThrows(
     () => hostAsset("freebsd-x64", "0.2.4"),
     CliError,
-    "No prebuilt pb binary for freebsd-x64",
+    "No prebuilt pbc binary for freebsd-x64",
   );
 });
 
@@ -114,7 +114,7 @@ Deno.test("fetchManifest reports an unknown version as a usage error", async () 
         "9.9.9",
       ),
     CliError,
-    "pb 9.9.9 is not a published release",
+    "pbc 9.9.9 is not a published release",
   );
   assertEquals(e.exitCode, 2);
 });

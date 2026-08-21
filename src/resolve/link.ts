@@ -5,8 +5,8 @@ import { select } from "../ui/prompt.ts";
 import type { PromptIO } from "../ui/prompt.ts";
 
 /**
- * The words `pb cloud link` accepts for a resource kind. These mirror the
- * command namespaces (`pb cloud frontend …`) rather than the internal plural
+ * The words `pbc cloud link` accepts for a resource kind. These mirror the
+ * command namespaces (`pbc cloud frontend …`) rather than the internal plural
  * `ResourceKind`, and are the single source of truth for what is valid.
  */
 const KIND_ALIASES: Record<string, ResourceKind> = {
@@ -23,7 +23,7 @@ const KIND_LABELS: Record<ResourceKind, string> = {
 };
 
 export const LINK_USAGE =
-  "Usage: pb cloud link <pb|frontend|backend> <name|id>";
+  "Usage: pbc cloud link <pb|frontend|backend> <name|id>";
 
 export function parseKind(token: string): ResourceKind | null {
   return KIND_ALIASES[token.toLowerCase()] ?? null;
@@ -66,7 +66,7 @@ function matchResource(
 }
 
 /**
- * Resolve which existing cloud resource `pb cloud link` should bind to.
+ * Resolve which existing cloud resource `pbc cloud link` should bind to.
  *
  * With both positionals it is a pure lookup; with a kind only it offers that
  * kind's resources; with neither it offers every resource in the project. A
@@ -82,7 +82,7 @@ export async function resolveLinkTarget(
     if (!kind) {
       throw new CliError(
         `Unknown kind "${ctx.kindToken}". Expected pb, frontend, or backend.\n` +
-          "To set a default project, use `pb cloud project use`.",
+          "To set a default project, use `pbc cloud project use`.",
         2,
       );
     }

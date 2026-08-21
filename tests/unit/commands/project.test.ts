@@ -61,7 +61,7 @@ async function linkFixture(io?: PromptIO) {
     }),
   };
   const read = async () =>
-    JSON.parse(await Deno.readTextFile(join(dir, "pb.json")));
+    JSON.parse(await Deno.readTextFile(join(dir, "pbc.json")));
   return {
     dir,
     client,
@@ -184,9 +184,9 @@ Deno.test("link rejects an unknown kind and points at `project use`", async () =
     );
     assertEquals(err.exitCode, 2);
     assertStringIncludes(err.message, 'Unknown kind "my-app"');
-    assertStringIncludes(err.message, "pb cloud project use");
+    assertStringIncludes(err.message, "pbc cloud project use");
     // Nothing was written.
-    await assertRejects(() => Deno.readTextFile(join(f.dir, "pb.json")));
+    await assertRejects(() => Deno.readTextFile(join(f.dir, "pbc.json")));
   } finally {
     await f.cleanup();
   }
@@ -202,9 +202,9 @@ Deno.test("link with no args under --no-input errors with the usage line", async
     assertEquals(err.exitCode, 2);
     assertStringIncludes(
       err.message,
-      "Usage: pb cloud link <pb|frontend|backend> <name|id>",
+      "Usage: pbc cloud link <pb|frontend|backend> <name|id>",
     );
-    await assertRejects(() => Deno.readTextFile(join(f.dir, "pb.json")));
+    await assertRejects(() => Deno.readTextFile(join(f.dir, "pbc.json")));
   } finally {
     await f.cleanup();
   }
@@ -261,7 +261,7 @@ Deno.test("link errors and writes nothing when the name does not resolve", async
     );
     assertEquals(err.exitCode, 2);
     assertStringIncludes(err.message, 'No frontend found matching "nope"');
-    await assertRejects(() => Deno.readTextFile(join(f.dir, "pb.json")));
+    await assertRejects(() => Deno.readTextFile(join(f.dir, "pbc.json")));
   } finally {
     await f.cleanup();
   }
@@ -271,7 +271,7 @@ Deno.test("link --env adds a second environment beside the first", async () => {
   const f = await linkFixture();
   try {
     await Deno.writeTextFile(
-      join(f.dir, "pb.json"),
+      join(f.dir, "pbc.json"),
       JSON.stringify({
         projectId: f.seeded.fe.project,
         pocketbaseVersion: "0.39.9",
@@ -310,7 +310,7 @@ Deno.test("link refuses a directory already bound to another kind", async () => 
   const f = await linkFixture();
   try {
     await Deno.writeTextFile(
-      join(f.dir, "pb.json"),
+      join(f.dir, "pbc.json"),
       JSON.stringify({
         projectId: f.seeded.fe.project,
         kind: "frontends",
@@ -328,7 +328,7 @@ Deno.test("link refuses a directory already bound to another kind", async () => 
       CliError,
     );
     assertEquals(err.exitCode, 2);
-    assertStringIncludes(err.message, "pb.json is bound to frontends");
+    assertStringIncludes(err.message, "pbc.json is bound to frontends");
     assertEquals((await f.read()).kind, "frontends");
   } finally {
     await f.cleanup();
@@ -353,7 +353,7 @@ Deno.test("link announces the project resolved from config.currentProject", asyn
     });
     assertEquals(code, 0);
     assertEquals(log.lines[0].includes("Project: app"), true);
-    assertEquals(log.lines[0].includes("pb cloud project use"), true);
+    assertEquals(log.lines[0].includes("pbc cloud project use"), true);
   } finally {
     log.restore();
     await f.cleanup();
@@ -465,7 +465,7 @@ Deno.test("link --env-file records the named file without prompting", async () =
   }
 });
 
-Deno.test("link --env-file naming a missing file fails before pb.json is written", async () => {
+Deno.test("link --env-file naming a missing file fails before pbc.json is written", async () => {
   const f = await linkFixture();
   try {
     const err = await assertRejects(
@@ -478,7 +478,7 @@ Deno.test("link --env-file naming a missing file fails before pb.json is written
       CliError,
     );
     assertEquals(err.exitCode, 2);
-    await assertRejects(() => Deno.readTextFile(join(f.dir, "pb.json")));
+    await assertRejects(() => Deno.readTextFile(join(f.dir, "pbc.json")));
   } finally {
     await f.cleanup();
   }
@@ -505,7 +505,7 @@ Deno.test("re-linking an environment with a recorded env file asks nothing and n
   const f = await linkFixture();
   try {
     await Deno.writeTextFile(
-      join(f.dir, "pb.json"),
+      join(f.dir, "pbc.json"),
       JSON.stringify({
         projectId: f.seeded.pb.project,
         kind: "pocketbases",
@@ -552,12 +552,12 @@ Deno.test("link suppresses the recorded-envFile line under --json", async () => 
   }
 });
 
-Deno.test("unlink clears the binding and keeps the rest of pb.json", async () => {
+Deno.test("unlink clears the binding and keeps the rest of pbc.json", async () => {
   const dir = await Deno.makeTempDir();
   try {
     const { d } = deps({ cwd: dir });
     await Deno.writeTextFile(
-      join(dir, "pb.json"),
+      join(dir, "pbc.json"),
       JSON.stringify({
         projectId: "p1",
         pocketbaseVersion: "0.39.9",
@@ -572,7 +572,7 @@ Deno.test("unlink clears the binding and keeps the rest of pb.json", async () =>
       raw: {},
     });
     assertEquals(code, 0);
-    assertEquals(JSON.parse(await Deno.readTextFile(join(dir, "pb.json"))), {
+    assertEquals(JSON.parse(await Deno.readTextFile(join(dir, "pbc.json"))), {
       projectId: "p1",
       pocketbaseVersion: "0.39.9",
     });
@@ -586,7 +586,7 @@ Deno.test("unlink is a no-op when nothing is bound", async () => {
   try {
     const { d } = deps({ cwd: dir });
     await Deno.writeTextFile(
-      join(dir, "pb.json"),
+      join(dir, "pbc.json"),
       JSON.stringify({ projectId: "p1" }),
     );
     const code = await makeProjectCommands(d)["cloud unlink"]({
@@ -595,7 +595,7 @@ Deno.test("unlink is a no-op when nothing is bound", async () => {
       raw: {},
     });
     assertEquals(code, 0);
-    assertEquals(JSON.parse(await Deno.readTextFile(join(dir, "pb.json"))), {
+    assertEquals(JSON.parse(await Deno.readTextFile(join(dir, "pbc.json"))), {
       projectId: "p1",
     });
   } finally {
@@ -603,7 +603,7 @@ Deno.test("unlink is a no-op when nothing is bound", async () => {
   }
 });
 
-Deno.test("unlink does not walk up to a parent pb.json", async () => {
+Deno.test("unlink does not walk up to a parent pbc.json", async () => {
   const parent = await Deno.makeTempDir();
   try {
     const child = join(parent, "frontend");
@@ -614,16 +614,16 @@ Deno.test("unlink does not walk up to a parent pb.json", async () => {
       defaultEnvironment: "production",
       environments: { production: { id: "fe1", name: "web" } },
     });
-    await Deno.writeTextFile(join(parent, "pb.json"), parentFile);
+    await Deno.writeTextFile(join(parent, "pbc.json"), parentFile);
     const { d } = deps({ cwd: child });
     await makeProjectCommands(d)["cloud unlink"]({
       args: [],
       flags: FLAGS,
       raw: {},
     });
-    assertEquals(await Deno.readTextFile(join(parent, "pb.json")), parentFile);
+    assertEquals(await Deno.readTextFile(join(parent, "pbc.json")), parentFile);
     // And no file was created in the child.
-    await assertRejects(() => Deno.readTextFile(join(child, "pb.json")));
+    await assertRejects(() => Deno.readTextFile(join(child, "pbc.json")));
   } finally {
     await Deno.remove(parent, { recursive: true });
   }

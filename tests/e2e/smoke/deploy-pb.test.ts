@@ -4,7 +4,7 @@ import {
 } from "../setup.ts";
 import { assert, assertStringIncludes } from "@std/assert";
 
-// Use config-file auth (no PB_TOKEN) so tests work with any logged-in account.
+// Use config-file auth (no PBC_TOKEN) so tests work with any logged-in account.
 const ENV: Record<string, string> = {};
 // Pro accounts with multiple computes need an explicit --compute on deploy.
 // Picked from the test account's deploy-context; stable as long as computes
@@ -148,7 +148,7 @@ Deno.test({
     const id1 = r1.json!.id as string;
     trackCleanup("pocketbases", id1, projectId);
 
-    // Edit and redeploy from same dir — pb.json now binds it
+    // Edit and redeploy from same dir — pbc.json now binds it
     Deno.writeTextFileSync(`${dir}/pb_hooks/main.pb.js`, "// v2 — updated");
 
     const r2 = await pb([

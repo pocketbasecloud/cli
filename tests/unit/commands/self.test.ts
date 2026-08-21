@@ -91,9 +91,9 @@ Deno.test("upgrade --check reports the available version without installing", as
   const { cmd, out } = run(deps());
   assertEquals(await cmd(ctx([], { check: true })), 0);
   const text = out.join("\n");
-  assertStringIncludes(text, `Installed: pb ${VERSION} (standalone)`);
-  assertStringIncludes(text, `Latest:    pb ${newer()}`);
-  assertStringIncludes(text, "Run `pb upgrade` to update.");
+  assertStringIncludes(text, `Installed: pbc ${VERSION} (standalone)`);
+  assertStringIncludes(text, `Latest:    pbc ${newer()}`);
+  assertStringIncludes(text, "Run `pbc upgrade` to update.");
 });
 
 Deno.test("upgrade --check says so when already current", async () => {
@@ -168,7 +168,7 @@ Deno.test("upgrade replaces a standalone binary and reports the move", async () 
   assertEquals(await cmd(ctx()), 0);
   assertStringIncludes(
     out.join("\n"),
-    `Upgraded pb ${VERSION} → ${newer()} (/usr/local/bin/pb)`,
+    `Upgraded pbc ${VERSION} → ${newer()} (/usr/local/bin/pb)`,
   );
 });
 
@@ -187,7 +187,7 @@ Deno.test("upgrade installs an explicitly requested older version", async () => 
   const { cmd, out } = run(deps({ archive, release: "0.0.1" }));
   assertEquals(await cmd(ctx(["0.0.1"])), 0);
   // A rollback is not an upgrade, and the wording should not claim otherwise.
-  assertStringIncludes(out.join("\n"), `Switched pb ${VERSION} → 0.0.1`);
+  assertStringIncludes(out.join("\n"), `Switched pbc ${VERSION} → 0.0.1`);
 });
 
 Deno.test("upgrade does not call a requested rollback an available update", async () => {
@@ -199,6 +199,6 @@ Deno.test("upgrade does not call a requested rollback an available update", asyn
   );
   assertEquals(await cmd(ctx(["0.0.1"])), 1);
   const text = out.join("\n");
-  assertStringIncludes(text, `pb 0.0.1 requested; this is pb ${VERSION}`);
+  assertStringIncludes(text, `pbc 0.0.1 requested; this is pbc ${VERSION}`);
   assertEquals(text.includes("is available"), false);
 });

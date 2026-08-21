@@ -64,7 +64,7 @@ export const LOCAL_COMMANDS = new Set([
 ]);
 
 function specFor(key: string): CommandSpec {
-  return COMMANDS[key] ?? { ...EMPTY_SPEC, usage: `Usage: pb ${key}` };
+  return COMMANDS[key] ?? { ...EMPTY_SPEC, usage: `Usage: pbc ${key}` };
 }
 
 function formatSection(commands: string[]): string[] {
@@ -85,9 +85,9 @@ export function buildHelpText(registry: Record<string, Handler>): string {
   );
 
   return [
-    "pb — PocketBase Cloud CLI",
+    "pbc — PocketBase Cloud CLI",
     "",
-    "Usage: pb <command> [args] [flags]",
+    "Usage: pbc <command> [args] [flags]",
     "",
     "Global flags:",
     "  --json             Output machine-readable JSON",
@@ -96,25 +96,25 @@ export function buildHelpText(registry: Record<string, Handler>): string {
     "  --interactive, -i  Prompt for missing required values instead of erroring",
     "  --project <id>     Which cloud project a `cloud ...` command targets",
     "                     (defaults to the linked/`use`d project)",
-    "  --profile <name>   Which saved instance login (from `pb use <url>`)",
+    "  --profile <name>   Which saved instance login (from `pbc use <url>`)",
     "                     a non-cloud command targets",
     "  --version, -v      Print version",
     "  --help, -h         Show this help",
     "",
     ...(local.length > 0
       ? [
-        "Local commands (pb itself, and a PocketBase binary on this machine):",
+        "Local commands (pbc itself, and a PocketBase binary on this machine):",
         ...formatSection(local),
         "",
       ]
       : []),
-    "Instance commands (a specific PocketBase instance, via `pb use <url>`):",
+    "Instance commands (a specific PocketBase instance, via `pbc use <url>`):",
     ...formatSection(instance),
     "",
     "Cloud commands (your PocketBase Cloud account):",
     ...formatSection(cloud),
     "",
-    "Run `pb <command> --help` for details on a specific command.",
+    "Run `pbc <command> --help` for details on a specific command.",
   ].join("\n");
 }
 

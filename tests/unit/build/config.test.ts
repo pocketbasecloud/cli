@@ -1,7 +1,7 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { envFileOf, resolveBuildConfig } from "../../../src/build/config.ts";
-import { readOwnPbJson } from "../../../src/config.ts";
+import { readOwnLinkFile } from "../../../src/config.ts";
 
 const noop = () => {};
 
@@ -15,7 +15,7 @@ function seed(files: Record<string, string>): string {
   return root;
 }
 
-Deno.test("an inferred block is reported and written back to pb.json", async () => {
+Deno.test("an inferred block is reported and written back to pbc.json", async () => {
   const cwd = seed({
     "vite.config.ts": "",
     "package.json": '{"scripts":{"build":"vite build"}}',
@@ -28,7 +28,7 @@ Deno.test("an inferred block is reported and written back to pb.json", async () 
     log: (m) => lines.push(m),
   });
   assertEquals(cfg.outputDir, "dist");
-  assertEquals((await readOwnPbJson(cwd)).build?.outputDir, "dist");
+  assertEquals((await readOwnLinkFile(cwd)).build?.outputDir, "dist");
   assertEquals(lines.some((l) => l.includes("inferred")), true);
 });
 
@@ -36,7 +36,7 @@ Deno.test("an existing block suppresses inference entirely", async () => {
   // vite.config would infer dist; the recorded block must win untouched.
   const cwd = seed({
     "vite.config.ts": "",
-    "pb.json": JSON.stringify({
+    "pbc.json": JSON.stringify({
       projectId: "p1",
       build: { outputDir: "public" },
     }),
@@ -52,10 +52,10 @@ Deno.test("an existing block suppresses inference entirely", async () => {
   assertEquals(cfg.command, undefined);
 });
 
-Deno.test("persisting an inferred block preserves the rest of pb.json", async () => {
+Deno.test("persisting an inferred block preserves the rest of pbc.json", async () => {
   const cwd = seed({
     "deno.json": "{}",
-    "pb.json": JSON.stringify({
+    "pbc.json": JSON.stringify({
       projectId: "p1",
       pocketbaseVersion: "0.34.2",
       kind: "backends",
@@ -63,7 +63,7 @@ Deno.test("persisting an inferred block preserves the rest of pb.json", async ()
     }),
   });
   await resolveBuildConfig({ cwd, kind: "backends", flags: {}, log: noop });
-  const own = await readOwnPbJson(cwd);
+  const own = await readOwnLinkFile(cwd);
   assertEquals(own.projectId, "p1");
   assertEquals(own.pocketbaseVersion, "0.34.2");
   assertEquals(own.environments?.production.id, "b1");
@@ -72,7 +72,7 @@ Deno.test("persisting an inferred block preserves the rest of pb.json", async ()
 
 Deno.test("flags override the recorded block without rewriting it", async () => {
   const cwd = seed({
-    "pb.json": JSON.stringify({
+    "pbc.json": JSON.stringify({
       projectId: "p1",
       build: { runtime: "nodejs", envFile: ".env" },
     }),
@@ -86,14 +86,14 @@ Deno.test("flags override the recorded block without rewriting it", async () => 
   assertEquals(cfg.runtime, "bun");
   assertEquals(cfg.envFile, ".env.production");
   // The file still says what the user wrote.
-  const own = await readOwnPbJson(cwd);
+  const own = await readOwnLinkFile(cwd);
   assertEquals(own.build?.runtime, "nodejs");
   assertEquals(own.build?.envFile, ".env");
 });
 
-Deno.test("build config comes from the cwd's own pb.json, never a parent's", async () => {
+Deno.test("build config comes from the cwd's own pbc.json, never a parent's", async () => {
   const parent = seed({
-    "pb.json": JSON.stringify({
+    "pbc.json": JSON.stringify({
       projectId: "p1",
       build: { outputDir: "parent-dist" },
     }),
@@ -121,7 +121,7 @@ Deno.test("envFileOf is tri-state and never falls back to .env", () => {
 
 Deno.test("an environment's build overrides the base block key by key", async () => {
   const cwd = seed({
-    "pb.json": JSON.stringify({
+    "pbc.json": JSON.stringify({
       projectId: "p1",
       kind: "frontends",
       build: { command: "npm run build", outputDir: "dist" },
@@ -148,7 +148,7 @@ Deno.test("an environment's build overrides the base block key by key", async ()
 
 Deno.test("another environment's overrides do not leak into this one", async () => {
   const cwd = seed({
-    "pb.json": JSON.stringify({
+    "pbc.json": JSON.stringify({
       projectId: "p1",
       kind: "frontends",
       build: { command: "npm run build", outputDir: "dist" },
@@ -169,7 +169,7 @@ Deno.test("another environment's overrides do not leak into this one", async () 
 
 Deno.test("an environment's exclude replaces the base list rather than appending", async () => {
   const cwd = seed({
-    "pb.json": JSON.stringify({
+    "pbc.json": JSON.stringify({
       projectId: "p1",
       kind: "frontends",
       build: { outputDir: "dist", exclude: ["*.map", "docs"] },
@@ -190,7 +190,7 @@ Deno.test("an environment's exclude replaces the base list rather than appending
 
 Deno.test("flags still beat an environment's block", async () => {
   const cwd = seed({
-    "pb.json": JSON.stringify({
+    "pbc.json": JSON.stringify({
       projectId: "p1",
       kind: "backends",
       build: { runtime: "nodejs", envFile: ".env" },
@@ -213,14 +213,14 @@ Deno.test("flags still beat an environment's block", async () => {
   assertEquals(cfg.runtime, "bun");
   assertEquals(cfg.envFile, ".env.ci");
   // The file is left as written; flags apply to this run only.
-  const own = await readOwnPbJson(cwd);
+  const own = await readOwnLinkFile(cwd);
   assertEquals(own.build?.runtime, "nodejs");
   assertEquals(own.environments?.staging.build?.runtime, "deno");
 });
 
 Deno.test('an environment can override a base envFile with "" to push nothing', async () => {
   const cwd = seed({
-    "pb.json": JSON.stringify({
+    "pbc.json": JSON.stringify({
       projectId: "p1",
       kind: "backends",
       build: { runtime: "deno", envFile: ".env" },
@@ -245,7 +245,7 @@ Deno.test("an environment-only build block suppresses inference", async () => {
   // vite.config would infer dist; a block anywhere means the user has decided.
   const cwd = seed({
     "vite.config.ts": "",
-    "pb.json": JSON.stringify({
+    "pbc.json": JSON.stringify({
       projectId: "p1",
       kind: "frontends",
       environments: {
@@ -261,14 +261,14 @@ Deno.test("an environment-only build block suppresses inference", async () => {
     log: noop,
   });
   assertEquals(cfg.outputDir, "build");
-  assertEquals((await readOwnPbJson(cwd)).build, undefined);
+  assertEquals((await readOwnLinkFile(cwd)).build, undefined);
 });
 
 Deno.test("an inferred block is written to the base, not to the environment", async () => {
   // Inference reads the directory, which is the same in every environment.
   const cwd = seed({
     "vite.config.ts": "",
-    "pb.json": JSON.stringify({
+    "pbc.json": JSON.stringify({
       projectId: "p1",
       kind: "frontends",
       environments: { staging: { id: "fe2", name: "s" } },
@@ -281,7 +281,30 @@ Deno.test("an inferred block is written to the base, not to the environment", as
     environment: "staging",
     log: noop,
   });
-  const own = await readOwnPbJson(cwd);
+  const own = await readOwnLinkFile(cwd);
   assertEquals(own.build?.outputDir, "dist");
   assertEquals(own.environments?.staging.build, undefined);
+});
+
+Deno.test("a pb.json directory is told to edit pb.json, not pbc.json", async () => {
+  const cwd = await Deno.makeTempDir();
+  try {
+    await Deno.writeTextFile(
+      join(cwd, "pb.json"),
+      JSON.stringify({ projectId: "p1", kind: "frontends" }),
+    );
+    await Deno.writeTextFile(join(cwd, "index.html"), "<h1>hi</h1>");
+    const logs: string[] = [];
+    await resolveBuildConfig({
+      cwd,
+      kind: "frontends",
+      flags: {},
+      log: (m) => logs.push(m),
+    });
+    const said = logs.join("\n");
+    assertStringIncludes(said, "pb.json");
+    assertEquals(said.includes("pbc.json"), false);
+  } finally {
+    await Deno.remove(cwd, { recursive: true });
+  }
 });

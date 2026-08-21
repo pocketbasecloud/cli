@@ -89,7 +89,9 @@ function harness(opts: {
     },
     stat: (p) =>
       Promise.resolve(
-        existing.has(p) || files.has(p) ? { isFile: true } : null,
+        existing.has(p) || files.has(p) || texts.has(p)
+          ? { isFile: true }
+          : null,
       ),
     remove: (p) => {
       ops.push(`remove:${p}`);
@@ -184,7 +186,7 @@ Deno.test("installBinary reports a 404 as an unknown version", async () => {
     CliError,
   );
   assertEquals((e as CliError).exitCode, 2);
-  assertEquals((e as Error).message.includes("pb versions"), true);
+  assertEquals((e as Error).message.includes("pbc versions"), true);
 });
 
 Deno.test("installBinary skips an existing binary without --force", async () => {
@@ -232,10 +234,10 @@ Deno.test("installBinary names the windows binary pocketbase.exe", async () => {
   assertEquals(res.path, "/work/pocketbase.exe");
 });
 
-Deno.test("pinVersion creates pb.json when absent", async () => {
+Deno.test("pinVersion creates pbc.json when absent", async () => {
   const h = harness({});
   await pinVersion(h.deps, "/work", "0.39.9");
-  assertEquals(JSON.parse(h.texts.get("/work/pb.json")!), {
+  assertEquals(JSON.parse(h.texts.get("/work/pbc.json")!), {
     pocketbaseVersion: "0.39.9",
   });
 });
@@ -243,7 +245,7 @@ Deno.test("pinVersion creates pb.json when absent", async () => {
 Deno.test("pinVersion preserves an existing cloud link", async () => {
   const h = harness({});
   h.texts.set(
-    "/work/pb.json",
+    "/work/pbc.json",
     JSON.stringify({
       projectId: "p1",
       kind: "pocketbases",
@@ -251,7 +253,7 @@ Deno.test("pinVersion preserves an existing cloud link", async () => {
     }),
   );
   await pinVersion(h.deps, "/work", "0.39.9");
-  assertEquals(JSON.parse(h.texts.get("/work/pb.json")!), {
+  assertEquals(JSON.parse(h.texts.get("/work/pbc.json")!), {
     projectId: "p1",
     kind: "pocketbases",
     environments: { production: { id: "pb1", name: "main" } },
@@ -261,19 +263,22 @@ Deno.test("pinVersion preserves an existing cloud link", async () => {
 
 Deno.test("pinVersion replaces an older pin", async () => {
   const h = harness({});
-  h.texts.set("/work/pb.json", JSON.stringify({ pocketbaseVersion: "0.34.2" }));
+  h.texts.set(
+    "/work/pbc.json",
+    JSON.stringify({ pocketbaseVersion: "0.34.2" }),
+  );
   await pinVersion(h.deps, "/work", "0.39.9");
   assertEquals(
-    JSON.parse(h.texts.get("/work/pb.json")!).pocketbaseVersion,
+    JSON.parse(h.texts.get("/work/pbc.json")!).pocketbaseVersion,
     "0.39.9",
   );
 });
 
-Deno.test("pinVersion overwrites unparseable pb.json rather than failing", async () => {
+Deno.test("pinVersion overwrites unparseable pbc.json rather than failing", async () => {
   const h = harness({});
-  h.texts.set("/work/pb.json", "{ this is not json");
+  h.texts.set("/work/pbc.json", "{ this is not json");
   await pinVersion(h.deps, "/work", "0.39.9");
-  assertEquals(JSON.parse(h.texts.get("/work/pb.json")!), {
+  assertEquals(JSON.parse(h.texts.get("/work/pbc.json")!), {
     pocketbaseVersion: "0.39.9",
   });
 });
@@ -281,8 +286,23 @@ Deno.test("pinVersion overwrites unparseable pb.json rather than failing", async
 Deno.test("readPin returns the pin, or null when there is none", async () => {
   const h = harness({});
   assertEquals(await readPin(h.deps, "/work"), null);
-  h.texts.set("/work/pb.json", JSON.stringify({ pocketbaseVersion: "0.39.9" }));
+  h.texts.set(
+    "/work/pbc.json",
+    JSON.stringify({ pocketbaseVersion: "0.39.9" }),
+  );
   assertEquals(await readPin(h.deps, "/work"), "0.39.9");
-  h.texts.set("/work/pb.json", JSON.stringify({ projectId: "p1" }));
+  h.texts.set("/work/pbc.json", JSON.stringify({ projectId: "p1" }));
   assertEquals(await readPin(h.deps, "/work"), null);
+});
+
+Deno.test("pinVersion writes into a pre-0.6.0 pb.json rather than beside it", async () => {
+  const h = harness({});
+  h.texts.set("/work/pb.json", JSON.stringify({ projectId: "p1" }));
+  await pinVersion(h.deps, "/work", "0.39.9");
+  assertEquals(JSON.parse(h.texts.get("/work/pb.json")!), {
+    projectId: "p1",
+    pocketbaseVersion: "0.39.9",
+  });
+  assertEquals(h.texts.has("/work/pbc.json"), false);
+  assertEquals(await readPin(h.deps, "/work"), "0.39.9");
 });

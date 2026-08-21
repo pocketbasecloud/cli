@@ -13,15 +13,15 @@ error messages, and stuck provisioning.
 
 ```bash
 # Get a token: either login in a browser, or copy one from the portal
-export PB_TOKEN="<your-token>"
+export PBC_TOKEN="<your-token>"
 
 # Run all smoke tests (against PROD)
 deno task test:e2e
 
 # Run against QA — these override the CLI's hardcoded production hosts
-export PB_BACKEND_URL="https://qa-backend.pocketbasecloud.com"
-export PB_EXT_URL="https://qa-ext.pocketbasecloud.com"
-export PB_PORTAL_URL="https://qa-portal.pocketbasecloud.com/login"
+export PBC_BACKEND_URL="https://qa-backend.pocketbasecloud.com"
+export PBC_EXT_URL="https://qa-ext.pocketbasecloud.com"
+export PBC_PORTAL_URL="https://qa-portal.pocketbasecloud.com/login"
 deno task test:e2e
 
 # Run a single file
@@ -50,4 +50,4 @@ support the operation.
 ## Cleanup
 
 Every test cleans up resources it creates. If a run crashes, resources may
-leak. Run `pb cloud <kind> ls --json` to check and delete manually.
+leak. Run `pbc cloud <kind> ls --json` to check and delete manually.

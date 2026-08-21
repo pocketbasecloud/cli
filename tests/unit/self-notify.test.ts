@@ -63,7 +63,7 @@ Deno.test("suppressed keeps quiet where a notice would be noise", () => {
   assertEquals(suppressed(["cloud", "pb", "ls"], tty), false);
   // --json is parsed by something; an extra line would corrupt it.
   assertEquals(suppressed(["cloud", "pb", "ls", "--json"], tty), true);
-  // `pb upgrade` prints both versions itself.
+  // `pbc upgrade` prints both versions itself.
   assertEquals(suppressed(["upgrade", "--check"], tty), true);
   assertEquals(
     suppressed(["cloud", "pb", "ls"], {
@@ -81,7 +81,7 @@ Deno.test("suppressed keeps quiet where a notice would be noise", () => {
   );
   assertEquals(
     suppressed(["cloud", "pb", "ls"], {
-      env: (k) => (k === "PB_NO_UPDATE_CHECK" ? "1" : undefined),
+      env: (k) => (k === "PBC_NO_UPDATE_CHECK" ? "1" : undefined),
       isTTY: () => true,
     }),
     true,
@@ -92,7 +92,7 @@ Deno.test("suppression reads the parse, not the raw argv", () => {
   const tty = { env: () => undefined, isTTY: () => true };
   // A global flag ahead of it still leaves `upgrade` the command being run,
   // which scanning argv[0] missed — and the stutter it produced was the whole
-  // reason `pb upgrade` is on the list.
+  // reason `pbc upgrade` is on the list.
   assertEquals(suppressed(["--profile", "work", "upgrade"], tty), true);
   // ...while "upgrade" as a flag's *value* is not the command.
   assertEquals(
@@ -118,7 +118,7 @@ Deno.test("suppression reads the parse, not the raw argv", () => {
 });
 
 Deno.test("notice names the command that works for the install", () => {
-  assertStringIncludes(notice("9.9.9", "/usr/local/bin/pb"), "pb upgrade");
+  assertStringIncludes(notice("9.9.9", "/usr/local/bin/pb"), "pbc upgrade");
   assertStringIncludes(
     notice("9.9.9", "/x/node_modules/@pocketbasecloud/cli-linux-x64/bin/pb"),
     "npm i -g @pocketbasecloud/cli@latest",

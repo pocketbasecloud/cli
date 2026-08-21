@@ -9,7 +9,7 @@ export function makeInstanceAuthCommands(
 ): Record<string, Handler> {
   const use: Handler = async (ctx: CmdCtx) => {
     const url = ctx.args[0] ?? (ctx.raw.url as string | undefined);
-    if (!url) throw new CliError("Usage: pb use <url> [--name <profile>]", 2);
+    if (!url) throw new CliError("Usage: pbc use <url> [--name <profile>]", 2);
     const name = (ctx.raw.name as string) ?? hostnameOf(url);
     const config = await deps.loadConfig();
     const existing = config.profiles[name];
@@ -33,7 +33,7 @@ export function makeInstanceAuthCommands(
     const config = await deps.loadConfig();
     const name = activeProfileName(config, ctx.flags.profile);
     if (!name || !config.profiles[name]) {
-      throw new CliError("No instance selected. Run `pb use <url>` first.", 2);
+      throw new CliError("No instance selected. Run `pbc use <url>` first.", 2);
     }
     const profile = config.profiles[name];
     const email = (ctx.raw.email as string) ??
@@ -77,7 +77,7 @@ export function makeInstanceAuthCommands(
     const config = await deps.loadConfig();
     const name = activeProfileName(config, ctx.flags.profile);
     if (!name || !config.profiles[name]) {
-      throw new CliError("No instance selected. Run `pb use <url>`.", 2);
+      throw new CliError("No instance selected. Run `pbc use <url>`.", 2);
     }
     const profile = config.profiles[name];
     const authed = profile.superuserToken.length > 0;

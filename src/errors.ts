@@ -185,7 +185,7 @@ export async function httpError(
   const body = await res.json().catch(() => null);
   const reason = reasonFrom(body) ??
     (res.status === 401
-      ? "not authenticated — run `pb cloud login`"
+      ? "not authenticated — run `pbc cloud login`"
       : res.status === 403
       ? "permission denied"
       : undefined);

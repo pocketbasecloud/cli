@@ -1,5 +1,5 @@
 name: "Deploy to PocketBase Cloud"
-description: "Deploy a PocketBase instance, backend, or static site to PocketBase Cloud with the pb CLI."
+description: "Deploy a PocketBase instance, backend, or static site to PocketBase Cloud with the pbc CLI."
 author: "PocketBase Cloud"
 
 branding:
@@ -10,16 +10,16 @@ inputs:
   token:
     description: >-
       A PocketBase Cloud access token. Copy it from the portal's Account page,
-      store it as a repository secret named PB_TOKEN, and pass that secret in.
+      store it as a repository secret named PBC_TOKEN, and pass that secret in.
     required: true
   kind:
     description: >-
       What to deploy: auto, pb, frontend, or backend. auto lets the CLI decide
-      from pb.json and the directory's contents.
+      from pbc.json and the directory's contents.
     required: false
     default: "auto"
   working-directory:
-    description: "The directory holding pb.json. Defaults to the repository root."
+    description: "The directory holding pbc.json. Defaults to the repository root."
     required: false
     default: "."
   cli-version:
@@ -28,17 +28,17 @@ inputs:
       action shipped with; pinning both together is the point of the tag.
     required: false
     # Must equal VERSION in src/version.ts — tests/unit/action.test.ts enforces it.
-    default: "0.5.0"
+    default: "0.6.0"
   project:
-    description: "Project name or id. Only needed when pb.json is not committed."
+    description: "Project name or id. Only needed when pbc.json is not committed."
     required: false
     default: ""
   name:
-    description: "Resource name. Only needed when pb.json does not name one."
+    description: "Resource name. Only needed when pbc.json does not name one."
     required: false
     default: ""
   env:
-    description: "pb.json environment to deploy. Defaults to the file's defaultEnvironment."
+    description: "pbc.json environment to deploy. Defaults to the file's defaultEnvironment."
     required: false
     default: ""
   compute:
@@ -46,7 +46,7 @@ inputs:
     required: false
     default: ""
   location:
-    description: "Region code for a first deploy. Run 'pb cloud locations' to list them."
+    description: "Region code for a first deploy. Run 'pbc cloud locations' to list them."
     required: false
     default: ""
   skip-build:
@@ -77,7 +77,7 @@ outputs:
     description: "pb, frontend, or backend — resolved when the input was auto."
     value: ${{ steps.result.outputs.kind }}
   environment:
-    description: "The pb.json environment that was deployed."
+    description: "The pbc.json environment that was deployed."
     value: ${{ steps.result.outputs.environment }}
 
 runs:
@@ -89,20 +89,20 @@ runs:
     - name: Preflight
       shell: bash
       env:
-        PB_TOKEN: ${{ inputs.token }}
-        PB_KIND: ${{ inputs.kind }}
+        PBC_TOKEN: ${{ inputs.token }}
+        PBC_KIND: ${{ inputs.kind }}
       run: |
         set -euo pipefail
-        if [ -z "${PB_TOKEN}" ]; then
+        if [ -z "${PBC_TOKEN}" ]; then
           echo "::error::No token. Set 'token' to a repository secret holding a PocketBase Cloud access token (portal -> Account -> CLI access token). GitHub does not pass secrets to pull_request jobs from a fork, so those runs always see an empty value."
           exit 4
         fi
-        case "${PB_KIND}" in
+        case "${PBC_KIND}" in
           auto|pb|frontend|backend) ;;
-          *) echo "::error::kind must be one of: auto, pb, frontend, backend (got '${PB_KIND}')."; exit 2 ;;
+          *) echo "::error::kind must be one of: auto, pb, frontend, backend (got '${PBC_KIND}')."; exit 2 ;;
         esac
         if ! command -v node >/dev/null 2>&1; then
-          echo "::error::Node is not on PATH. This action installs the pb CLI from npm; add actions/setup-node before it."
+          echo "::error::Node is not on PATH. This action installs the pbc CLI from npm; add actions/setup-node before it."
           exit 1
         fi
         major="$(node -p 'process.versions.node.split(".")[0]')"
@@ -113,14 +113,14 @@ runs:
 
     # Pinned on purpose: an unpinned install makes every run depend on whatever
     # was published that morning.
-    - name: Install pb
+    - name: Install pbc
       shell: bash
       env:
-        PB_CLI_VERSION: ${{ inputs.cli-version }}
+        PBC_CLI_VERSION: ${{ inputs.cli-version }}
       run: |
         set -euo pipefail
-        npm i -g "@pocketbasecloud/cli@${PB_CLI_VERSION}"
-        pb --version
+        npm i -g "@pocketbasecloud/cli@${PBC_CLI_VERSION}"
+        pbc --version
 
     # The cheapest possible check, and it runs before the build: a missing or
     # expired token fails here in a second rather than after a five-minute
@@ -129,39 +129,39 @@ runs:
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
-        PB_TOKEN: ${{ inputs.token }}
-      run: pb cloud whoami --json > /dev/null
+        PBC_TOKEN: ${{ inputs.token }}
+      run: pbc cloud whoami --json > /dev/null
 
     - name: Deploy
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
-        PB_TOKEN: ${{ inputs.token }}
-        PB_KIND: ${{ inputs.kind }}
-        PB_PROJECT: ${{ inputs.project }}
-        PB_NAME: ${{ inputs.name }}
-        PB_ENVIRONMENT: ${{ inputs.env }}
-        PB_COMPUTE: ${{ inputs.compute }}
-        PB_LOCATION: ${{ inputs.location }}
-        PB_SKIP_BUILD: ${{ inputs.skip-build }}
-        PB_EXTRA_ARGS: ${{ inputs.args }}
+        PBC_TOKEN: ${{ inputs.token }}
+        PBC_KIND: ${{ inputs.kind }}
+        PBC_PROJECT: ${{ inputs.project }}
+        PBC_NAME: ${{ inputs.name }}
+        PBC_ENVIRONMENT: ${{ inputs.env }}
+        PBC_COMPUTE: ${{ inputs.compute }}
+        PBC_LOCATION: ${{ inputs.location }}
+        PBC_SKIP_BUILD: ${{ inputs.skip-build }}
+        PBC_EXTRA_ARGS: ${{ inputs.args }}
       run: |
         set -euo pipefail
         argv=(cloud)
-        if [ "${PB_KIND}" = "auto" ]; then
+        if [ "${PBC_KIND}" = "auto" ]; then
           argv+=(deploy)
         else
-          argv+=("${PB_KIND}" deploy)
+          argv+=("${PBC_KIND}" deploy)
         fi
-        if [ -n "${PB_PROJECT}" ]; then argv+=(--project "${PB_PROJECT}"); fi
-        if [ -n "${PB_NAME}" ]; then argv+=(--name "${PB_NAME}"); fi
-        if [ -n "${PB_ENVIRONMENT}" ]; then argv+=(--env "${PB_ENVIRONMENT}"); fi
-        if [ -n "${PB_COMPUTE}" ]; then argv+=(--compute "${PB_COMPUTE}"); fi
-        if [ -n "${PB_LOCATION}" ]; then argv+=(--location "${PB_LOCATION}"); fi
-        if [ "${PB_SKIP_BUILD}" = "true" ]; then argv+=(--skip-build); fi
-        if [ -n "${PB_EXTRA_ARGS}" ]; then
+        if [ -n "${PBC_PROJECT}" ]; then argv+=(--project "${PBC_PROJECT}"); fi
+        if [ -n "${PBC_NAME}" ]; then argv+=(--name "${PBC_NAME}"); fi
+        if [ -n "${PBC_ENVIRONMENT}" ]; then argv+=(--env "${PBC_ENVIRONMENT}"); fi
+        if [ -n "${PBC_COMPUTE}" ]; then argv+=(--compute "${PBC_COMPUTE}"); fi
+        if [ -n "${PBC_LOCATION}" ]; then argv+=(--location "${PBC_LOCATION}"); fi
+        if [ "${PBC_SKIP_BUILD}" = "true" ]; then argv+=(--skip-build); fi
+        if [ -n "${PBC_EXTRA_ARGS}" ]; then
           # `xargs` honours quoting, so --name "My Site" stays one argument.
-          # A bare `read -a` splits on whitespace alone and would hand pb the
+          # A bare `read -a` splits on whitespace alone and would hand pbc the
           # three tokens --name, "My and Site". Not `eval`: this value can come
           # from a workflow expression, and eval would run what is inside it.
           #
@@ -169,7 +169,7 @@ runs:
           # substitution's exit status is not the shell's, so an unbalanced
           # quote left xargs dead after emitting a partial list and the deploy
           # ran on it — `--name` swallowing the next flag as its value.
-          if ! split="$(printf '%s' "${PB_EXTRA_ARGS}" | xargs -n1 printf '%s\n')"; then
+          if ! split="$(printf '%s' "${PBC_EXTRA_ARGS}" | xargs -n1 printf '%s\n')"; then
             echo "::error::Could not read 'args' — check that its quotes are balanced."
             exit 2
           fi
@@ -180,7 +180,7 @@ runs:
         argv+=(--no-input --json)
         # Redirect, never pipe: in a pipeline $? is the *last* command's status,
         # so a failed deploy piped anywhere would report success.
-        pb "${argv[@]}" > "${RUNNER_TEMP}/pb-deploy.json"
+        pbc "${argv[@]}" > "${RUNNER_TEMP}/pbc-deploy.json"
 
     # Masks first, then reads. A PocketBase deploy's record carries
     # adminUsername/adminPassword, and GitHub only hides values it has been
@@ -189,12 +189,12 @@ runs:
       id: result
       shell: bash
       env:
-        PB_KIND: ${{ inputs.kind }}
-      run: node "${GITHUB_ACTION_PATH}/summarize.mjs" "${RUNNER_TEMP}/pb-deploy.json"
+        PBC_KIND: ${{ inputs.kind }}
+      run: node "${GITHUB_ACTION_PATH}/summarize.mjs" "${RUNNER_TEMP}/pbc-deploy.json"
 
     # The deploy record never outlives the job, so no later upload-artifact
     # step can carry it out of here.
     - name: Remove the deploy record
       if: always()
       shell: bash
-      run: rm -f "${RUNNER_TEMP}/pb-deploy.json"
+      run: rm -f "${RUNNER_TEMP}/pbc-deploy.json"

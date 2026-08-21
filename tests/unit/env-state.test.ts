@@ -14,11 +14,11 @@ const statePath = () => join(Deno.makeTempDirSync(), "env-state.json");
 Deno.test("the state file sits beside the config", () => {
   assertEquals(
     envStatePath({ XDG_CONFIG_HOME: "/x/cfg" }),
-    join("/x/cfg", "pb", "env-state.json"),
+    join("/x/cfg", "pbc", "env-state.json"),
   );
   assertEquals(
     envStatePath({ HOME: "/home/t" }),
-    join("/home/t", ".config", "pb", "env-state.json"),
+    join("/home/t", ".config", "pbc", "env-state.json"),
   );
 });
 

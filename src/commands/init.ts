@@ -2,7 +2,8 @@ import type { CmdCtx, Handler } from "../router.ts";
 import type { ResourceKind } from "../clients/types.ts";
 import { CliError } from "../errors.ts";
 import {
-  readOwnPbJson,
+  linkFileName,
+  readOwnLinkFile,
   setDefaultEnvironment,
   upsertBuildConfig,
 } from "../config.ts";
@@ -14,7 +15,7 @@ import {
   resolveEnvironmentName,
 } from "../resolve/environment.ts";
 
-export const INIT_USAGE = "Usage: pb cloud init [pb|frontend|backend]";
+export const INIT_USAGE = "Usage: pbc cloud init [pb|frontend|backend]";
 
 /**
  * Writes the directory's `build` block without touching the cloud.
@@ -27,7 +28,7 @@ export function makeCloudInitCommands(
 ): Record<string, Handler> {
   const init: Handler = async (ctx: CmdCtx) => {
     const cwd = deps.cwd();
-    const own = await readOwnPbJson(cwd);
+    const own = await readOwnLinkFile(cwd);
 
     const token = ctx.args[0];
     let kind: ResourceKind | undefined;
@@ -44,7 +45,7 @@ export function makeCloudInitCommands(
     if (!kind) {
       throw new CliError(
         `This directory is not bound to a resource, so there is no kind to ` +
-          `infer for. ${INIT_USAGE}, or run \`pb cloud link\` first.`,
+          `infer for. ${INIT_USAGE}, or run \`pbc cloud link\` first.`,
         2,
       );
     }
@@ -53,7 +54,7 @@ export function makeCloudInitCommands(
       if (ctx.flags.json) {
         console.log(JSON.stringify({ build: own.build, written: false }));
       } else {
-        console.log(`pb.json already has a "build" block:`);
+        console.log(`${await linkFileName(cwd)} already has a "build" block:`);
         for (const line of describeBuild(own.build)) console.log(line);
         console.log(`Pass --force to re-infer it from the directory.`);
       }
@@ -76,8 +77,10 @@ export function makeCloudInitCommands(
       console.log(`Inferred the build config for this ${token ?? kind}:`);
       for (const line of describeBuild(build)) console.log(line);
       console.log(
-        `Wrote it to pb.json (environment: ${environment}). Edit it there, ` +
-          `then run deploy.`,
+        `Wrote it to ${await linkFileName(
+          cwd,
+        )} (environment: ${environment}). ` +
+          `Edit it there, then run deploy.`,
       );
     }
     return 0;

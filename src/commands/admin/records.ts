@@ -11,7 +11,7 @@ export function makeRecordsCommands(
     const collection = ctx.args[0];
     if (!collection) {
       throw new CliError(
-        "Usage: pb records ls <collection> [--filter] [--sort]",
+        "Usage: pbc records ls <collection> [--filter] [--sort]",
         2,
       );
     }
@@ -40,7 +40,7 @@ export function makeRecordsCommands(
   const get: Handler = async (ctx: CmdCtx) => {
     const [collection, id] = ctx.args;
     if (!collection || !id) {
-      throw new CliError("Usage: pb records get <collection> <id>", 2);
+      throw new CliError("Usage: pbc records get <collection> <id>", 2);
     }
     const { client } = await deps.requireAdmin();
     console.log(
@@ -53,7 +53,7 @@ export function makeRecordsCommands(
     const collection = ctx.args[0];
     const json = ctx.args[1] ?? (ctx.raw.data as string | undefined);
     if (!collection || !json) {
-      throw new CliError("Usage: pb records create <collection> '<json>'", 2);
+      throw new CliError("Usage: pbc records create <collection> '<json>'", 2);
     }
     const { client } = await deps.requireAdmin();
     const data = JSON.parse(json) as Record<string, unknown>;
@@ -67,7 +67,7 @@ export function makeRecordsCommands(
     const json = ctx.args[2] ?? (ctx.raw.data as string | undefined);
     if (!collection || !id || !json) {
       throw new CliError(
-        "Usage: pb records update <collection> <id> '<json>'",
+        "Usage: pbc records update <collection> <id> '<json>'",
         2,
       );
     }
@@ -81,7 +81,7 @@ export function makeRecordsCommands(
   const rm: Handler = async (ctx: CmdCtx) => {
     const [collection, id] = ctx.args;
     if (!collection || !id) {
-      throw new CliError("Usage: pb records rm <collection> <id>", 2);
+      throw new CliError("Usage: pbc records rm <collection> <id>", 2);
     }
     const { client } = await deps.requireAdmin();
     if (

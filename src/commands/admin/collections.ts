@@ -46,7 +46,7 @@ export function makeCollectionsCommands(
 
   const get: Handler = async (ctx: CmdCtx) => {
     const name = ctx.args[0];
-    if (!name) throw new CliError("Usage: pb collections get <idOrName>", 2);
+    if (!name) throw new CliError("Usage: pbc collections get <idOrName>", 2);
     const { client } = await deps.requireAdmin();
     console.log(JSON.stringify(await client.getCollection(name), null, 2));
     return 0;
@@ -56,8 +56,8 @@ export function makeCollectionsCommands(
     const arg = ctx.args[0] ?? (ctx.raw.data as string | undefined);
     if (!arg) {
       throw new CliError(
-        "Usage: pb collections create <name> [--type base|auth|view]\n" +
-          "       pb collections create '<json>'   (full definition, with fields)",
+        "Usage: pbc collections create <name> [--type base|auth|view]\n" +
+          "       pbc collections create '<json>'   (full definition, with fields)",
         2,
       );
     }
@@ -82,7 +82,10 @@ export function makeCollectionsCommands(
     const name = ctx.args[0];
     const json = ctx.args[1] ?? (ctx.raw.data as string | undefined);
     if (!name || !json) {
-      throw new CliError("Usage: pb collections update <idOrName> '<json>'", 2);
+      throw new CliError(
+        "Usage: pbc collections update <idOrName> '<json>'",
+        2,
+      );
     }
     const { client } = await deps.requireAdmin();
     const data = JSON.parse(json) as Record<string, unknown>;
@@ -93,7 +96,7 @@ export function makeCollectionsCommands(
 
   const rm: Handler = async (ctx: CmdCtx) => {
     const name = ctx.args[0];
-    if (!name) throw new CliError("Usage: pb collections rm <idOrName>", 2);
+    if (!name) throw new CliError("Usage: pbc collections rm <idOrName>", 2);
     const { client } = await deps.requireAdmin();
     if (
       !await confirm(`Delete collection ${name}? This drops its data.`, {
@@ -128,7 +131,7 @@ export function makeCollectionsCommands(
     const file = ctx.args[0];
     if (!file) {
       throw new CliError(
-        "Usage: pb collections import <file.json> [--delete-missing]",
+        "Usage: pbc collections import <file.json> [--delete-missing]",
         2,
       );
     }

@@ -207,28 +207,28 @@ Deno.test("a Bun server with no start script still detects as a backend", async 
 });
 
 // ===================================================================
-// The pb.json binding, which outranks every heuristic
+// The pbc.json binding, which outranks every heuristic
 // ===================================================================
 
 Deno.test("a bound directory is never re-guessed from its files", async () => {
   // The files say backend; the binding says the platform holds a frontend.
   const guess = await detectKind(dir({
     "deno.json": "{}",
-    "pb.json": JSON.stringify({
+    "pbc.json": JSON.stringify({
       projectId: "p1",
       kind: "frontends",
       environments: { production: { id: "f1", name: "web" } },
     }),
   }));
   assertEquals(guess?.kind, "frontends");
-  assertEquals(guess?.reason, "pb.json binds this directory");
+  assertEquals(guess?.reason, "pbc.json binds this directory");
 });
 
 Deno.test("a subdirectory of a bound project detects the binding above it", async () => {
   // resolveTarget walks up for the binding, so detection has to agree — or a
   // bare deploy in src/ would pick a different kind than the one it targets.
   const root = dir({
-    "pb.json": JSON.stringify({
+    "pbc.json": JSON.stringify({
       projectId: "p1",
       kind: "backends",
       environments: { production: { id: "b1", name: "api" } },
@@ -238,20 +238,20 @@ Deno.test("a subdirectory of a bound project detects the binding above it", asyn
   assertEquals((await detectKind(join(root, "src")))?.kind, "backends");
 });
 
-Deno.test("a pb.json holding a kind but no project is still authoritative", async () => {
-  // `pb cloud init frontend` records the kind before anything is deployed, so
+Deno.test("a pbc.json holding a kind but no project is still authoritative", async () => {
+  // `pbc cloud init frontend` records the kind before anything is deployed, so
   // readLinkFile (which requires projectId) returns nothing for it.
   const guess = await detectKind(dir({
     "deno.json": "{}",
-    "pb.json": JSON.stringify({ kind: "frontends" }),
+    "pbc.json": JSON.stringify({ kind: "frontends" }),
   }));
   assertEquals(guess?.kind, "frontends");
 });
 
-Deno.test("a pb.json with no kind does not stop detection", async () => {
+Deno.test("a pbc.json with no kind does not stop detection", async () => {
   assertEquals(
     await kindOf({
-      "pb.json": JSON.stringify({ pocketbaseVersion: "0.34.2" }),
+      "pbc.json": JSON.stringify({ pocketbaseVersion: "0.34.2" }),
       "vite.config.ts": "",
     }),
     "frontends",

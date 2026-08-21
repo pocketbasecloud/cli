@@ -1,7 +1,7 @@
 import type { CmdCtx, Handler } from "../router.ts";
 import type { CloudCmdDeps } from "./project.ts";
 import type { RemoveEnvResult } from "../config.ts";
-import { readOwnPbJson } from "../config.ts";
+import { readOwnLinkFile } from "../config.ts";
 import { printResult } from "../ui/output.ts";
 
 /**
@@ -30,10 +30,10 @@ export function reportRemoval(
 export function makeEnvironmentsCommands(
   deps: CloudCmdDeps,
 ): Record<string, Handler> {
-  // Reads pb.json only: what a directory deploys where is local knowledge, and
+  // Reads pbc.json only: what a directory deploys where is local knowledge, and
   // answering it should not need auth or a round trip.
   const ls: Handler = async (ctx: CmdCtx) => {
-    const file = await readOwnPbJson(deps.cwd());
+    const file = await readOwnLinkFile(deps.cwd());
     const rows = Object.entries(file.environments ?? {}).map(
       ([environment, entry]) => ({
         environment,
@@ -44,7 +44,7 @@ export function makeEnvironmentsCommands(
     );
     if (rows.length === 0 && !ctx.flags.json) {
       console.log(
-        "No environments in ./pb.json — deploy with --name to create one.",
+        "No environments in ./pbc.json — deploy with --name to create one.",
       );
       return 0;
     }

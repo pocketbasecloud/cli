@@ -101,8 +101,8 @@ export async function resolveLatest(deps: NetDeps): Promise<string> {
   if (source === "builtin" || versions.length === 0) {
     throw new CliError(
       "Could not reach the GitHub releases API, so `latest` cannot be resolved. " +
-        "Pass an explicit version, e.g. `pb install 0.39.9`, or see " +
-        "`pb versions` for the built-in list.",
+        "Pass an explicit version, e.g. `pbc install 0.39.9`, or see " +
+        "`pbc versions` for the built-in list.",
       1,
     );
   }

@@ -1,4 +1,13 @@
-import { hostMap, type Target, TARGETS } from "./targets.ts";
+import {
+  CLI_NAME,
+  hostMap,
+  LEGACY_CLI_NAME,
+  type Target,
+  TARGETS,
+} from "./targets.ts";
+
+/** The shim both command names point at. */
+export const SHIM_FILE = `${CLI_NAME}.js`;
 
 export function buildPlatformPackageJson(
   target: Target,
@@ -28,7 +37,13 @@ export function buildMainPackageJson(version: string): Record<string, unknown> {
     version,
     description: "CLI for PocketBase Cloud and local PocketBase development.",
     license: "MIT",
-    bin: { pb: "bin/pb.js" },
+    // Two names, one shim: `pbc` is the CLI's name, and `pb` is what it was
+    // called before 0.6.0. npm links both, so an existing `pb ...` script or
+    // CI step keeps working after an upgrade.
+    bin: {
+      [CLI_NAME]: `bin/${SHIM_FILE}`,
+      [LEGACY_CLI_NAME]: `bin/${SHIM_FILE}`,
+    },
     files: ["bin", "README.md"],
     engines: { node: ">=18" },
     optionalDependencies,
@@ -54,6 +69,8 @@ ${entries}
 
 const host = \`\${process.platform}-\${process.arch}\`;
 const suffix = PACKAGE_FOR_HOST[host];
+// The file inside the platform package, which is Target.binName and stays
+// \`pb\` — not the command name. This shim is what \`pbc\` and \`pb\` both run.
 const exe = process.platform === "win32" ? "pb.exe" : "pb";
 
 let bin;
@@ -62,19 +79,19 @@ try {
   bin = require.resolve(\`@pocketbasecloud/cli-\${suffix}/bin/\${exe}\`);
 } catch {
   console.error(
-    \`pb: no prebuilt binary for \${host}.\\n\\n\` +
+    \`${CLI_NAME}: no prebuilt binary for \${host}.\\n\\n\` +
       \`Supported platforms: \${Object.keys(PACKAGE_FOR_HOST).join(", ")}.\\n\` +
       \`If your platform is listed, the optional dependency was skipped — \` +
       \`reinstall without --no-optional / --ignore-optional.\\n\` +
       \`Otherwise run from source with Deno: \` +
-      \`deno install -A -n pb <repo>/cli/main.ts\`,
+      \`deno install -A -n pbc <repo>/cli/main.ts\`,
   );
   process.exit(1);
 }
 
 const r = spawnSync(bin, process.argv.slice(2), { stdio: "inherit" });
 if (r.error) {
-  console.error(\`pb: failed to run \${bin}: \${r.error.message}\`);
+  console.error(\`${CLI_NAME}: failed to run \${bin}: \${r.error.message}\`);
   process.exit(1);
 }
 // Re-raise a fatal signal so Ctrl-C behaves like the binary was run directly.

@@ -1,5 +1,5 @@
-// Per-command spec, used to render `pb <command> --help` (human) and
-// `pb <command> --help --json` / `pb --help --json` (machine-readable).
+// Per-command spec, used to render `pbc <command> --help` (human) and
+// `pbc <command> --help --json` / `pbc --help --json` (machine-readable).
 // Keys must match the command paths registered in src/commands/index.ts.
 
 export type ArgSpec = { name: string; required: boolean; description?: string };
@@ -21,19 +21,19 @@ export type CommandSpec = {
 export const COMMANDS: Record<string, CommandSpec> = {
   // Cloud account
   "cloud login": {
-    usage: "pb cloud login",
+    usage: "pbc cloud login",
     summary: "Log in to PocketBase Cloud via browser.",
     args: [],
     flags: [],
   },
   "cloud logout": {
-    usage: "pb cloud logout",
+    usage: "pbc cloud logout",
     summary: "Log out of PocketBase Cloud.",
     args: [],
     flags: [],
   },
   "cloud whoami": {
-    usage: "pb cloud whoami",
+    usage: "pbc cloud whoami",
     summary: "Show the logged-in PocketBase Cloud account.",
     args: [],
     flags: [],
@@ -41,34 +41,34 @@ export const COMMANDS: Record<string, CommandSpec> = {
 
   // Projects
   "cloud project ls": {
-    usage: "pb cloud project ls [--org <id>]",
+    usage: "pbc cloud project ls [--org <id>]",
     summary: "List projects.",
     args: [],
     flags: [{ name: "org", type: "string", required: false }],
   },
   "cloud project create": {
-    usage: "pb cloud project create <name>",
+    usage: "pbc cloud project create <name>",
     summary: "Create a project.",
     args: [{ name: "name", required: true }],
     flags: [],
   },
   "cloud project use": {
-    usage: "pb cloud project use <name|id>",
+    usage: "pbc cloud project use <name|id>",
     summary: "Set the current project.",
     args: [{ name: "name|id", required: true }],
     flags: [],
   },
   "cloud project rm": {
-    usage: "pb cloud project rm <name|id> [--yes]",
+    usage: "pbc cloud project rm <name|id> [--yes]",
     summary: "Delete a project.",
     args: [{ name: "name|id", required: true }],
     flags: [],
   },
   "cloud link": {
-    usage: "pb cloud link [<pb|frontend|backend>] [<name|id>]",
+    usage: "pbc cloud link [<pb|frontend|backend>] [<name|id>]",
     summary: "Link one environment of this directory to a cloud resource.",
     details:
-      "Records the resource in ./pb.json so deploy, info, rm, logs, and env\n" +
+      "Records the resource in ./pbc.json so deploy, info, rm, logs, and env\n" +
       "need no --name/--id when run here. Never creates or changes the cloud\n" +
       "resource itself.\n\n" +
       "With no arguments, pick from every resource in the project; with a kind\n" +
@@ -77,11 +77,11 @@ export const COMMANDS: Record<string, CommandSpec> = {
       "a terminal, a directory that names no environment yet is asked which\n" +
       "one to record, defaulting to production.\n\n" +
       "Link a second environment to give this directory a second target:\n" +
-      "  pb cloud link frontend web-staging --env staging\n\n" +
+      "  pbc cloud link frontend web-staging --env staging\n\n" +
       "For a pb or backend link, an environment with no envFile recorded yet is\n" +
       "also asked which dotenv file it uses (or none), the same question the\n" +
       "first deploy of that environment would ask — link only records the\n" +
-      "answer in pb.json, it never pushes. --env-file names one outright and\n" +
+      "answer in pbc.json, it never pushes. --env-file names one outright and\n" +
       "--skip-env asks nothing; both are no-ops once the environment already\n" +
       "has an answer recorded. Frontends have no env vars, so nothing is asked.",
     args: [
@@ -105,10 +105,10 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ],
   },
   "cloud unlink": {
-    usage: "pb cloud unlink [--all]",
+    usage: "pbc cloud unlink [--all]",
     summary: "Forget one of this directory's environments.",
     details:
-      "Clears the environment from ./pb.json only — the cloud resource is left\n" +
+      "Clears the environment from ./pbc.json only — the cloud resource is left\n" +
       "untouched, as are the file's projectId, build block, and\n" +
       "pocketbaseVersion. --all forgets every environment at once.",
     args: [],
@@ -120,32 +120,32 @@ export const COMMANDS: Record<string, CommandSpec> = {
     }],
   },
   "cloud environments": {
-    usage: "pb cloud environments",
-    summary: "List the environments recorded in ./pb.json.",
+    usage: "pbc cloud environments",
+    summary: "List the environments recorded in ./pbc.json.",
     details:
       "Shows which cloud resource each environment of this directory deploys\n" +
       "to, and which one a bare deploy targets. Reads the file only — no\n" +
       "login, no network call.\n\n" +
       "Environments are created by deploying or linking with --env:\n" +
-      "  pb cloud frontend deploy --env staging --name web-staging",
+      "  pbc cloud frontend deploy --env staging --name web-staging",
     args: [],
     flags: [],
   },
 
   "cloud deploy": {
-    usage: "pb cloud deploy [pb|frontend|backend] [<name>] [<deploy flags>]",
+    usage: "pbc cloud deploy [pb|frontend|backend] [<name>] [<deploy flags>]",
     summary: "Deploy this directory, detecting what kind of resource it is.",
     details:
       `Works out whether the directory holds a PocketBase instance, a static
-site, or a backend, then runs that kind's deploy — \`pb cloud pb deploy\`,
-\`pb cloud frontend deploy\`, or \`pb cloud backend deploy\`. Every flag those
+site, or a backend, then runs that kind's deploy — \`pbc cloud pb deploy\`,
+\`pbc cloud frontend deploy\`, or \`pbc cloud backend deploy\`. Every flag those
 commands accept works here and is passed straight through, and the deploy
 itself is identical: this command only makes the choice.
 
 The answer comes from the first of these that applies:
 
-  1. The "kind" recorded in pb.json, which a previous deploy or
-     \`pb cloud link\` wrote. A deployed directory is never re-guessed.
+  1. The "kind" recorded in pbc.json, which a previous deploy or
+     \`pbc cloud link\` wrote. A deployed directory is never re-guessed.
   2. A pb_hooks, pb_migrations, or pb_public directory — a PocketBase project.
   3. next.config.*, read for its "output": "export" builds a static site,
      anything else runs a Next.js server.
@@ -163,8 +163,8 @@ runs, so a wrong guess is visible rather than surprising.
 
 A leading kind word overrides the detection outright:
 
-  pb cloud deploy backend            # deploy as a backend, whatever is here
-  pb cloud deploy frontend web       # …and call the new resource "web"
+  pbc cloud deploy backend            # deploy as a backend, whatever is here
+  pbc cloud deploy frontend web       # …and call the new resource "web"
 
 When nothing in the directory points either way, you are asked on a terminal
 and get an error naming the three explicit commands under --no-input or
@@ -186,14 +186,14 @@ and get an error naming the three explicit commands under --no-input or
   },
 
   "cloud init": {
-    usage: "pb cloud init [pb|frontend|backend] [--force]",
-    summary: "Write this directory's build config into pb.json.",
+    usage: "pbc cloud init [pb|frontend|backend] [--force]",
+    summary: "Write this directory's build config into pbc.json.",
     details:
       `Inspects the directory and records how it should be built and packaged:
 the build command, the output directory, the backend runtime, or a
 PocketBase project's pb_public / pb_hooks / pb_migrations paths.
 
-Deploy infers the same block when pb.json has none, so this command is
+Deploy infers the same block when pbc.json has none, so this command is
 optional — it just lets you see and edit the guess before anything ships.
 Nothing in the cloud is touched, and no login is needed.
 
@@ -217,7 +217,7 @@ records it as the default, so the first deploy has nothing left to ask.`,
 
   "cloud ci init": {
     usage:
-      "pb cloud ci init [pb|frontend|backend] [--out <path>] [--branch <name>] [--force] [--env <name>]",
+      "pbc cloud ci init [pb|frontend|backend] [--out <path>] [--branch <name>] [--force] [--env <name>]",
     summary: "Write a GitHub Actions workflow that deploys this directory.",
     details:
       `Writes .github/workflows/deploy.yml (or deploy-<path>.yml, when this
@@ -226,13 +226,13 @@ using the official pocketbasecloud/cli/action. Nothing in the cloud is
 touched, and no login is needed — like \`cloud init\`, it only inspects the
 directory and the surrounding git repo.
 
-The kind comes from the argument, or from pb.json's existing binding. The
+The kind comes from the argument, or from pbc.json's existing binding. The
 branch defaults to the one currently checked out; --branch overrides it.
 --out picks a different file path. An existing file is left alone unless
 --force is passed.
 
 Prints the two remaining one-time steps: copying an access token from the
-portal's Account page, and adding it as a repository secret named PB_TOKEN.`,
+portal's Account page, and adding it as a repository secret named PBC_TOKEN.`,
     args: [{
       name: "kind",
       required: false,
@@ -264,8 +264,8 @@ portal's Account page, and adding it as a repository secret named PB_TOKEN.`,
         type: "string",
         required: false,
         description:
-          "pb.json environment to pin in the workflow. Only --env is " +
-          "written; PB_ENV is ignored, because the answer is committed.",
+          "pbc.json environment to pin in the workflow. Only --env is " +
+          "written; PBC_ENV is ignored, because the answer is committed.",
       },
     ],
   },
@@ -273,7 +273,7 @@ portal's Account page, and adding it as a repository secret named PB_TOKEN.`,
   // PocketBase instances (cloud-managed)
   "cloud pb create": {
     usage:
-      "pb cloud pb create [<name>] [--env <name>] [--location <loc>] [--compute <id>] [--admin-email <e>] [--admin-password <p>] [--pb-version <v>] [--project <id>]",
+      "pbc cloud pb create [<name>] [--env <name>] [--location <loc>] [--compute <id>] [--admin-email <e>] [--admin-password <p>] [--pb-version <v>] [--project <id>]",
     summary: "Create an empty PocketBase instance.",
     details: `Provisions a running instance with nothing deployed to it — no
 pb_public, pb_hooks or pb_migrations — and waits until it answers.
@@ -282,19 +282,19 @@ Nothing is built, packaged, or uploaded, and no env file is asked about. Use it
 to get a database from a script, from a directory that holds no project, or
 before there is anything to deploy.
 
-The new instance is recorded in this directory's pb.json, under the environment
+The new instance is recorded in this directory's pbc.json, under the environment
 this command targets, exactly as a deploy would record it — so the next
-\`pb cloud pb deploy\` here needs no --name:
+\`pbc cloud pb deploy\` here needs no --name:
 
-  pb cloud pb create my-app-db
-  pb cloud pb deploy              # ships this directory to it
+  pbc cloud pb create my-app-db
+  pbc cloud pb deploy              # ships this directory to it
 
 --env names the environment (default: production, or the file's own default).
 A directory bound to frontends or backends is refused, and so is an environment
 that already names an instance: repointing it would leave the old one with
 nothing pointing at it. Pass --env <other>, or run this somewhere else.
 
-\`pb cloud pb deploy\` also creates an instance when there is none yet, and
+\`pbc cloud pb deploy\` also creates an instance when there is none yet, and
 creates it bare when the directory holds none of the three directories — so
 this command is the explicit way to do the same thing when there is nothing to
 package.
@@ -302,11 +302,11 @@ package.
 The name comes from the argument or --name, and is asked for on a terminal
 (defaulting to the directory's name) when neither is given. A name already used
 by an instance in this project is refused rather than duplicated: redeploy that
-one with \`pb cloud pb deploy --name <name>\` instead.
+one with \`pbc cloud pb deploy --name <name>\` instead.
 
 The instance gets a superuser account — your account email, and a generated
 password printed once when it finishes (and readable afterwards with
-\`pb cloud pb info\`). Override either with --admin-email/--admin-password.
+\`pbc cloud pb info\`). Override either with --admin-email/--admin-password.
 
 The compute is chosen exactly as a deploy chooses it: on Pro, and in a project
 shared with an organization, the owner's compute is used, asked about when
@@ -330,7 +330,7 @@ starter plans the platform picks from its shared pool.`,
         type: "string",
         required: false,
         description:
-          "Which pb.json environment to record the instance under. Defaults " +
+          "Which pbc.json environment to record the instance under. Defaults " +
           "to the file's default, or production.",
       },
       {
@@ -368,17 +368,17 @@ starter plans the platform picks from its shared pool.`,
         type: "string",
         required: false,
         description:
-          "PocketBase release to install. Defaults to pocketbaseVersion in pb.json.",
+          "PocketBase release to install. Defaults to pocketbaseVersion in pbc.json.",
       },
     ],
   },
   "cloud pb deploy": {
     usage:
-      "pb cloud pb deploy [--name <name>] [--location <loc>] [--compute <id>] [--admin-email <e>] [--admin-password <p>] [--pb-version <v>] [--skip-env] [--project <id>]",
+      "pbc cloud pb deploy [--name <name>] [--location <loc>] [--compute <id>] [--admin-email <e>] [--admin-password <p>] [--pb-version <v>] [--skip-env] [--project <id>]",
     summary: "Create or redeploy a PocketBase instance.",
     details:
       `Packages pb_public, pb_hooks, and pb_migrations and ships them with the
-instance. Their locations come from the "build" block in pb.json, which
+instance. Their locations come from the "build" block in pbc.json, which
 is inferred from the directory and written there on the first deploy.
 
 A redeploy ships them too: the .js and .json files in pb_hooks go through the
@@ -392,12 +392,12 @@ and the deploy says which ones it skipped.
 
 None of the three directories is required. A directory that holds none of them
 still deploys: no archive is sent at all, a new instance is created empty, and
-the deploy says so rather than reporting a silent success. \`pb cloud pb create\`
+the deploy says so rather than reporting a silent success. \`pbc cloud pb create\`
 does the same thing without involving a directory.
 
 A new instance gets a superuser account: your account email, and a generated
 password printed once when the deploy finishes (and readable afterwards with
-\`pb cloud pb info\`). Override either with --admin-email/--admin-password.
+\`pbc cloud pb info\`). Override either with --admin-email/--admin-password.
 
 Each wait — installing, building, packaging, uploading, provisioning, waiting
 for the domain — is reported as its own step, with a spinner and the elapsed
@@ -407,14 +407,14 @@ under --json.
 Env vars are pushed only from the file you name — nothing is uploaded by
 default. Each environment has its own: the first deploy of an environment asks
 which dotenv file it uses (or none) and records the answer as envFile under
-that environment in pb.json, so it is asked once. --env-file names one outright
+that environment in pbc.json, so it is asked once. --env-file names one outright
 and is recorded the same way when the environment has none yet. Pushing merges,
 keeping cloud-only keys; --delete-missing removes them so the file is the whole
 truth, and --skip-env pushes nothing for this run. A file whose variables are
 unchanged since the last push is not uploaded again — pass --force-env to push
 it anyway, e.g. after editing the variables in the portal.
 
-With no --name and nothing bound in pb.json, deploy asks which instance to
+With no --name and nothing bound in pbc.json, deploy asks which instance to
 redeploy — or what to call a new one — the way it already asks which project
 to use. Pass --no-input (or --json) to get the usage error instead.
 
@@ -431,7 +431,7 @@ never moves an existing instance.`,
         type: "string",
         required: false,
         description:
-          "Which PocketBase to deploy. Asked for when omitted and pb.json has no binding.",
+          "Which PocketBase to deploy. Asked for when omitted and pbc.json has no binding.",
       },
       {
         name: "location",
@@ -468,7 +468,7 @@ never moves an existing instance.`,
         type: "string",
         required: false,
         description:
-          "PocketBase release to install. Defaults to pocketbaseVersion in pb.json.",
+          "PocketBase release to install. Defaults to pocketbaseVersion in pbc.json.",
       },
       {
         name: "skip-build",
@@ -481,14 +481,14 @@ never moves an existing instance.`,
         type: "boolean",
         required: false,
         description:
-          "Push no env vars for this run, whatever pb.json configures.",
+          "Push no env vars for this run, whatever pbc.json configures.",
       },
       {
         name: "env-file",
         type: "string",
         required: false,
         description:
-          "Dotenv file to push. Recorded in pb.json for this environment " +
+          "Dotenv file to push. Recorded in pbc.json for this environment " +
           "when it has none yet.",
       },
       {
@@ -513,13 +513,14 @@ never moves an existing instance.`,
     ],
   },
   "cloud pb ls": {
-    usage: "pb cloud pb ls [--project <id>]",
+    usage: "pbc cloud pb ls [--project <id>]",
     summary: "List PocketBase instances in a project.",
     args: [],
     flags: [],
   },
   "cloud pb info": {
-    usage: "pb cloud pb info (<name>|--name <name>|--id <id>) [--project <id>]",
+    usage:
+      "pbc cloud pb info (<name>|--name <name>|--id <id>) [--project <id>]",
     summary: "Show PocketBase instance details.",
     details: "Without --name/--id, a terminal offers a picker.",
     args: [{
@@ -533,7 +534,7 @@ never moves an existing instance.`,
     ],
   },
   "cloud pb rm": {
-    usage: "pb cloud pb rm (<name>|--name <name>|--id <id>) [--yes]",
+    usage: "pbc cloud pb rm (<name>|--name <name>|--id <id>) [--yes]",
     summary: "Delete a PocketBase instance.",
     details: "Without --name/--id, a terminal offers a picker.",
     args: [{
@@ -547,11 +548,11 @@ never moves an existing instance.`,
     ],
   },
   "cloud pb hooks push": {
-    usage: "pb cloud pb hooks push <dir> [--name <instance>] [--project <id>]",
+    usage: "pbc cloud pb hooks push <dir> [--name <instance>] [--project <id>]",
     summary: "Upload every .js and .json file in <dir> as a hook.",
     details:
       `Hooks belong to one PocketBase instance. Name it with --name/--id, or let
-the directory's pb.json binding pick it.
+the directory's pbc.json binding pick it.
 
 PocketBase itself only runs *.pb.js, but the plain .js and .json files beside
 them are uploaded too — a hook that requires a helper module or a data file
@@ -562,11 +563,11 @@ always the wrong one.`,
     flags: [{ name: "name", type: "string", required: false }],
   },
   "cloud pb hooks ls": {
-    usage: "pb cloud pb hooks ls [--name <instance>] [--project <id>]",
+    usage: "pbc cloud pb hooks ls [--name <instance>] [--project <id>]",
     summary: "List uploaded hook files.",
     details:
-      "Lists hooks uploaded with `pb cloud pb hooks push`. Hooks shipped\n" +
-      "inside a deploy archive (pb_hooks/ packaged by `pb cloud pb deploy`)\n" +
+      "Lists hooks uploaded with `pbc cloud pb hooks push`. Hooks shipped\n" +
+      "inside a deploy archive (pb_hooks/ packaged by `pbc cloud pb deploy`)\n" +
       "run on the instance but are not recorded here, so this can read empty\n" +
       "while hooks are live. Push them to manage them from the CLI.",
     args: [],
@@ -574,28 +575,28 @@ always the wrong one.`,
   },
   "cloud pb hooks rm": {
     usage:
-      "pb cloud pb hooks rm <filename> [--name <instance>] [--project <id>]",
+      "pbc cloud pb hooks rm <filename> [--name <instance>] [--project <id>]",
     summary: "Delete a hook file.",
     args: [{ name: "filename", required: true }],
     flags: [{ name: "name", type: "string", required: false }],
   },
   "cloud pb domain add": {
     usage:
-      "pb cloud pb domain add <domain> [--name <instance>] [--project <id>]",
+      "pbc cloud pb domain add <domain> [--name <instance>] [--project <id>]",
     summary: "Add a custom domain.",
     args: [{ name: "domain", required: true }],
     flags: [{ name: "name", type: "string", required: false }],
   },
   "cloud pb domain verify": {
     usage:
-      "pb cloud pb domain verify <domain> [--name <instance>] [--project <id>]",
+      "pbc cloud pb domain verify <domain> [--name <instance>] [--project <id>]",
     summary: "Verify a custom domain.",
     args: [{ name: "domain", required: true }],
     flags: [{ name: "name", type: "string", required: false }],
   },
   "cloud pb domain remove": {
     usage:
-      "pb cloud pb domain remove <domain> [--name <instance>] [--project <id>]",
+      "pbc cloud pb domain remove <domain> [--name <instance>] [--project <id>]",
     summary: "Remove a custom domain.",
     args: [{ name: "domain", required: true }],
     flags: [{ name: "name", type: "string", required: false }],
@@ -604,11 +605,11 @@ always the wrong one.`,
   // Frontends
   "cloud frontend deploy": {
     usage:
-      "pb cloud frontend deploy [--name <name>] [--skip-build] [--zip <file>] [--location <loc>] [--compute <id>]",
+      "pbc cloud frontend deploy [--name <name>] [--skip-build] [--zip <file>] [--location <loc>] [--compute <id>]",
     summary: "Build, package, and deploy a static site.",
     details:
       `Runs the build command, zips the output directory, and uploads it. Both
-come from the "build" block in pb.json, which is inferred from the directory
+come from the "build" block in pbc.json, which is inferred from the directory
 (vite/svelte/angular/next config, package.json build script) and written there
 on the first deploy.
 
@@ -628,9 +629,9 @@ bundle, so --env-file is rejected here.
 
 A site is served from an address the platform assigns and never changes:
 <id>.<compute>.pocketbasecloud.com. To put a domain of your own in front of it,
-use pb cloud frontend domain add.
+use pbc cloud frontend domain add.
 
-With no --name and nothing bound in pb.json, deploy asks which frontend to
+With no --name and nothing bound in pbc.json, deploy asks which frontend to
 redeploy — or what to call a new one — the way it already asks which project
 to use. Pass --no-input (or --json) to get the usage error instead.
 
@@ -647,7 +648,7 @@ an existing site.`,
         type: "string",
         required: false,
         description:
-          "Which frontend to deploy. Asked for when omitted and pb.json has no binding.",
+          "Which frontend to deploy. Asked for when omitted and pbc.json has no binding.",
       },
       {
         name: "zip",
@@ -680,13 +681,13 @@ an existing site.`,
     ],
   },
   "cloud frontend ls": {
-    usage: "pb cloud frontend ls [--project <id>]",
+    usage: "pbc cloud frontend ls [--project <id>]",
     summary: "List frontends.",
     args: [],
     flags: [],
   },
   "cloud frontend info": {
-    usage: "pb cloud frontend info (<name>|--name <name>|--id <id>)",
+    usage: "pbc cloud frontend info (<name>|--name <name>|--id <id>)",
     summary: "Show frontend details.",
     details: "Without --name/--id, a terminal offers a picker.",
     args: [{
@@ -700,7 +701,7 @@ an existing site.`,
     ],
   },
   "cloud frontend rm": {
-    usage: "pb cloud frontend rm (<name>|--name <name>|--id <id>) [--yes]",
+    usage: "pbc cloud frontend rm (<name>|--name <name>|--id <id>) [--yes]",
     summary: "Delete a frontend.",
     details: "Without --name/--id, a terminal offers a picker.",
     args: [{
@@ -714,21 +715,21 @@ an existing site.`,
     ],
   },
   "cloud frontend domain add": {
-    usage: "pb cloud frontend domain add <domain> --name <site>",
+    usage: "pbc cloud frontend domain add <domain> --name <site>",
     summary: "Add a custom domain.",
     details: "Without --name/--id, a terminal offers a picker.",
     args: [{ name: "domain", required: true }],
     flags: [{ name: "name", type: "string", required: true }],
   },
   "cloud frontend domain verify": {
-    usage: "pb cloud frontend domain verify <domain> --name <site>",
+    usage: "pbc cloud frontend domain verify <domain> --name <site>",
     summary: "Verify a custom domain.",
     details: "Without --name/--id, a terminal offers a picker.",
     args: [{ name: "domain", required: true }],
     flags: [{ name: "name", type: "string", required: true }],
   },
   "cloud frontend domain remove": {
-    usage: "pb cloud frontend domain remove <domain> --name <site>",
+    usage: "pbc cloud frontend domain remove <domain> --name <site>",
     summary: "Remove a custom domain.",
     details: "Without --name/--id, a terminal offers a picker.",
     args: [{ name: "domain", required: true }],
@@ -738,11 +739,11 @@ an existing site.`,
   // Backends
   "cloud backend deploy": {
     usage:
-      "pb cloud backend deploy [--name <name>] [--runtime <deno|bun|nodejs|nextjs>] [--start <cmd>] [--compute <id>] [--skip-env] [--zip <file>]",
+      "pbc cloud backend deploy [--name <name>] [--runtime <deno|bun|nodejs|nextjs>] [--start <cmd>] [--compute <id>] [--skip-env] [--zip <file>]",
     summary: "Build, package, and deploy a backend.",
     details:
       `Runs the build command and uploads the result. The runtime, build command,
-and output directory come from the "build" block in pb.json, inferred from the
+and output directory come from the "build" block in pbc.json, inferred from the
 directory (deno.json, bun.lockb, next.config.*, package.json) and written there
 on the first deploy.
 
@@ -764,7 +765,7 @@ for it, so deploy adds output: "standalone" to next.config.* before building
 assembles .next/standalone, .next/static, and public into the layout the
 runtime expects, defaulting the start command to "node server.js". A config
 that already sets output is left alone; output: "export" is a static site, so
-deploy it with "pb cloud frontend deploy" instead.
+deploy it with "pbc cloud frontend deploy" instead.
 
 Each wait — installing, building, packaging, uploading, provisioning, waiting
 for the domain — is reported as its own step, with a spinner and the elapsed
@@ -774,14 +775,14 @@ under --json.
 Env vars are pushed only from the file you name — nothing is uploaded by
 default. Each environment has its own: the first deploy of an environment asks
 which dotenv file it uses (or none) and records the answer as envFile under
-that environment in pb.json, so it is asked once. --env-file names one outright
+that environment in pbc.json, so it is asked once. --env-file names one outright
 and is recorded the same way when the environment has none yet. Pushing merges,
 keeping cloud-only keys; --delete-missing removes them so the file is the whole
 truth, and --skip-env pushes nothing for this run. A file whose variables are
 unchanged since the last push is not uploaded again — pass --force-env to push
 it anyway, e.g. after editing the variables in the portal.
 
-With no --name and nothing bound in pb.json, deploy asks which backend to
+With no --name and nothing bound in pbc.json, deploy asks which backend to
 redeploy — or what to call a new one — the way it already asks which project
 to use. Pass --no-input (or --json) to get the usage error instead.
 
@@ -797,14 +798,14 @@ outright. A redeploy never moves an existing backend.`,
         type: "string",
         required: false,
         description:
-          "Which backend to deploy. Asked for when omitted and pb.json has no binding.",
+          "Which backend to deploy. Asked for when omitted and pbc.json has no binding.",
       },
       {
         name: "runtime",
         type: "string",
         required: false,
         choices: ["deno", "bun", "nodejs", "nextjs"],
-        description: "Defaults to build.runtime in pb.json, else inferred.",
+        description: "Defaults to build.runtime in pbc.json, else inferred.",
       },
       { name: "start", type: "string", required: false },
       {
@@ -832,14 +833,14 @@ outright. A redeploy never moves an existing backend.`,
         type: "boolean",
         required: false,
         description:
-          "Push no env vars for this run, whatever pb.json configures.",
+          "Push no env vars for this run, whatever pbc.json configures.",
       },
       {
         name: "env-file",
         type: "string",
         required: false,
         description:
-          "Dotenv file to push. Recorded in pb.json for this environment " +
+          "Dotenv file to push. Recorded in pbc.json for this environment " +
           "when it has none yet.",
       },
       {
@@ -858,13 +859,13 @@ outright. A redeploy never moves an existing backend.`,
     ],
   },
   "cloud backend ls": {
-    usage: "pb cloud backend ls [--project <id>]",
+    usage: "pbc cloud backend ls [--project <id>]",
     summary: "List backends.",
     args: [],
     flags: [],
   },
   "cloud backend info": {
-    usage: "pb cloud backend info (<name>|--name <name>|--id <id>)",
+    usage: "pbc cloud backend info (<name>|--name <name>|--id <id>)",
     summary: "Show backend details.",
     details: "Without --name/--id, a terminal offers a picker.",
     args: [{
@@ -878,7 +879,7 @@ outright. A redeploy never moves an existing backend.`,
     ],
   },
   "cloud backend rm": {
-    usage: "pb cloud backend rm (<name>|--name <name>|--id <id>) [--yes]",
+    usage: "pbc cloud backend rm (<name>|--name <name>|--id <id>) [--yes]",
     summary: "Delete a backend.",
     details: "Without --name/--id, a terminal offers a picker.",
     args: [{
@@ -894,7 +895,7 @@ outright. A redeploy never moves an existing backend.`,
 
   // Env vars
   "cloud env ls": {
-    usage: "pb cloud env ls --target pb|backend --name <n>",
+    usage: "pbc cloud env ls --target pb|backend --name <n>",
     summary: "List environment variables.",
     details:
       "Names only. The platform stores values encrypted and its list endpoint\n" +
@@ -913,7 +914,7 @@ outright. A redeploy never moves an existing backend.`,
     ],
   },
   "cloud env set": {
-    usage: "pb cloud env set KEY=VALUE --target pb|backend --name <n>",
+    usage: "pbc cloud env set KEY=VALUE --target pb|backend --name <n>",
     summary: "Set an environment variable.",
     details: "Without --name/--id, a terminal offers a picker.",
     args: [{ name: "KEY=VALUE", required: true }],
@@ -928,7 +929,7 @@ outright. A redeploy never moves an existing backend.`,
     ],
   },
   "cloud env rm": {
-    usage: "pb cloud env rm KEY --target pb|backend --name <n>",
+    usage: "pbc cloud env rm KEY --target pb|backend --name <n>",
     summary: "Remove an environment variable.",
     details: "Without --name/--id, a terminal offers a picker.",
     args: [{ name: "KEY", required: true }],
@@ -944,7 +945,7 @@ outright. A redeploy never moves an existing backend.`,
   },
   "cloud env import": {
     usage:
-      "pb cloud env import <.env> --target pb|backend --name <n> [--delete-missing]",
+      "pbc cloud env import <.env> --target pb|backend --name <n> [--delete-missing]",
     summary: "Bulk-import variables from a .env file.",
     details:
       `Merges by default: keys in the file are written, keys only in the cloud
@@ -975,7 +976,7 @@ Without --name/--id, a terminal offers a picker.`,
   // Data
   "cloud data export": {
     usage:
-      "pb cloud data export [--name <instance>] [--out <file.zip>] [--project <id>]",
+      "pbc cloud data export [--name <instance>] [--out <file.zip>] [--project <id>]",
     summary: "Export a PocketBase instance's data.",
     details:
       `The platform builds the archive and hands back a link; the CLI downloads
@@ -987,7 +988,7 @@ it. Defaults to the file name the platform chose, in the current directory.`,
     ],
   },
   "cloud data import": {
-    usage: "pb cloud data import <file>",
+    usage: "pbc cloud data import <file>",
     summary: "Not implemented — use the portal's import dialog.",
     details:
       `The platform's import needs a target collection and a per-field mapping,
@@ -1000,7 +1001,7 @@ sending a request that cannot succeed.`,
   // Logs (cloud)
   "cloud logs": {
     usage:
-      "pb cloud logs <pb|backend> --name <n> [-f] [--lines <n>] [--project <id>]",
+      "pbc cloud logs <pb|backend> --name <n> [-f] [--lines <n>] [--project <id>]",
     summary: "Stream logs for a PocketBase instance or backend.",
     details:
       `Prints the last --lines entries (50 by default, 1000 max) and stops. With
@@ -1023,19 +1024,19 @@ Without --name/--id, a terminal offers a picker.`,
 
   // Compute
   "cloud compute ls": {
-    usage: "pb cloud compute ls",
+    usage: "pbc cloud compute ls",
     summary: "List the compute your account can deploy to.",
     details:
       "Compute is provisioned by the platform, not the CLI. This lists your\n" +
       "account's own dedicated compute — the ids `--compute <id>` accepts on a\n" +
       "deploy. The shared pool is not listed: on every plan except Pro the\n" +
       "platform picks from it by capacity and the flag is unnecessary.\n\n" +
-      "`pb cloud server ls` is the same command under its former name.",
+      "`pbc cloud server ls` is the same command under its former name.",
     args: [],
     flags: [],
   },
   "cloud server ls": {
-    usage: "pb cloud server ls",
+    usage: "pbc cloud server ls",
     summary:
       "List the compute your account can deploy to (alias of compute ls).",
     args: [],
@@ -1044,7 +1045,7 @@ Without --name/--id, a terminal offers a picker.`,
 
   // Locations
   "cloud locations": {
-    usage: "pb cloud locations [--project <id>]",
+    usage: "pbc cloud locations [--project <id>]",
     summary: "List the regions a deploy can actually land in.",
     details:
       "The regions of the shared platform pool for the plan a deploy is placed\n" +
@@ -1062,31 +1063,31 @@ Without --name/--id, a terminal offers a picker.`,
 
   // Orgs
   "cloud org ls": {
-    usage: "pb cloud org ls",
+    usage: "pbc cloud org ls",
     summary: "List organizations.",
     args: [],
     flags: [],
   },
   "cloud org create": {
-    usage: "pb cloud org create <name>",
+    usage: "pbc cloud org create <name>",
     summary: "Create an organization.",
     args: [{ name: "name", required: true }],
     flags: [],
   },
   "cloud org rm": {
-    usage: "pb cloud org rm <orgId> [--yes]",
+    usage: "pbc cloud org rm <orgId> [--yes]",
     summary: "Delete an organization.",
     args: [{ name: "orgId", required: true }],
     flags: [],
   },
   "cloud org members ls": {
-    usage: "pb cloud org members ls <orgId>",
+    usage: "pbc cloud org members ls <orgId>",
     summary: "List organization members.",
     args: [{ name: "orgId", required: true }],
     flags: [],
   },
   "cloud org members add": {
-    usage: "pb cloud org members add <orgId> <email>",
+    usage: "pbc cloud org members add <orgId> <email>",
     summary: "Add a member.",
     args: [{ name: "orgId", required: true }, {
       name: "email",
@@ -1095,7 +1096,7 @@ Without --name/--id, a terminal offers a picker.`,
     flags: [],
   },
   "cloud org members rm": {
-    usage: "pb cloud org members rm <orgId> <email>",
+    usage: "pbc cloud org members rm <orgId> <email>",
     summary: "Remove a member.",
     args: [{ name: "orgId", required: true }, {
       name: "email",
@@ -1104,7 +1105,7 @@ Without --name/--id, a terminal offers a picker.`,
     flags: [],
   },
   "cloud org share": {
-    usage: "pb cloud org share <project> (--org <id>|--none)",
+    usage: "pbc cloud org share <project> (--org <id>|--none)",
     summary: "Share a project with an org, or unshare it with --none.",
     args: [{ name: "project", required: true }],
     flags: [
@@ -1114,23 +1115,23 @@ Without --name/--id, a terminal offers a picker.`,
   },
 
   "cloud upgrade": {
-    usage: "pb cloud upgrade",
+    usage: "pbc cloud upgrade",
     summary: "Show the current plan and the upgrade link.",
-    details: "Upgrades your account's plan. To update the pb binary itself, " +
-      "see `pb upgrade`.",
+    details: "Upgrades your account's plan. To update the pbc binary itself, " +
+      "see `pbc upgrade`.",
     args: [],
     flags: [],
   },
 
   // Instance selection & auth
   "use": {
-    usage: "pb use <url> [--name <profile>]",
+    usage: "pbc use <url> [--name <profile>]",
     summary: "Select a PocketBase instance.",
     args: [{ name: "url", required: true }],
     flags: [{ name: "name", type: "string", required: false }],
   },
   "login": {
-    usage: "pb login [--email <e>] [--password <p>] [--profile <name>]",
+    usage: "pbc login [--email <e>] [--password <p>] [--profile <name>]",
     summary: "Log in as the instance superuser.",
     args: [],
     flags: [
@@ -1139,14 +1140,14 @@ Without --name/--id, a terminal offers a picker.`,
     ],
   },
   "logout": {
-    usage: "pb logout [--remove] [--profile <name>]",
+    usage: "pbc logout [--remove] [--profile <name>]",
     summary:
       "Log out of the current instance profile. --remove also forgets it.",
     args: [],
     flags: [{ name: "remove", type: "boolean", required: false }],
   },
   "whoami": {
-    usage: "pb whoami [--profile <name>]",
+    usage: "pbc whoami [--profile <name>]",
     summary: "Show the active instance profile.",
     args: [],
     flags: [],
@@ -1154,19 +1155,19 @@ Without --name/--id, a terminal offers a picker.`,
 
   // Collections
   "collections ls": {
-    usage: "pb collections ls",
+    usage: "pbc collections ls",
     summary: "List collections.",
     args: [],
     flags: [],
   },
   "collections get": {
-    usage: "pb collections get <idOrName>",
+    usage: "pbc collections get <idOrName>",
     summary: "Show a collection.",
     args: [{ name: "idOrName", required: true }],
     flags: [],
   },
   "collections create": {
-    usage: "pb collections create <name> [--type base|auth|view]",
+    usage: "pbc collections create <name> [--type base|auth|view]",
     summary: "Create a collection.",
     args: [{ name: "name", required: true }],
     flags: [{
@@ -1177,7 +1178,7 @@ Without --name/--id, a terminal offers a picker.`,
     }],
   },
   "collections update": {
-    usage: "pb collections update <idOrName> '<json>'",
+    usage: "pbc collections update <idOrName> '<json>'",
     summary: "Update a collection.",
     args: [{ name: "idOrName", required: true }, {
       name: "json",
@@ -1186,19 +1187,19 @@ Without --name/--id, a terminal offers a picker.`,
     flags: [],
   },
   "collections rm": {
-    usage: "pb collections rm <idOrName> [--yes]",
+    usage: "pbc collections rm <idOrName> [--yes]",
     summary: "Delete a collection.",
     args: [{ name: "idOrName", required: true }],
     flags: [],
   },
   "collections export": {
-    usage: "pb collections export [--out <file>]",
+    usage: "pbc collections export [--out <file>]",
     summary: "Export all collections to JSON.",
     args: [],
     flags: [{ name: "out", type: "string", required: false }],
   },
   "collections import": {
-    usage: "pb collections import <file.json> [--delete-missing]",
+    usage: "pbc collections import <file.json> [--delete-missing]",
     summary:
       "Import collections from JSON. --delete-missing drops collections not in the file.",
     args: [{ name: "file.json", required: true }],
@@ -1208,7 +1209,7 @@ Without --name/--id, a terminal offers a picker.`,
   // Records
   "records ls": {
     usage:
-      "pb records ls <collection> [--filter <expr>] [--sort <expr>] [--page <n>] [--per-page <n>]",
+      "pbc records ls <collection> [--filter <expr>] [--sort <expr>] [--page <n>] [--per-page <n>]",
     summary: "List records in a collection.",
     args: [{ name: "collection", required: true }],
     flags: [
@@ -1219,7 +1220,7 @@ Without --name/--id, a terminal offers a picker.`,
     ],
   },
   "records get": {
-    usage: "pb records get <collection> <id>",
+    usage: "pbc records get <collection> <id>",
     summary: "Show a record.",
     args: [{ name: "collection", required: true }, {
       name: "id",
@@ -1228,7 +1229,7 @@ Without --name/--id, a terminal offers a picker.`,
     flags: [],
   },
   "records create": {
-    usage: "pb records create <collection> '<json>'",
+    usage: "pbc records create <collection> '<json>'",
     summary: "Create a record.",
     args: [{ name: "collection", required: true }, {
       name: "json",
@@ -1237,7 +1238,7 @@ Without --name/--id, a terminal offers a picker.`,
     flags: [],
   },
   "records update": {
-    usage: "pb records update <collection> <id> '<json>'",
+    usage: "pbc records update <collection> <id> '<json>'",
     summary: "Update a record.",
     args: [
       { name: "collection", required: true },
@@ -1247,7 +1248,7 @@ Without --name/--id, a terminal offers a picker.`,
     flags: [],
   },
   "records rm": {
-    usage: "pb records rm <collection> <id> [--yes]",
+    usage: "pbc records rm <collection> <id> [--yes]",
     summary: "Delete a record.",
     args: [{ name: "collection", required: true }, {
       name: "id",
@@ -1258,14 +1259,14 @@ Without --name/--id, a terminal offers a picker.`,
 
   // Rules
   "rules get": {
-    usage: "pb rules get <collection>",
+    usage: "pbc rules get <collection>",
     summary: "Show API rules.",
     args: [{ name: "collection", required: true }],
     flags: [],
   },
   "rules set": {
     usage:
-      "pb rules set <collection> [--list-rule <expr>] [--view-rule <expr>] " +
+      "pbc rules set <collection> [--list-rule <expr>] [--view-rule <expr>] " +
       "[--create-rule <expr>] [--update-rule <expr>] [--delete-rule <expr>]",
     summary: "Update API rules. Pass 'null' as a value to clear a rule.",
     args: [{ name: "collection", required: true }],
@@ -1280,7 +1281,7 @@ Without --name/--id, a terminal offers a picker.`,
 
   // Auth collection config
   "auth": {
-    usage: "pb auth <collection> config [--set '<field>=<json>']",
+    usage: "pbc auth <collection> config [--set '<field>=<json>']",
     summary: "View or edit an auth collection's auth-related settings.",
     details:
       "Without --set, prints the current value of: authRule, manageRule, authAlert,\n" +
@@ -1289,17 +1290,17 @@ Without --name/--id, a terminal offers a picker.`,
       "without --set first if the field (e.g. oauth2.providers) already has content\n" +
       "you need to keep, and include it in the json you send.\n\n" +
       "Examples:\n" +
-      "  pb auth users config\n" +
-      '  pb auth users config --set \'passwordAuth={"enabled":true,"identityFields":["email"]}\'\n\n' +
+      "  pbc auth users config\n" +
+      '  pbc auth users config --set \'passwordAuth={"enabled":true,"identityFields":["email"]}\'\n\n' +
       '  Enable Google sign-in on the "users" collection (get clientId/clientSecret\n' +
       "  from a Google Cloud OAuth 2.0 Client ID, with authorized redirect URI\n" +
       "  <your-instance-url>/api/oauth2-redirect):\n" +
-      '    pb auth users config --set \'oauth2={"enabled":true,"providers":' +
+      '    pbc auth users config --set \'oauth2={"enabled":true,"providers":' +
       '[{"name":"google","clientId":"<GOOGLE_CLIENT_ID>.apps.googleusercontent.com",' +
       '"clientSecret":"<GOOGLE_CLIENT_SECRET>"}]}' + "'\n\n" +
       "  Add Google alongside an existing provider — include every provider you\n" +
       "  want to keep, since the json replaces the whole oauth2 field:\n" +
-      '    pb auth users config --set \'oauth2={"enabled":true,"providers":' +
+      '    pbc auth users config --set \'oauth2={"enabled":true,"providers":' +
       '[{"name":"github","clientId":"<GITHUB_CLIENT_ID>","clientSecret":"<GITHUB_CLIENT_SECRET>"},' +
       '{"name":"google","clientId":"<GOOGLE_CLIENT_ID>.apps.googleusercontent.com",' +
       '"clientSecret":"<GOOGLE_CLIENT_SECRET>"}]}' + "'",
@@ -1316,67 +1317,67 @@ Without --name/--id, a terminal offers a picker.`,
 
   // Settings
   "settings get": {
-    usage: "pb settings get",
+    usage: "pbc settings get",
     summary: "Show all instance settings.",
     args: [],
     flags: [],
   },
   "settings mail": {
-    usage: "pb settings mail",
+    usage: "pbc settings mail",
     summary: "Show SMTP settings.",
     args: [],
     flags: [],
   },
   "settings mail set": {
-    usage: "pb settings mail set '<json>'",
+    usage: "pbc settings mail set '<json>'",
     summary: "Update SMTP settings.",
     args: [{ name: "json", required: true }],
     flags: [],
   },
   "settings mail test": {
-    usage: "pb settings mail test <email>",
+    usage: "pbc settings mail test <email>",
     summary: "Send a test email.",
     args: [{ name: "email", required: true }],
     flags: [],
   },
   "settings s3": {
-    usage: "pb settings s3",
+    usage: "pbc settings s3",
     summary: "Show S3 storage settings.",
     args: [],
     flags: [],
   },
   "settings s3 set": {
-    usage: "pb settings s3 set '<json>'",
+    usage: "pbc settings s3 set '<json>'",
     summary: "Update S3 storage settings.",
     args: [{ name: "json", required: true }],
     flags: [],
   },
   "settings s3 test": {
-    usage: "pb settings s3 test",
+    usage: "pbc settings s3 test",
     summary: "Test the S3 connection.",
     args: [],
     flags: [],
   },
   "settings backup ls": {
-    usage: "pb settings backup ls",
+    usage: "pbc settings backup ls",
     summary: "List backups.",
     args: [],
     flags: [],
   },
   "settings backup create": {
-    usage: "pb settings backup create [<name>]",
+    usage: "pbc settings backup create [<name>]",
     summary: "Create a backup.",
     args: [{ name: "name", required: false }],
     flags: [],
   },
   "settings backup rm": {
-    usage: "pb settings backup rm <key> [--yes]",
+    usage: "pbc settings backup rm <key> [--yes]",
     summary: "Delete a backup.",
     args: [{ name: "key", required: true }],
     flags: [],
   },
   "settings backup download": {
-    usage: "pb settings backup download <key> [--out <file>]",
+    usage: "pbc settings backup download <key> [--out <file>]",
     summary: "Download a backup.",
     args: [{ name: "key", required: true }],
     flags: [{ name: "out", type: "string", required: false }],
@@ -1384,13 +1385,13 @@ Without --name/--id, a terminal offers a picker.`,
 
   // Cron
   "cron ls": {
-    usage: "pb cron ls",
+    usage: "pbc cron ls",
     summary: "List cron jobs.",
     args: [],
     flags: [],
   },
   "cron run": {
-    usage: "pb cron run <jobId>",
+    usage: "pbc cron run <jobId>",
     summary: "Run a cron job now.",
     args: [{ name: "jobId", required: true }],
     flags: [],
@@ -1398,12 +1399,12 @@ Without --name/--id, a terminal offers a picker.`,
 
   // Local PocketBase binary
   "init": {
-    usage: "pb init [<version>] [--dir <d>] [--force]",
+    usage: "pbc init [<version>] [--dir <d>] [--force]",
     summary: "Download a PocketBase binary and scaffold a local project.",
     details:
       "Downloads the binary for this OS and CPU, then creates pb_hooks/,\n" +
       "pb_migrations/, a README.md, .gitignore entries (which exclude the\n" +
-      "binary and pb_data/), and a pocketbaseVersion pin in pb.json. Existing\n" +
+      "binary and pb_data/), and a pocketbaseVersion pin in pbc.json. Existing\n" +
       "files are never overwritten. Omit <version> for the latest release;\n" +
       "--force re-downloads the binary only.\n\n" +
       "Start the instance afterwards with `./pocketbase serve`.",
@@ -1419,10 +1420,10 @@ Without --name/--id, a terminal offers a picker.`,
   },
   "install": {
     usage:
-      "pb install [<version>] [--dir <d>] [--force] [--os <o>] [--arch <a>]",
+      "pbc install [<version>] [--dir <d>] [--force] [--os <o>] [--arch <a>]",
     summary: "Download a PocketBase binary and record the version pin.",
     details:
-      "Like `pb init` without the scaffolding. --os/--arch override platform\n" +
+      "Like `pbc init` without the scaffolding. --os/--arch override platform\n" +
       "detection to fetch a build for another machine.\n\n" +
       "Start the instance afterwards with `./pocketbase serve`.",
     args: [{
@@ -1448,7 +1449,7 @@ Without --name/--id, a terminal offers a picker.`,
     ],
   },
   "versions": {
-    usage: "pb versions [--all] [--pre] [--json]",
+    usage: "pbc versions [--all] [--pre] [--json]",
     summary: "List available PocketBase versions.",
     details:
       "Reads the live GitHub releases. Shows the 20 newest by semver; --all\n" +
@@ -1461,7 +1462,7 @@ Without --name/--id, a terminal offers a picker.`,
     ],
   },
   "which": {
-    usage: "pb which [--dir <d>]",
+    usage: "pbc which [--dir <d>]",
     summary: "Show the installed PocketBase binary and its pinned version.",
     args: [],
     flags: [{ name: "dir", type: "string", required: false }],
@@ -1469,8 +1470,8 @@ Without --name/--id, a terminal offers a picker.`,
 
   // The CLI itself
   "upgrade": {
-    usage: "pb upgrade [<version>] [--check] [--force] [--json]",
-    summary: "Update pb itself to the latest release.",
+    usage: "pbc upgrade [<version>] [--check] [--force] [--json]",
+    summary: "Update pbc itself to the latest release.",
     details:
       "Downloads the release archive for this OS and CPU, verifies its\n" +
       "SHA-256 against the release's checksums.txt, and replaces the running\n" +
@@ -1481,12 +1482,12 @@ Without --name/--id, a terminal offers a picker.`,
       "Only a standalone binary (the `curl | sh` installer, or a release\n" +
       "archive) can be replaced in place. An npm install must be updated with\n" +
       "npm, and a from-source install by updating its clone; in both cases\n" +
-      "`pb upgrade` prints the exact command and exits non-zero.\n\n" +
-      "pb also looks for a newer release once a day on its own and mentions\n" +
-      "one on stderr after a command finishes. Set PB_NO_UPDATE_CHECK to turn\n" +
+      "`pbc upgrade` prints the exact command and exits non-zero.\n\n" +
+      "pbc also looks for a newer release once a day on its own and mentions\n" +
+      "one on stderr after a command finishes. Set PBC_NO_UPDATE_CHECK to turn\n" +
       "that off; it is already skipped under --json, CI, and redirected\n" +
       "output.\n\n" +
-      "To change your plan, see `pb cloud upgrade` instead.",
+      "To change your plan, see `pbc cloud upgrade` instead.",
     args: [{
       name: "version",
       required: false,
@@ -1510,7 +1511,7 @@ Without --name/--id, a terminal offers a picker.`,
 
   // Instance logs
   "logs": {
-    usage: "pb logs [--filter <expr>] [--page <n>] [--per-page <n>] [-f]",
+    usage: "pbc logs [--filter <expr>] [--page <n>] [--per-page <n>] [-f]",
     summary: "Show instance request logs. -f follows new entries.",
     args: [],
     flags: [
@@ -1523,7 +1524,7 @@ Without --name/--id, a terminal offers a picker.`,
 };
 
 /**
- * Every command that resolves a cloud resource through pb.json, and so picks
+ * Every command that resolves a cloud resource through pbc.json, and so picks
  * one of its environments. Listed once and applied below rather than repeated
  * in fifteen flag arrays, which is how one of them ends up out of step.
  */
@@ -1554,7 +1555,7 @@ for (const key of ENV_AWARE) {
     type: "string",
     required: false,
     description:
-      "pb.json environment to target. Defaults to defaultEnvironment; " +
-      "PB_ENV sets it for a whole shell.",
+      "pbc.json environment to target. Defaults to defaultEnvironment; " +
+      "PBC_ENV sets it for a whole shell.",
   });
 }

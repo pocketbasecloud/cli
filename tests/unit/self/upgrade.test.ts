@@ -251,7 +251,7 @@ Deno.test("replaceBinary writes a temp file, chmods it, then renames into place"
   assertEquals(h.files.get("/usr/local/bin/pb"), BODY);
 
   const tmp = h.ops[0].slice("write:".length);
-  assertStringIncludes(tmp, "/usr/local/bin/.pb.upgrade.");
+  assertStringIncludes(tmp, "/usr/local/bin/.pbc.upgrade.");
   assertEquals(h.ops[1], `chmod:${tmp}:755`);
   assertEquals(h.ops[2], `rename:${tmp}->/usr/local/bin/pb`);
 });
@@ -284,7 +284,7 @@ Deno.test("replaceBinary explains an unwritable install directory", async () => 
     CliError,
     "No permission to write to /usr/local/bin",
   );
-  assertStringIncludes(e.message, "sudo pb upgrade");
+  assertStringIncludes(e.message, "sudo pbc upgrade");
 });
 
 Deno.test("replaceBinary cleans up the temp file when the rename fails", async () => {

@@ -98,7 +98,7 @@ Deno.test("pb deploy creates then reaches running, recording the binding", async
   assertEquals(client.calls.createResource.length, 1);
   // `user` is required by the collection and is what the slot check reads.
   assertEquals(client.calls.createResource[0][1].user, "u1");
-  // Deploy recorded the new resource in the directory's pb.json, under the
+  // Deploy recorded the new resource in the directory's pbc.json, under the
   // environment it created and made the default.
   const link = await readLinkFile(cwd);
   assertEquals(link?.kind, "pocketbases");
@@ -123,7 +123,7 @@ Deno.test("bare pb deploy redeploys the bound resource with no --name", async ()
   runningNow(client);
   // Pre-bind the directory to the existing resource.
   await Deno.writeTextFile(
-    `${cwd}/pb.json`,
+    `${cwd}/pbc.json`,
     JSON.stringify({
       projectId: p.id,
       kind: "pocketbases",
@@ -171,7 +171,7 @@ Deno.test("pb rm clears that environment's binding", async () => {
   const { d, config, cwd } = deps(client);
   config.currentProject = p.id;
   await Deno.writeTextFile(
-    `${cwd}/pb.json`,
+    `${cwd}/pbc.json`,
     JSON.stringify({
       projectId: p.id,
       kind: "pocketbases",
@@ -204,7 +204,7 @@ Deno.test("pb deploy --env records a second environment beside the first", async
   config.currentProject = p.id;
   runningNow(client);
   await Deno.writeTextFile(
-    `${cwd}/pb.json`,
+    `${cwd}/pbc.json`,
     JSON.stringify({
       projectId: p.id,
       kind: "pocketbases",
@@ -235,7 +235,7 @@ Deno.test("pb deploy --env on an unconfigured environment demands --name", async
   const { d, config, cwd } = deps(client);
   config.currentProject = p.id;
   await Deno.writeTextFile(
-    `${cwd}/pb.json`,
+    `${cwd}/pbc.json`,
     JSON.stringify({
       projectId: p.id,
       kind: "pocketbases",
@@ -264,7 +264,7 @@ Deno.test("pb deploy sends admin credentials, which the platform will not invent
   const { d, config, cwd } = deps(client);
   config.currentProject = p.id;
   Deno.writeTextFileSync(
-    `${cwd}/pb.json`,
+    `${cwd}/pbc.json`,
     JSON.stringify({ pocketbaseVersion: "0.39.3" }),
   );
   runningNow(client);
@@ -328,7 +328,7 @@ Deno.test("pb deploy always sends a version, even with nothing pinned", async ()
   const code = await cmds["cloud pb deploy"]({
     args: [],
     flags: flags({ project: p.id }),
-    raw: { name: "db1" }, // no --pb-version, and the cwd has no pb.json pin
+    raw: { name: "db1" }, // no --pb-version, and the cwd has no pbc.json pin
   });
   assertEquals(code, 0);
   const sent = client.calls.createResource[0][1].version;
@@ -520,7 +520,7 @@ function pushedNames(
 
 // --- pb create -------------------------------------------------------------
 //
-// `create` is the sibling of `pb cloud project create`, not a second deploy:
+// `create` is the sibling of `pbc cloud project create`, not a second deploy:
 // it provisions an instance and touches no file in the working directory.
 
 Deno.test("pb create makes a running instance and sends no archive", async () => {
@@ -556,8 +556,8 @@ Deno.test("pb create makes a running instance and sends no archive", async () =>
   assertEquals((data.version as string).length > 0, true);
 });
 
-Deno.test("pb create records the instance in pb.json", async () => {
-  // So the next `pb cloud pb deploy` in this directory needs no --name — the
+Deno.test("pb create records the instance in pbc.json", async () => {
+  // So the next `pbc cloud pb deploy` in this directory needs no --name — the
   // same binding a deploy would have written, minus the build block, which
   // nothing was packaged from.
   const client = createMockCloudClient();
@@ -597,7 +597,7 @@ Deno.test("pb create records under --env, leaving the default alone", async () =
   // A directory that already deploys production: a second environment is
   // added beside it, and production keeps its binding.
   await Deno.writeTextFile(
-    `${cwd}/pb.json`,
+    `${cwd}/pbc.json`,
     JSON.stringify({
       projectId: p.id,
       kind: "pocketbases",
@@ -628,7 +628,7 @@ Deno.test("pb create refuses to repoint an environment that already binds one", 
   const { d, cwd } = deps(client);
   runningNow(client);
   await Deno.writeTextFile(
-    `${cwd}/pb.json`,
+    `${cwd}/pbc.json`,
     JSON.stringify({
       projectId: p.id,
       kind: "pocketbases",
@@ -653,14 +653,14 @@ Deno.test("pb create refuses to repoint an environment that already binds one", 
 });
 
 Deno.test("pb create refuses a directory bound to another kind", async () => {
-  // `kind` is shared by every environment in a pb.json, so a frontend
+  // `kind` is shared by every environment in a pbc.json, so a frontend
   // directory cannot also bind a PocketBase.
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   const { d, cwd } = deps(client);
   runningNow(client);
   await Deno.writeTextFile(
-    `${cwd}/pb.json`,
+    `${cwd}/pbc.json`,
     JSON.stringify({
       projectId: p.id,
       kind: "frontends",
@@ -744,7 +744,7 @@ Deno.test("pb create refuses a name the project already uses, naming deploy", as
   );
   assertEquals(err.exitCode, 2);
   // The way out has to be in the message, or the refusal is just a wall.
-  assertEquals(err.message.includes("pb cloud pb deploy --name db1"), true);
+  assertEquals(err.message.includes("pbc cloud pb deploy --name db1"), true);
   assertEquals(err.message.includes(pb.id), true);
   assertEquals(client.calls.createResource.length, 0);
 });
@@ -761,7 +761,7 @@ Deno.test("pb create with no name and no terminal says how to pass one", async (
         raw: {},
       }),
     CliError,
-    "pb cloud pb create <name>",
+    "pbc cloud pb create <name>",
   );
   assertEquals(err.exitCode, 2);
   assertEquals(client.calls.createResource.length, 0);
@@ -915,10 +915,10 @@ Deno.test("pb create prints the generated login once, and where it was recorded"
     true,
   );
   // And that the directory now points at it, which is what makes the next
-  // deploy a bare `pb cloud pb deploy`.
+  // deploy a bare `pbc cloud pb deploy`.
   assertEquals(
     log.lines.some((l) =>
-      l.includes('Recorded in pb.json as environment "production"')
+      l.includes('Recorded in pbc.json as environment "production"')
     ),
     true,
   );
@@ -1143,7 +1143,7 @@ Deno.test("pb redeploy ships the hook directory's .js helpers in the archive", a
   Deno.writeTextFileSync(`${cwd}/pb_hooks/helpers.js`, "module.exports = {}\n");
   Deno.writeTextFileSync(`${cwd}/pb_hooks/seed.json`, "[]\n");
   await Deno.writeTextFile(
-    `${cwd}/pb.json`,
+    `${cwd}/pbc.json`,
     JSON.stringify({
       projectId: p.id,
       kind: "pocketbases",
@@ -1198,7 +1198,7 @@ Deno.test("pb ls announces the project resolved from config.currentProject", asy
     });
     assertEquals(code, 0);
     assertEquals(log.lines[0].includes(`Project: ${p.name}`), true);
-    assertEquals(log.lines[0].includes("pb cloud project use"), true);
+    assertEquals(log.lines[0].includes("pbc cloud project use"), true);
   } finally {
     log.restore();
   }

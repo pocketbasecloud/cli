@@ -209,7 +209,7 @@ async function inferPocketBase(dir: string): Promise<BuildConfig> {
 
 /**
  * Derives a build config from what is on disk. Only called when the
- * directory's own pb.json has no `build` block — a partial block is used as
+ * directory's own pbc.json has no `build` block — a partial block is used as
  * written, so removing a field is a decision the CLI does not second-guess.
  */
 export function inferBuild(

@@ -1,14 +1,14 @@
 import { dirname } from "@std/path";
 import { VERSION } from "../version.ts";
 import { compareSemverDesc } from "../local/releases.ts";
-import { updateCheckPath } from "../config.ts";
+import { readEnv, updateCheckPath } from "../config.ts";
 import { parseGlobal } from "../router.ts";
 import { fetchManifest } from "./release.ts";
 import { detectInstall, manualCommand } from "./upgrade.ts";
 
 /**
- * The passive half of `pb upgrade --check`: one line, on every command, when a
- * newer pb exists.
+ * The passive half of `pbc upgrade --check`: one line, on every command, when a
+ * newer pbc exists.
  *
  * "Background" here means the cost is amortised, not that work outlives the
  * process — `Deno.exit` kills pending ops, so a fire-and-forget fetch would be
@@ -18,7 +18,7 @@ import { detectInstall, manualCommand } from "./upgrade.ts";
  *
  * That cache is what lets the notice run *twice* per invocation (see
  * {@link NotifyOpts.before}). Printing only after the command was the original
- * design and it has one hole big enough to matter: `pb cloud logs --follow`
+ * design and it has one hole big enough to matter: `pbc cloud logs --follow`
  * never returns, so it never printed at all — and on a long deploy the line
  * landed under a screenful of progress output. A pass that answers from cache
  * only can run first for free, which is the pass nearly every command hits.
@@ -92,15 +92,15 @@ export function suppressed(
   deps: Pick<NotifyDeps, "env" | "isTTY">,
 ): boolean {
   // Parsed rather than scanned, so this agrees with what `dispatch` sees:
-  // `pb --profile x upgrade` is still the upgrade command, and `--data=--json`
+  // `pbc --profile x upgrade` is still the upgrade command, and `--data=--json`
   // carries a value that is not the --json flag.
   const { path, ctx } = parseGlobal(argv);
   // --json is a contract: stdout is parsed, and stderr is read on failure.
   if (ctx.flags.json) return true;
-  // `pb upgrade` reports both versions itself; a nudge under it is a stutter.
+  // `pbc upgrade` reports both versions itself; a nudge under it is a stutter.
   if (path[0] === "upgrade") return true;
   if (!deps.isTTY()) return true;
-  if (deps.env("PB_NO_UPDATE_CHECK")) return true;
+  if (readEnv(deps.env, "NO_UPDATE_CHECK")) return true;
   if (deps.env("CI")) return true;
   return false;
 }
@@ -112,9 +112,9 @@ export function suppressed(
 export function notice(latest: string, execPath: string): string {
   const install = detectInstall(execPath);
   const command = install.kind === "standalone"
-    ? "pb upgrade"
+    ? "pbc upgrade"
     : manualCommand(install.kind);
-  return `Update available: pb ${VERSION} → ${latest}. Run \`${command}\`.`;
+  return `Update available: pbc ${VERSION} → ${latest}. Run \`${command}\`.`;
 }
 
 async function readCache(
@@ -147,7 +147,7 @@ async function writeCache(
 }
 
 /**
- * The newest published pb, from cache when it is fresh enough, or null when
+ * The newest published pbc, from cache when it is fresh enough, or null when
  * there is nothing to say without paying for a lookup `cacheOnly` forbids.
  *
  * A failed lookup is cached as "current" rather than left unset: offline, the

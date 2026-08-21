@@ -23,16 +23,16 @@ export type SelfDeps = LocalDeps & {
 };
 
 /**
- * How this copy of `pb` got here, which decides whether it can replace itself.
+ * How this copy of `pbc` got here, which decides whether it can replace itself.
  *
  * - `standalone` — a compiled binary on PATH, from `install.sh` or a release
- *   archive. Nothing else owns the file, so `pb upgrade` swaps it directly.
+ *   archive. Nothing else owns the file, so `pbc upgrade` swaps it directly.
  * - `npm` — running out of `node_modules/@pocketbasecloud/cli-<key>/bin/`.
  *   Overwriting that file would be silently reverted by the next `npm i`, and
  *   the shim pins its platform package to an exact version, so the two have to
  *   move together. npm is the only thing that can do that.
  * - `source` — `deno run`/`deno install`, where `execPath()` is Deno itself.
- *   There is no `pb` binary to replace; the clone is the install.
+ *   There is no `pbc` binary to replace; the clone is the install.
  */
 export type InstallKind = "standalone" | "npm" | "source";
 export type InstallInfo = { kind: InstallKind; path: string };
@@ -45,13 +45,13 @@ export function detectInstall(execPath: string): InstallInfo {
   return { kind: "standalone", path: execPath };
 }
 
-/** The command that upgrades an install `pb` cannot upgrade itself. */
+/** The command that upgrades an install `pbc` cannot upgrade itself. */
 export function manualCommand(
   kind: Exclude<InstallKind, "standalone">,
 ): string {
   return kind === "npm"
     ? `npm i -g ${NPM_PACKAGE}@latest`
-    : "git pull && deno install -g -A -c deno.json -n pb ./main.ts";
+    : "git pull && deno install -g -A -c deno.json -n pbc ./main.ts";
 }
 
 export type UpgradeAction = "upgrade" | "up-to-date" | "manual";
@@ -119,7 +119,7 @@ async function download(
 ): Promise<Uint8Array> {
   if (!expected) {
     throw new CliError(
-      `The release for pb ${version} lists no checksum for ${name}, ` +
+      `The release for pbc ${version} lists no checksum for ${name}, ` +
         "so the download cannot be verified. Nothing was changed.",
       1,
     );
@@ -175,7 +175,7 @@ export async function replaceBinary(
   isWindows: boolean,
 ): Promise<{ leftBehind?: string }> {
   const dir = dirname(target);
-  const tmp = join(dir, `.pb.upgrade.${crypto.randomUUID().slice(0, 8)}`);
+  const tmp = join(dir, `.pbc.upgrade.${crypto.randomUUID().slice(0, 8)}`);
 
   try {
     await deps.writeFile(tmp, binary);
@@ -183,9 +183,9 @@ export async function replaceBinary(
     if (isPermissionError(e)) {
       throw new CliError(
         `No permission to write to ${dir}.\n` +
-          `Re-run with elevated privileges (e.g. \`sudo pb upgrade\`), or ` +
+          `Re-run with elevated privileges (e.g. \`sudo pbc upgrade\`), or ` +
           `reinstall into a directory you own with ` +
-          `\`PB_INSTALL_DIR=$HOME/.local/bin\`.`,
+          `\`PBC_INSTALL_DIR=$HOME/.local/bin\`.`,
         1,
       );
     }
@@ -226,9 +226,9 @@ export async function replaceBinary(
     if (isPermissionError(e)) {
       throw new CliError(
         `No permission to replace ${target}.\n` +
-          `Re-run with elevated privileges (e.g. \`sudo pb upgrade\`), or ` +
+          `Re-run with elevated privileges (e.g. \`sudo pbc upgrade\`), or ` +
           `reinstall into a directory you own with ` +
-          `\`PB_INSTALL_DIR=$HOME/.local/bin\`.`,
+          `\`PBC_INSTALL_DIR=$HOME/.local/bin\`.`,
         1,
       );
     }

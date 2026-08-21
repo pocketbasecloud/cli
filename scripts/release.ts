@@ -8,6 +8,7 @@ import {
   buildMainPackageJson,
   buildPlatformPackageJson,
   buildShim,
+  SHIM_FILE,
 } from "./pkg.ts";
 
 const CLI_DIR = dirname(dirname(fromFileUrl(import.meta.url))); // .../cli
@@ -105,8 +106,9 @@ async function stagePackages() {
     join(mainDir, "package.json"),
     JSON.stringify(buildMainPackageJson(VERSION), null, 2) + "\n",
   );
-  await Deno.writeTextFile(join(mainDir, "bin", "pb.js"), buildShim(TARGETS));
-  await Deno.chmod(join(mainDir, "bin", "pb.js"), 0o755);
+  const shim = join(mainDir, "bin", SHIM_FILE);
+  await Deno.writeTextFile(shim, buildShim(TARGETS));
+  await Deno.chmod(shim, 0o755);
   await Deno.copyFile(
     join(CLI_DIR, "README.md"),
     join(mainDir, "README.md"),
@@ -131,12 +133,12 @@ async function selfVerifyShim() {
   await Deno.remove(link).catch(() => {});
   await Deno.symlink(join(NPM_DIR, suffix), link);
   const { code, stdout } = await new Deno.Command("node", {
-    args: [join(NPM_DIR, "cli", "bin", "pb.js"), "--version"],
+    args: [join(NPM_DIR, "cli", "bin", SHIM_FILE), "--version"],
     stdout: "piped",
     stderr: "inherit",
   }).output();
   const out = new TextDecoder().decode(stdout).trim();
-  if (code !== 0 || out !== `pb ${VERSION}`) {
+  if (code !== 0 || out !== `pbc ${VERSION}`) {
     throw new Error(`shim self-verify failed: got "${out}" (code ${code})`);
   }
   console.log(`  shim printed "${out}" ✓`);
@@ -180,7 +182,7 @@ function printPublishCommands() {
   console.log(`npm publish ./npm/cli --access public   # last`);
   console.log(
     `\ngh release create v${VERSION} --repo pocketbasecloud/cli \\\n` +
-      `  --title "pb v${VERSION}" dist/*`,
+      `  --title "pbc v${VERSION}" dist/*`,
   );
 }
 

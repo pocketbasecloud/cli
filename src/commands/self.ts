@@ -3,7 +3,7 @@ import { applyUpgrade, planUpgrade, type SelfDeps } from "../self/upgrade.ts";
 import { createProgress, type Progress } from "../ui/progress.ts";
 
 /**
- * `pb upgrade` — updates `pb` itself. Distinct from `pb cloud upgrade`, which
+ * `pbc upgrade` — updates `pbc` itself. Distinct from `pbc cloud upgrade`, which
  * is about the billing plan on your account.
  */
 export function makeSelfCommands(
@@ -14,7 +14,7 @@ export function makeSelfCommands(
   const upgrade: Handler = async (ctx: CmdCtx) => {
     const check = ctx.raw.check === true;
     const { plan, manifest } = await progress.step(
-      "Checking for a newer pb",
+      "Checking for a newer pbc",
       () =>
         planUpgrade(deps, {
           version: ctx.args[0],
@@ -35,11 +35,11 @@ export function makeSelfCommands(
         }));
         return 0;
       }
-      write(`Installed: pb ${plan.current} (${plan.install.kind})`);
-      write(`Latest:    pb ${plan.target}`);
+      write(`Installed: pbc ${plan.current} (${plan.install.kind})`);
+      write(`Latest:    pbc ${plan.target}`);
       write(
         plan.updateAvailable
-          ? `\nRun \`${plan.command ?? "pb upgrade"}\` to update.`
+          ? `\nRun \`${plan.command ?? "pbc upgrade"}\` to update.`
           : "\nYou are up to date.",
       );
       return 0;
@@ -51,7 +51,7 @@ export function makeSelfCommands(
         return 0;
       }
       write(
-        `pb ${plan.current} is already the latest version. ` +
+        `pbc ${plan.current} is already the latest version. ` +
           "Pass --force to reinstall it.",
       );
       return 0;
@@ -59,20 +59,20 @@ export function makeSelfCommands(
 
     if (plan.action === "manual") {
       // Exit non-zero: the requested upgrade did not happen, and a script that
-      // ran `pb upgrade` needs to know that rather than read success.
+      // ran `pbc upgrade` needs to know that rather than read success.
       if (ctx.flags.json) {
         write(JSON.stringify({ ...plan, upgraded: false }));
         return 1;
       }
-      // For a source install `install.path` is the Deno executable, not a pb
+      // For a source install `install.path` is the Deno executable, not a pbc
       // binary, so naming it would only mislead.
       const how = plan.install.kind === "npm"
-        ? `This pb was installed with npm (${plan.install.path}), so npm has to replace it:`
-        : "This pb runs from source, so update its clone instead:";
+        ? `This pbc was installed with npm (${plan.install.path}), so npm has to replace it:`
+        : "This pbc runs from source, so update its clone instead:";
       write(
         plan.updateAvailable
-          ? `pb ${plan.current} → ${plan.target} is available.`
-          : `pb ${plan.target} requested; this is pb ${plan.current}.`,
+          ? `pbc ${plan.current} → ${plan.target} is available.`
+          : `pbc ${plan.target} requested; this is pbc ${plan.current}.`,
       );
       write(`\n${how}\n  ${plan.command}`);
       return 1;
@@ -80,7 +80,7 @@ export function makeSelfCommands(
 
     // Fetching and verifying a ~40 MB binary, then swapping it in place.
     const res = await progress.step(
-      `Downloading pb ${plan.target}`,
+      `Downloading pbc ${plan.target}`,
       () => applyUpgrade(deps, plan, manifest),
     );
     if (ctx.flags.json) {
@@ -89,11 +89,11 @@ export function makeSelfCommands(
     }
     // "Upgraded" would be a lie for an explicitly requested rollback.
     const verb = plan.updateAvailable ? "Upgraded" : "Switched";
-    write(`${verb} pb ${plan.current} → ${plan.target} (${res.path})`);
+    write(`${verb} pbc ${plan.current} → ${plan.target} (${res.path})`);
     if (res.leftBehind) {
       write(
         `Note: the previous binary is still at ${res.leftBehind}; ` +
-          "Windows keeps it locked until pb exits. Delete it at your leisure.",
+          "Windows keeps it locked until pbc exits. Delete it at your leisure.",
       );
     }
     return 0;

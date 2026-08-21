@@ -80,7 +80,7 @@ Deno.test("httpError names the fix for an expired session", async () => {
   const e = await httpError(res({}, 401), "Log stream");
   assertEquals(
     e.message,
-    "Log stream failed (401): not authenticated — run `pb cloud login`",
+    "Log stream failed (401): not authenticated — run `pbc cloud login`",
   );
   // Exit 4 is the CLI's "log in again", as `mapPbError` already reports.
   assertEquals(e.exitCode, 4);
@@ -159,7 +159,7 @@ Deno.test("httpError surfaces a paused instance on an env write", async () => {
 });
 
 Deno.test("httpError surfaces a paused instance from the extension directly", async () => {
-  // `pb cloud deploy` pushes env vars straight to backend-extension's CORS
+  // `pbc cloud deploy` pushes env vars straight to backend-extension's CORS
   // route, which answers in its own envelope rather than PocketBase's.
   const e = await httpError(
     res(

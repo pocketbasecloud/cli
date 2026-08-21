@@ -6,7 +6,7 @@ Deno.test("VERSION is a semver MAJOR.MINOR.PATCH string", () => {
   assertMatch(VERSION, /^\d+\.\d+\.\d+$/);
 });
 
-Deno.test("run --version prints exactly `pb ${VERSION}`", async () => {
+Deno.test("run --version prints exactly `pbc ${VERSION}`", async () => {
   const logs: string[] = [];
   const orig = console.log;
   console.log = (s: string) => logs.push(s);
@@ -17,5 +17,5 @@ Deno.test("run --version prints exactly `pb ${VERSION}`", async () => {
     console.log = orig;
   }
   assertEquals(code, 0);
-  assertEquals(logs[0], `pb ${VERSION}`);
+  assertEquals(logs[0], `pbc ${VERSION}`);
 });

@@ -53,7 +53,7 @@ Deno.test("frontend domain add posts to custom-domain/add", async () => {
   assertEquals(body.custom_domain, "example.com");
 });
 
-/** A pb.json bound to `fe` under production, in the deps' cwd. */
+/** A pbc.json bound to `fe` under production, in the deps' cwd. */
 async function bind(
   d: CloudCmdDeps,
   projectId: string,
@@ -61,7 +61,7 @@ async function bind(
   defaultEnvironment = "production",
 ): Promise<void> {
   await Deno.writeTextFile(
-    `${d.cwd()}/pb.json`,
+    `${d.cwd()}/pbc.json`,
     JSON.stringify({
       projectId,
       kind: "frontends",
@@ -105,7 +105,7 @@ Deno.test("frontend deploy --env creates a second resource, leaving the first bo
     raw: { env: "staging", name: "web-staging", "skip-build": true },
   });
   assertEquals(code, 0);
-  const file = JSON.parse(await Deno.readTextFile(`${d.cwd()}/pb.json`));
+  const file = JSON.parse(await Deno.readTextFile(`${d.cwd()}/pbc.json`));
   assertEquals(file.environments.production, { id: fe.id, name: "web" });
   assertEquals(file.environments.staging.name, "web-staging");
   assertEquals(file.defaultEnvironment, "production");
@@ -134,7 +134,7 @@ Deno.test("a stale binding clears only its own environment", async () => {
     Error,
     'Bound frontends gone (environment "staging") no longer exists',
   );
-  const file = JSON.parse(await Deno.readTextFile(`${d.cwd()}/pb.json`));
+  const file = JSON.parse(await Deno.readTextFile(`${d.cwd()}/pbc.json`));
   assertEquals(file.environments, { production: { id: fe.id, name: "web" } });
 });
 
@@ -181,7 +181,7 @@ Deno.test("a bare deploy asks for a name and creates the frontend", async () => 
   assertEquals(code, 0);
   const sites = await client.listResources("frontends", p.id);
   assertEquals(sites.map((s) => s.name), ["web"]);
-  const file = JSON.parse(await Deno.readTextFile(`${d.cwd()}/pb.json`));
+  const file = JSON.parse(await Deno.readTextFile(`${d.cwd()}/pbc.json`));
   assertEquals(file.environments.production.name, "web");
 });
 
@@ -227,7 +227,7 @@ Deno.test("a first deploy records the environment it was told to use", async () 
       }),
   );
   assertEquals(code, 0);
-  const file = JSON.parse(await Deno.readTextFile(`${d.cwd()}/pb.json`));
+  const file = JSON.parse(await Deno.readTextFile(`${d.cwd()}/pbc.json`));
   assertEquals(Object.keys(file.environments), ["staging"]);
   assertEquals(file.defaultEnvironment, "staging");
 });
@@ -254,7 +254,7 @@ Deno.test("a directory that already names an environment is not asked again", as
       }),
   );
   assertEquals(code, 0);
-  const file = JSON.parse(await Deno.readTextFile(`${d.cwd()}/pb.json`));
+  const file = JSON.parse(await Deno.readTextFile(`${d.cwd()}/pbc.json`));
   assertEquals(Object.keys(file.environments), ["production"]);
 });
 
@@ -340,7 +340,7 @@ Deno.test("frontend deploy refuses a directory bound to another kind", async () 
   const p = await client.createProject("app");
   const d = deps(client, p.id);
   await Deno.writeTextFile(
-    `${d.cwd()}/pb.json`,
+    `${d.cwd()}/pbc.json`,
     JSON.stringify({
       projectId: p.id,
       kind: "backends",
@@ -356,7 +356,7 @@ Deno.test("frontend deploy refuses a directory bound to another kind", async () 
         raw: { name: "web" },
       }),
     Error,
-    "pb.json is bound to backends — deploy frontends from a different",
+    "pbc.json is bound to backends — deploy frontends from a different",
   );
 });
 
@@ -453,7 +453,7 @@ Deno.test("frontend ls announces the project resolved from config.currentProject
     });
     assertEquals(code, 0);
     assertEquals(log.lines[0].includes(`Project: ${p.name}`), true);
-    assertEquals(log.lines[0].includes("pb cloud project use"), true);
+    assertEquals(log.lines[0].includes("pbc cloud project use"), true);
   } finally {
     log.restore();
   }

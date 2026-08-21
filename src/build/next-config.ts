@@ -12,7 +12,7 @@ import { CliError } from "../errors.ts";
  * learn about a one-line config change.
  *
  * So the CLI writes the line itself, before the build, and says so. This is the
- * same bargain as the inferred `build` block in pb.json: the tool edits the
+ * same bargain as the inferred `build` block in pbc.json: the tool edits the
  * project, the edit is idempotent, and it shows up in a diff.
  */
 
@@ -374,7 +374,7 @@ export async function ensureStandaloneOutput(
   if (output === "export") {
     throw new CliError(
       `${file} sets output: "export", which builds a static site, not a ` +
-        `server. Deploy it with \`pb cloud frontend deploy\`, or remove that ` +
+        `server. Deploy it with \`pbc cloud frontend deploy\`, or remove that ` +
         `line to deploy it as a Next.js backend.`,
       2,
     );

@@ -6,7 +6,7 @@ Deno.test("buildHelpText groups cloud and instance commands", () => {
     "cloud pb ls": () => Promise.resolve(0),
     "collections ls": () => Promise.resolve(0),
   });
-  assertStringIncludes(text, "Usage: pb <command> [args] [flags]");
+  assertStringIncludes(text, "Usage: pbc <command> [args] [flags]");
   assertStringIncludes(text, "Cloud commands");
   assertStringIncludes(text, "  cloud pb ls");
   assertStringIncludes(text, "List PocketBase instances in a project.");
@@ -27,7 +27,7 @@ Deno.test("buildManifest lists every registered command with its spec", () => {
   });
   assertEquals(manifest.commands.length, 2);
   const pbLs = manifest.commands.find((c) => c.command === "cloud pb ls");
-  assertEquals(pbLs?.usage, "pb cloud pb ls [--project <id>]");
+  assertEquals(pbLs?.usage, "pbc cloud pb ls [--project <id>]");
   assertEquals(pbLs?.summary, "List PocketBase instances in a project.");
 });
 
@@ -80,7 +80,7 @@ Deno.test("buildManifest carries specs for the local commands", () => {
     "which": () => Promise.resolve(0),
   });
   const init = manifest.commands.find((c) => c.command === "init");
-  assertEquals(init?.usage, "pb init [<version>] [--dir <d>] [--force]");
+  assertEquals(init?.usage, "pbc init [<version>] [--dir <d>] [--force]");
   assertEquals(init?.args[0].name, "version");
   assertEquals(init?.args[0].required, false);
   const install = manifest.commands.find((c) => c.command === "install");
@@ -96,7 +96,7 @@ Deno.test("buildManifest omits args/flags for an unregistered command's spec", (
     "totally-made-up": () => Promise.resolve(0),
   });
   const entry = manifest.commands.find((c) => c.command === "totally-made-up");
-  assertEquals(entry?.usage, "Usage: pb totally-made-up");
+  assertEquals(entry?.usage, "Usage: pbc totally-made-up");
   assertEquals(entry?.args, []);
   assertEquals(entry?.flags, []);
 });

@@ -1,4 +1,4 @@
-// Reads a `pb ... deploy --json` record and turns it into step outputs and a
+// Reads a `pbc ... deploy --json` record and turns it into step outputs and a
 // job summary — without ever putting the record itself in the log.
 //
 // The masking has to come first and has to be generous. A PocketBase deploy's

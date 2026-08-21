@@ -1,4 +1,4 @@
-import type { Config } from "../config.ts";
+import { type Config, envVar } from "../config.ts";
 
 export function hostnameOf(url: string): string {
   try {
@@ -13,5 +13,5 @@ export function activeProfileName(
   profileFlag?: string,
   env: Record<string, string | undefined> = Deno.env.toObject(),
 ): string | null {
-  return profileFlag ?? env["PB_PROFILE"] ?? config.defaultProfile;
+  return profileFlag ?? envVar("PROFILE", env) ?? config.defaultProfile;
 }

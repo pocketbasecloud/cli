@@ -20,6 +20,18 @@ export type Target = {
   binName: string;
 };
 
+/**
+ * The command users type. The CLI was called `pb` until 0.6.0 and that name is
+ * still installed alongside this one — `install.sh` links it and the npm
+ * package declares both — so nothing that already runs `pb` breaks.
+ *
+ * This is *not* the name of the file inside a release archive: see
+ * {@link Target.binName} and {@link assetName}, which are frozen at `pb`.
+ */
+export const CLI_NAME = "pbc";
+/** The pre-0.6.0 name, kept installed as an alias. */
+export const LEGACY_CLI_NAME = "pb";
+
 /** The five targets Deno 2.5.6 can `compile --target`. */
 export const DENO_TARGETS = [
   "x86_64-unknown-linux-gnu",
@@ -29,6 +41,15 @@ export const DENO_TARGETS = [
   "aarch64-apple-darwin",
 ] as const;
 
+/**
+ * `binName` is `pb`, not `pbc`, and stays that way: every copy of the CLI
+ * already in the wild extracts that exact entry out of the archive it
+ * downloads (`applyUpgrade` → `extractEntry`/`extractFromTarGz`). Renaming the
+ * entry would leave `pb upgrade` on every installed version 404-ing forever.
+ * The name a user types is decided at install time — `install.sh` writes this
+ * file out as `pbc` and links `pb` beside it — not by what it is called inside
+ * the tarball.
+ */
 export const TARGETS: Target[] = [
   {
     key: "darwin-arm64",
@@ -84,7 +105,11 @@ export function hostMap(targets: Target[]): Record<string, string> {
   return map;
 }
 
-/** Release-archive filename, e.g. `pb_0.1.0_darwin_arm64.tar.gz`. */
+/**
+ * Release-archive filename, e.g. `pb_0.1.0_darwin_arm64.tar.gz`. Frozen at the
+ * `pb_` prefix for the same reason as `binName`: `pb upgrade` on an already
+ * installed copy resolves the asset it downloads by this exact name.
+ */
 export function assetName(target: Target, version: string): string {
   const ext = target.os === "win32" ? "zip" : "tar.gz";
   return `pb_${version}_${target.os}_${target.cpu[0]}.${ext}`;

@@ -15,7 +15,7 @@ export function makeCronCommands(deps: AdminCmdDeps): Record<string, Handler> {
 
   const run: Handler = async (ctx: CmdCtx) => {
     const jobId = ctx.args[0];
-    if (!jobId) throw new CliError("Usage: pb cron run <jobId>", 2);
+    if (!jobId) throw new CliError("Usage: pbc cron run <jobId>", 2);
     const { client } = await deps.requireAdmin();
     await client.runCron(jobId);
     console.log(

@@ -143,7 +143,7 @@ Deno.test("env set --env writes to that environment's backend", async () => {
   });
   const cwd = await Deno.makeTempDir();
   await Deno.writeTextFile(
-    join(cwd, "pb.json"),
+    join(cwd, "pbc.json"),
     JSON.stringify({
       projectId: p.id,
       kind: "backends",
@@ -301,7 +301,7 @@ Deno.test("env ls announces the project resolved from config.currentProject", as
     });
     assertEquals(code, 0);
     assertEquals(logs[0].includes(`Project: ${p.name}`), true);
-    assertEquals(logs[0].includes("pb cloud project use"), true);
+    assertEquals(logs[0].includes("pbc cloud project use"), true);
   } finally {
     console.log = origLog;
   }

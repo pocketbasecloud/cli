@@ -155,12 +155,12 @@ Deno.test("deployResource updates when name exists", async () => {
   assertEquals(resource.id, made.id);
 });
 
-/** A pb.json with production+staging frontends, or none at all. */
+/** A pbc.json with production+staging frontends, or none at all. */
 async function withBinding(bound: boolean): Promise<string> {
   const dir = await Deno.makeTempDir();
   if (bound) {
     await Deno.writeTextFile(
-      join(dir, "pb.json"),
+      join(dir, "pbc.json"),
       JSON.stringify({
         projectId: "p1",
         kind: "frontends",
@@ -251,7 +251,7 @@ Deno.test("resolveTarget: strictKind refuses a directory bound to another kind",
     await assertRejects(
       () => resolveTarget({}, "backends", dir, { strictKind: true }),
       Error,
-      "pb.json is bound to frontends — deploy backends from a different",
+      "pbc.json is bound to frontends — deploy backends from a different",
     );
   } finally {
     await Deno.remove(dir, { recursive: true });
@@ -368,7 +368,7 @@ Deno.test("ensureTarget skips the menu and defaults the name when nothing exists
 Deno.test("resolveOwnerId prefers the stored id and falls back to whoami", async () => {
   const c = createMockCloudClient();
   assertEquals(await resolveOwnerId(c, { userId: "u9" }), "u9");
-  // Token-only auth (PB_TOKEN) stores no id.
+  // Token-only auth (PBC_TOKEN) stores no id.
   assertEquals(await resolveOwnerId(c, { userId: "" }), "u1");
 });
 
@@ -600,8 +600,8 @@ Deno.test("a poll timeout names the resource and how to recover", async () => {
   const msg = (err as Error).message;
   assertStringIncludes(msg, "stuck-db");
   assertStringIncludes(msg, "still be provisioning");
-  assertStringIncludes(msg, "pb cloud pb info --name stuck-db");
-  assertStringIncludes(msg, "pb cloud pb rm --name stuck-db");
+  assertStringIncludes(msg, "pbc cloud pb info --name stuck-db");
+  assertStringIncludes(msg, "pbc cloud pb rm --name stuck-db");
 });
 
 Deno.test("awaitDeployment follows the platform's status in one step", async () => {
@@ -870,3 +870,31 @@ Deno.test(
     await validateLocationChoice(client, "p1", "fsn1");
   },
 );
+
+Deno.test("resolveTarget: the refusal names the parent file that binds", async () => {
+  // The binding is found by walking up, so a subdirectory of a monorepo whose
+  // root still holds pb.json must be told about pb.json — not about the
+  // pbc.json it would write if it ever had one.
+  const root = await Deno.makeTempDir();
+  try {
+    await Deno.writeTextFile(
+      join(root, "pb.json"),
+      JSON.stringify({
+        projectId: "p1",
+        kind: "frontends",
+        defaultEnvironment: "production",
+        environments: { production: { id: "fe1", name: "web" } },
+      }),
+    );
+    const sub = join(root, "apps", "web");
+    await Deno.mkdir(sub, { recursive: true });
+    const err = await assertRejects(
+      () => resolveTarget({}, "backends", sub, { strictKind: true }),
+      Error,
+      "pb.json is bound to frontends",
+    );
+    assertEquals((err as Error).message.includes("pbc.json"), false);
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});

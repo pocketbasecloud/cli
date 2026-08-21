@@ -57,7 +57,7 @@ export function mapAdminError(e: unknown): CliError {
   if (e instanceof ClientResponseError) {
     if (e.status === 401 || e.status === 403) {
       return new CliError(
-        "Not authenticated to this instance. Run `pb login`.",
+        "Not authenticated to this instance. Run `pbc login`.",
         4,
       );
     }

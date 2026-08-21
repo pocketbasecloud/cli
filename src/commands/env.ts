@@ -122,7 +122,7 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
     const kv = ctx.args[0];
     if (!kv || !kv.includes("=")) {
       throw new CliError(
-        "Usage: pb cloud env set KEY=VALUE --target pb|backend --name <n>",
+        "Usage: pbc cloud env set KEY=VALUE --target pb|backend --name <n>",
         2,
       );
     }
@@ -147,7 +147,7 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
     const key = ctx.args[0];
     if (!key) {
       throw new CliError(
-        "Usage: pb cloud env rm KEY --target pb|backend --name <n>",
+        "Usage: pbc cloud env rm KEY --target pb|backend --name <n>",
         2,
       );
     }
@@ -169,7 +169,7 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
     const file = ctx.args[0];
     if (!file) {
       throw new CliError(
-        "Usage: pb cloud env import <.env> --target pb|backend --name <n>",
+        "Usage: pbc cloud env import <.env> --target pb|backend --name <n>",
         2,
       );
     }

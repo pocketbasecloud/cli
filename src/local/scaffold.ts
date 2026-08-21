@@ -63,18 +63,18 @@ npm start
 | \`pb_hooks/\`      | JavaScript hooks, loaded on start. Edit \`main.pb.js\`.    |
 | \`pb_migrations/\` | Schema migrations, applied automatically on start.       |
 | \`pb_data/\`       | Database and uploads. Git-ignored.                       |
-| \`pb.json\`        | Records the pinned PocketBase version.                   |
+| \`pbc.json\`        | Records the pinned PocketBase version.                   |
 
 ## Managing the binary
 
 The binary and \`pb_data/\` are git-ignored, so a fresh clone needs the binary
-installed before it can start. Using the \`pb\` CLI:
+installed before it can start. Using the \`pbc\` CLI:
 
 \`\`\`sh
-pb init                  # install the pinned version and scaffold
-pb install <version>     # switch to a specific version
-pb versions              # list available versions
-pb which                 # show the installed binary and its pin
+pbc init               # install the pinned version and scaffold
+pbc install <version>  # switch to a specific version
+pbc versions           # list available versions
+pbc which              # show the installed binary and its pin
 \`\`\`
 
 Otherwise download it from <https://github.com/pocketbase/pocketbase/releases>

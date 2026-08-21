@@ -31,7 +31,7 @@ Deno.test("--version after a command does not short-circuit dispatch", async () 
     console.error = origErr;
   }
   assertEquals(code, 1);
-  assertEquals(logs.some((l) => l.startsWith("pb 0.")), false);
+  assertEquals(logs.some((l) => l.startsWith("pbc 0.")), false);
   assertEquals(errs.some((e) => e.includes("Unknown command")), true);
 });
 

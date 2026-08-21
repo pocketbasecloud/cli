@@ -13,7 +13,7 @@ const RULE_FLAGS: [flag: string, field: string][] = [
 export function makeRulesCommands(deps: AdminCmdDeps): Record<string, Handler> {
   const get: Handler = async (ctx: CmdCtx) => {
     const name = ctx.args[0];
-    if (!name) throw new CliError("Usage: pb rules get <collection>", 2);
+    if (!name) throw new CliError("Usage: pbc rules get <collection>", 2);
     const { client } = await deps.requireAdmin();
     const c = await client.getCollection(name);
     const rules = {
@@ -31,7 +31,7 @@ export function makeRulesCommands(deps: AdminCmdDeps): Record<string, Handler> {
     const name = ctx.args[0];
     if (!name) {
       throw new CliError(
-        "Usage: pb rules set <collection> --list-rule '<expr>' …",
+        "Usage: pbc rules set <collection> --list-rule '<expr>' …",
         2,
       );
     }

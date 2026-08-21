@@ -28,7 +28,9 @@ Deno.test("win32-x64 package serves both x64 and arm64", () => {
 Deno.test("buildMainPackageJson pins every target exactly, no ranges", () => {
   const p = buildMainPackageJson("0.1.0");
   assertEquals(p.name, "@pocketbasecloud/cli");
-  assertEquals((p.bin as Record<string, string>).pb, "bin/pb.js");
+  // Both names, one shim: dropping `pb` would break every installed script.
+  assertEquals((p.bin as Record<string, string>).pbc, "bin/pbc.js");
+  assertEquals((p.bin as Record<string, string>).pb, "bin/pbc.js");
   assertEquals(p.files, ["bin", "README.md"]);
   const deps = p.optionalDependencies as Record<string, string>;
   assertEquals(Object.keys(deps).length, TARGETS.length);

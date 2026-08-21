@@ -110,7 +110,7 @@ export async function missingDependencies(cwd: string): Promise<string[]> {
 
 /**
  * The install to run before the build, or null when every declared dependency
- * already resolves. `command` overrides the inferred one (pb.json's
+ * already resolves. `command` overrides the inferred one (pbc.json's
  * `build.install`) and still runs only when something is missing.
  */
 export async function planInstall(

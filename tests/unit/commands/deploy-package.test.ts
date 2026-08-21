@@ -184,7 +184,7 @@ Deno.test("a failing build exits 7 and creates no resource", async () => {
   // depending on a package manager being installed.
   const cwd = seed({
     "dist/index.html": "x",
-    "pb.json": JSON.stringify({
+    "pbc.json": JSON.stringify({
       projectId: "p1",
       build: { command: "exit 3", outputDir: "dist" },
     }),
@@ -277,8 +277,8 @@ Deno.test("backend deploy pushes nothing when no env file is configured", async 
     client.calls.ext.some(([path]) => path === "/api/env/bulk-set"),
     false,
   );
-  // …and nothing was recorded in pb.json either.
-  const file = JSON.parse(Deno.readTextFileSync(join(cwd, "pb.json")));
+  // …and nothing was recorded in pbc.json either.
+  const file = JSON.parse(Deno.readTextFileSync(join(cwd, "pbc.json")));
   assertEquals(file.environments.production.build, undefined);
 });
 
@@ -304,7 +304,7 @@ Deno.test("backend deploy pushes --env-file and records it for the environment",
     B: "2",
   });
   assertEquals((push?.[1] as { type: string }).type, "backend");
-  const file = JSON.parse(Deno.readTextFileSync(join(cwd, "pb.json")));
+  const file = JSON.parse(Deno.readTextFileSync(join(cwd, "pbc.json")));
   assertEquals(file.environments.prod.build.envFile, ".env.prod");
 });
 
@@ -313,7 +313,7 @@ Deno.test("backend deploy pushes the environment's configured file, and --skip-e
     "deno.json": START_TASK,
     "main.ts": "x",
     ".env.prod": "A=1\n",
-    "pb.json": JSON.stringify({
+    "pbc.json": JSON.stringify({
       projectId: "ignored",
       kind: "backends",
       defaultEnvironment: "prod",
@@ -393,14 +393,14 @@ Deno.test("a named env file that is missing fails before anything is created", a
   assertEquals(client.calls.createResource.length, 0);
 });
 
-Deno.test("a pb.json-configured env file that is missing fails the same way", async () => {
+Deno.test("a pbc.json-configured env file that is missing fails the same way", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   runningNow(client);
   const cwd = seed({
     "deno.json": START_TASK,
     "main.ts": "x",
-    "pb.json": JSON.stringify({
+    "pbc.json": JSON.stringify({
       projectId: "ignored",
       kind: "backends",
       defaultEnvironment: "prod",
@@ -621,7 +621,7 @@ Deno.test("pb deploy says so when there was nothing to deploy", async () => {
   const text = out.text();
   assertEquals(text.includes("nothing to deploy"), true);
   assertEquals(text.includes("pb_public"), true);
-  assertEquals(text.includes("pb.json"), true);
+  assertEquals(text.includes("pbc.json"), true);
 });
 
 /** Writes a real archive to `path`, since --zip is now read before upload. */

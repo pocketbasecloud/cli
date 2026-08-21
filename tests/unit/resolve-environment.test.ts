@@ -19,19 +19,19 @@ const TWO: Partial<LinkFile> = {
   },
 };
 
-Deno.test("--env wins over PB_ENV and the file's default", () => {
+Deno.test("--env wins over PBC_ENV and the file's default", () => {
   assertEquals(
     resolveEnvironmentName(TWO, {
       flag: "staging",
-      env: { PB_ENV: "preview" },
+      env: { PBC_ENV: "preview" },
     }),
     { name: "staging", explicit: true, configured: true },
   );
 });
 
-Deno.test("PB_ENV wins over the file's default", () => {
+Deno.test("PBC_ENV wins over the file's default", () => {
   assertEquals(
-    resolveEnvironmentName(TWO, { env: { PB_ENV: "staging" } }),
+    resolveEnvironmentName(TWO, { env: { PBC_ENV: "staging" } }),
     { name: "staging", explicit: true, configured: true },
   );
 });
@@ -97,7 +97,7 @@ Deno.test("assertConfigured rejects an explicit name the file lacks", () => {
 });
 
 Deno.test("assertConfigured is silent when the file configures no environments", () => {
-  // A repo-wide PB_ENV must not break a directory that was never linked;
+  // A repo-wide PBC_ENV must not break a directory that was never linked;
   // --name/--id still decide there, exactly as before environments existed.
   const choice = resolveEnvironmentName(null, { flag: "staging", env: {} });
   assertConfigured(choice, null);
@@ -113,19 +113,19 @@ Deno.test("entryFor ignores a file bound to a different kind", () => {
   assertEquals(entryFor(TWO, "backends", choice), undefined);
 });
 
-Deno.test("resolveEnvironmentName reads PB_ENV from the process when unspecified", () => {
+Deno.test("resolveEnvironmentName reads PBC_ENV from the process when unspecified", () => {
   // The commands call it without an env map, so the process variable must reach
   // it — the path CI relies on.
-  Deno.env.set("PB_ENV", "staging");
+  Deno.env.set("PBC_ENV", "staging");
   try {
     assertEquals(resolveEnvironmentName(TWO).name, "staging");
   } finally {
-    Deno.env.delete("PB_ENV");
+    Deno.env.delete("PBC_ENV");
   }
 });
 
-Deno.test("an invalid name from PB_ENV is rejected too", () => {
-  Deno.env.set("PB_ENV", " ");
+Deno.test("an invalid name from PBC_ENV is rejected too", () => {
+  Deno.env.set("PBC_ENV", " ");
   try {
     assertThrows(
       () => resolveEnvironmentName(TWO),
@@ -133,7 +133,7 @@ Deno.test("an invalid name from PB_ENV is rejected too", () => {
       "Invalid environment name",
     );
   } finally {
-    Deno.env.delete("PB_ENV");
+    Deno.env.delete("PBC_ENV");
   }
 });
 
@@ -211,5 +211,19 @@ Deno.test("chooseEnvironment rejects an unusable name", async () => {
       }),
     CliError,
     "Invalid environment name",
+  );
+});
+
+Deno.test("a pre-0.6.0 PB_ENV still selects the environment", () => {
+  assertEquals(
+    resolveEnvironmentName(TWO, { env: { PB_ENV: "staging" } }).name,
+    "staging",
+  );
+  // Both set: the current spelling wins.
+  assertEquals(
+    resolveEnvironmentName(TWO, {
+      env: { PB_ENV: "staging", PBC_ENV: "production" },
+    }).name,
+    "production",
   );
 });

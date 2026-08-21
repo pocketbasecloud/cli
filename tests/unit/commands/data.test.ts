@@ -157,7 +157,7 @@ Deno.test("data export announces the project resolved from config.currentProject
       })
     );
     assertEquals(log.lines[0].includes(`Project: ${p.name}`), true);
-    assertEquals(log.lines[0].includes("pb cloud project use"), true);
+    assertEquals(log.lines[0].includes("pbc cloud project use"), true);
   } finally {
     log.restore();
   }

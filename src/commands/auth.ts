@@ -1,6 +1,6 @@
 import type { CmdCtx, Handler } from "../router.ts";
 import type { CloudAuth, Config } from "../config.ts";
-import { resolveCloudAuth, usesEnvToken } from "../config.ts";
+import { envVarName, resolveCloudAuth } from "../config.ts";
 import type { ICloudClient } from "../clients/cloud.ts";
 import { CliError } from "../errors.ts";
 import { describePlan } from "../ui/output.ts";
@@ -15,16 +15,19 @@ export type AuthDeps = {
 };
 
 /**
- * `PB_TOKEN` overrides the saved login for every other command, so without this
+ * `PBC_TOKEN` overrides the saved login for every other command, so without this
  * `login` prints "Logged in." and `logout` prints "Logged out." while the very
  * next command authenticates as the env token — a 401 or a wrong-account write
  * with nothing on screen to explain either.
  */
 function warnIfEnvTokenShadows(ctx: CmdCtx, effect: string): void {
-  if (ctx.flags.json || !usesEnvToken()) return;
+  // Named, not assumed: a shell still exporting the pre-0.6.0 PB_TOKEN must be
+  // told to unset that one.
+  const name = envVarName("TOKEN");
+  if (ctx.flags.json || !name) return;
   console.error(
-    `Warning: PB_TOKEN is set and takes precedence — commands run ${effect} ` +
-      `that token, not this saved login. Unset PB_TOKEN to use it.`,
+    `Warning: ${name} is set and takes precedence — commands run ${effect} ` +
+      `that token, not this saved login. Unset ${name} to use it.`,
   );
 }
 
@@ -74,12 +77,12 @@ export function makeAuthCommands(deps: AuthDeps): Record<string, Handler> {
   const whoami: Handler = async (ctx: CmdCtx) => {
     const config = await deps.loadConfig();
     // Every other cloud command authenticates through resolveCloudAuth, which
-    // also honours PB_TOKEN. whoami is the preflight probe an agent runs first,
+    // also honours PBC_TOKEN. whoami is the preflight probe an agent runs first,
     // so it must accept the same token-based auth rather than only the saved
     // config.cloud login.
     const auth = resolveCloudAuth(config);
     if (!auth) {
-      throw new CliError("Not logged in. Run `pb cloud login`.", 4);
+      throw new CliError("Not logged in. Run `pbc cloud login`.", 4);
     }
     const user = await deps.makeClient(auth).whoami();
     console.log(

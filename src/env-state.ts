@@ -7,8 +7,8 @@ import { sha256Hex } from "./hash.ts";
  * tell "the file changed" from "the file is the same" and skip a write that
  * would change nothing.
  *
- * Kept beside the config rather than in pb.json for two reasons: the digest is
- * derived from secret values and pb.json is committed to git, and this is a
+ * Kept beside the config rather than in pbc.json for two reasons: the digest is
+ * derived from secret values and pbc.json is committed to git, and this is a
  * cache — a missing or unreadable file costs one redundant push, never
  * correctness. Every failure mode here therefore falls open towards pushing.
  */

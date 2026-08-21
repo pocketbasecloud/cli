@@ -2,7 +2,12 @@ import { basename, join } from "@std/path";
 import type { CmdCtx, Handler } from "../router.ts";
 import { CliError } from "../errors.ts";
 import type { LocalDeps } from "../local/deps.ts";
-import { installBinary, pinVersion, readPin } from "../local/install.ts";
+import {
+  installBinary,
+  linkFileIn,
+  pinVersion,
+  readPin,
+} from "../local/install.ts";
 import { scaffoldProject } from "../local/scaffold.ts";
 import { listVersions } from "../local/releases.ts";
 import { detectPlatform } from "../local/platform.ts";
@@ -94,9 +99,10 @@ export function makeLocalCommands(
     for (const r of scaffold) write(`  ${r.status.padEnd(8)} ${r.path}`);
     if (!res.skipped) {
       write(
-        `  updated  ${
-          join(dir, "pb.json")
-        } (pocketbaseVersion: ${res.version})`,
+        `  updated  ${await linkFileIn(
+          deps,
+          dir,
+        )} (pocketbaseVersion: ${res.version})`,
       );
       if (!res.checksumVerified) console.error(NO_CHECKSUM_WARNING);
     }
@@ -136,7 +142,7 @@ export function makeLocalCommands(
     const path = join(dir, platform.binName);
     if (!await deps.stat(path)) {
       throw new CliError(
-        `No PocketBase binary in ${dir}. Run \`pb init\` to download one.`,
+        `No PocketBase binary in ${dir}. Run \`pbc init\` to download one.`,
         1,
       );
     }
@@ -145,7 +151,7 @@ export function makeLocalCommands(
       write(JSON.stringify({ path, version }));
       return 0;
     }
-    write(`${path} (${version ?? "unknown — no pin in pb.json"})`);
+    write(`${path} (${version ?? "unknown — no pin in pbc.json"})`);
     return 0;
   };
 

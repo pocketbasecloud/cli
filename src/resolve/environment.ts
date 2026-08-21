@@ -1,4 +1,4 @@
-import type { EnvEntry, LinkFile } from "../config.ts";
+import { type EnvEntry, envVar, type LinkFile } from "../config.ts";
 import { CliError } from "../errors.ts";
 import { canPrompt, prompt, type PromptIO } from "../ui/prompt.ts";
 
@@ -7,7 +7,7 @@ export const DEFAULT_ENVIRONMENT = "production";
 
 export type EnvironmentChoice = {
   name: string;
-  /** True when `--env` or PB_ENV named it, rather than the file. */
+  /** True when `--env` or PBC_ENV named it, rather than the file. */
   explicit: boolean;
   /** True when `environments` has an entry under this name. */
   configured: boolean;
@@ -23,7 +23,7 @@ function assertValidName(name: string): void {
 }
 
 /**
- * Which environment a command targets: `--env` > PB_ENV > `defaultEnvironment` >
+ * Which environment a command targets: `--env` > PBC_ENV > `defaultEnvironment` >
  * the sole configured entry.
  *
  * With several environments and no default the answer is genuinely unknown, so
@@ -42,7 +42,7 @@ export function resolveEnvironmentName(
   const environments = link?.environments ?? {};
   const names = Object.keys(environments);
 
-  const explicit = opts.flag ?? (opts.env ?? Deno.env.toObject())["PB_ENV"];
+  const explicit = opts.flag ?? envVar("ENV", opts.env);
   if (explicit) {
     assertValidName(explicit);
     return {
@@ -79,7 +79,7 @@ export function resolveEnvironmentName(
  * into a directory — `deploy`, `link`, `init`. Everywhere else the answer is
  * already in the file.
  *
- * Left alone: an explicit `--env`/`PB_ENV`, a file that already names an
+ * Left alone: an explicit `--env`/`PBC_ENV`, a file that already names an
  * environment, and anything non-interactive (`--no-input`, `--json`, no TTY),
  * which keeps "production" as the unattended default it has always been.
  */
@@ -108,7 +108,7 @@ export async function chooseEnvironment(
  *
  * A file with no `environments` block at all is not an error: nothing is
  * configured yet, so `--name`/`--id` still decide, exactly as before
- * environments existed. That also keeps a repo-wide `PB_ENV` in CI from
+ * environments existed. That also keeps a repo-wide `PBC_ENV` in CI from
  * breaking directories that have not been linked.
  */
 export function assertConfigured(

@@ -216,7 +216,7 @@ Deno.test("pbdirs skips directories the config does not name", async () => {
   ]);
 });
 
-Deno.test("pbdirs names the pb.json field when a directory is missing", async () => {
+Deno.test("pbdirs names the pbc.json field when a directory is missing", async () => {
   await assertRejects(
     () => names(dir({ "a.txt": "x" }), "pocketbases", { pbHooks: "hooks" }),
     CliError,

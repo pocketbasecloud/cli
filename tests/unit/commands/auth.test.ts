@@ -119,9 +119,9 @@ async function withStderr(fn: () => Promise<unknown>): Promise<string> {
   return lines.join("\n");
 }
 
-Deno.test("login warns that PB_TOKEN will override the saved login", async () => {
+Deno.test("login warns that PBC_TOKEN will override the saved login", async () => {
   const saved = defaultConfig();
-  Deno.env.set("PB_TOKEN", "envtok");
+  Deno.env.set("PBC_TOKEN", "envtok");
   try {
     const err = await withStderr(() =>
       loginCmds(saved, "u1")["cloud login"]({
@@ -132,13 +132,13 @@ Deno.test("login warns that PB_TOKEN will override the saved login", async () =>
     );
     // Without this, "Logged in." is followed by commands acting as the env
     // token — a 401 or a wrong-account write with nothing explaining either.
-    assertStringIncludes(err, "PB_TOKEN");
+    assertStringIncludes(err, "PBC_TOKEN");
   } finally {
-    Deno.env.delete("PB_TOKEN");
+    Deno.env.delete("PBC_TOKEN");
   }
 });
 
-Deno.test("logout warns that PB_TOKEN still authenticates", async () => {
+Deno.test("logout warns that PBC_TOKEN still authenticates", async () => {
   const saved = defaultConfig();
   saved.cloud = { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" };
   const cmds = makeAuthCommands({
@@ -151,7 +151,7 @@ Deno.test("logout warns that PB_TOKEN still authenticates", async () => {
     login: () => Promise.resolve(saved.cloud!),
     portalUrl: "https://portal",
   });
-  Deno.env.set("PB_TOKEN", "envtok");
+  Deno.env.set("PBC_TOKEN", "envtok");
   try {
     const err = await withStderr(() =>
       cmds["cloud logout"]({
@@ -160,15 +160,15 @@ Deno.test("logout warns that PB_TOKEN still authenticates", async () => {
         raw: {},
       })
     );
-    assertStringIncludes(err, "PB_TOKEN");
+    assertStringIncludes(err, "PBC_TOKEN");
   } finally {
-    Deno.env.delete("PB_TOKEN");
+    Deno.env.delete("PBC_TOKEN");
   }
 });
 
-Deno.test("the PB_TOKEN warning stays out of --json output", async () => {
+Deno.test("the PBC_TOKEN warning stays out of --json output", async () => {
   const saved = defaultConfig();
-  Deno.env.set("PB_TOKEN", "envtok");
+  Deno.env.set("PBC_TOKEN", "envtok");
   try {
     const err = await withStderr(() =>
       loginCmds(saved, "u1")["cloud login"]({
@@ -179,6 +179,6 @@ Deno.test("the PB_TOKEN warning stays out of --json output", async () => {
     );
     assertEquals(err, "");
   } finally {
-    Deno.env.delete("PB_TOKEN");
+    Deno.env.delete("PBC_TOKEN");
   }
 });

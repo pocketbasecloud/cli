@@ -142,7 +142,7 @@ Deno.test("install downloads the latest and pins it", async () => {
   assertEquals(code, 0);
   assertEquals(h.files.get("/work/pocketbase"), BODY);
   assertEquals(
-    JSON.parse(h.texts.get("/work/pb.json")!).pocketbaseVersion,
+    JSON.parse(h.texts.get("/work/pbc.json")!).pocketbaseVersion,
     "0.39.9",
   );
 });
@@ -155,7 +155,7 @@ Deno.test("install takes the version as a positional argument", async () => {
     ctx({ args: ["0.22.50"], raw: { os: "linux", arch: "amd64" } }),
   );
   assertEquals(
-    JSON.parse(h.texts.get("/work/pb.json")!).pocketbaseVersion,
+    JSON.parse(h.texts.get("/work/pbc.json")!).pocketbaseVersion,
     "0.22.50",
   );
 });
@@ -182,7 +182,7 @@ Deno.test("init installs, scaffolds, and pins", async () => {
   assertEquals(h.texts.has("/work/pb_hooks/main.pb.js"), true);
   assertEquals(h.texts.has("/work/.gitignore"), true);
   assertEquals(
-    JSON.parse(h.texts.get("/work/pb.json")!).pocketbaseVersion,
+    JSON.parse(h.texts.get("/work/pbc.json")!).pocketbaseVersion,
     "0.39.9",
   );
 });
@@ -279,7 +279,7 @@ Deno.test("which exits 1 when nothing is installed", async () => {
   const h = harness();
   const e = await assertRejects(() => h.cmds["which"](ctx()), CliError);
   assertEquals((e as CliError).exitCode, 1);
-  assertEquals((e as Error).message.includes("pb init"), true);
+  assertEquals((e as Error).message.includes("pbc init"), true);
 });
 
 Deno.test("which reports unknown when the binary has no pin", async () => {

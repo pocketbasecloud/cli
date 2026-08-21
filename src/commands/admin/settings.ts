@@ -26,7 +26,7 @@ export function makeSettingsCommands(
 
   const mailSet: Handler = async (ctx: CmdCtx) => {
     const json = ctx.args[0] ?? (ctx.raw.data as string | undefined);
-    if (!json) throw new CliError("Usage: pb settings mail set '<json>'", 2);
+    if (!json) throw new CliError("Usage: pbc settings mail set '<json>'", 2);
     const { client } = await deps.requireAdmin();
     await client.updateSettings({ smtp: JSON.parse(json) });
     console.log(
@@ -37,7 +37,7 @@ export function makeSettingsCommands(
 
   const mailTest: Handler = async (ctx: CmdCtx) => {
     const to = ctx.args[0];
-    if (!to) throw new CliError("Usage: pb settings mail test <email>", 2);
+    if (!to) throw new CliError("Usage: pbc settings mail test <email>", 2);
     const { client } = await deps.requireAdmin();
     await client.testEmail(to);
     console.log(
@@ -55,7 +55,7 @@ export function makeSettingsCommands(
 
   const s3Set: Handler = async (ctx: CmdCtx) => {
     const json = ctx.args[0] ?? (ctx.raw.data as string | undefined);
-    if (!json) throw new CliError("Usage: pb settings s3 set '<json>'", 2);
+    if (!json) throw new CliError("Usage: pbc settings s3 set '<json>'", 2);
     const { client } = await deps.requireAdmin();
     await client.updateSettings({ s3: JSON.parse(json) });
     console.log(
@@ -97,7 +97,7 @@ export function makeSettingsCommands(
 
   const backupRm: Handler = async (ctx: CmdCtx) => {
     const key = ctx.args[0];
-    if (!key) throw new CliError("Usage: pb settings backup rm <key>", 2);
+    if (!key) throw new CliError("Usage: pbc settings backup rm <key>", 2);
     const { client } = await deps.requireAdmin();
     if (
       !await confirm(`Delete backup ${key}?`, {
@@ -119,7 +119,7 @@ export function makeSettingsCommands(
     const key = ctx.args[0];
     if (!key) {
       throw new CliError(
-        "Usage: pb settings backup download <key> [--out <file>]",
+        "Usage: pbc settings backup download <key> [--out <file>]",
         2,
       );
     }

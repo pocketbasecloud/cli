@@ -37,7 +37,9 @@ function isZeroBlock(block: Uint8Array): boolean {
  *
  * Deliberately minimal, in the same spirit as `local/unzip.ts`: the archives
  * it reads are our own release tarballs, built by `tar -czf` from a directory
- * holding a single `pb` binary. Sparse files, GNU long names, and multi-volume
+ * holding a single binary — the entry is named `pb` however the installed
+ * command is called, see `scripts/targets.ts`. Sparse files, GNU long names,
+ * and multi-volume
  * archives cannot occur there and are not handled — an unrecognised entry is
  * skipped rather than guessed at.
  */

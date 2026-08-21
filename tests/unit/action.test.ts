@@ -80,7 +80,7 @@ Deno.test("action.yml never prints the raw deploy record", () => {
 Deno.test("action.yml redirects the deploy record, never pipes it", () => {
   const text = readAction();
   const deployLine = text.split("\n").find((l) =>
-    l.includes('pb "${argv[@]}"')
+    l.includes('pbc "${argv[@]}"')
   );
   if (!deployLine) throw new Error("Could not find the deploy invocation");
   assertStringIncludes(deployLine, ">");
@@ -293,7 +293,7 @@ Deno.test("summarize.mjs exits 1 on an unreadable file and deletes it", async ()
 // Static assertions cannot tell whether a `set -euo pipefail` script actually
 // stops on a bad input — the arg splitter's failure mode is precisely that it
 // does not. So the step's own script is lifted out of action.yml and executed
-// against a `pb` stub that records the argv it was handed.
+// against a `pbc` stub that records the argv it was handed.
 
 /** The `run:` block of the step named `name`, dedented. */
 export function stepScript(name: string): string {
@@ -320,22 +320,22 @@ async function runDeployStep(
   env: Record<string, string>,
 ): Promise<{ code: number; argv: string[]; stderr: string }> {
   const dir = Deno.makeTempDirSync();
-  // A shell function shadows any real `pb` on PATH, so the step runs unchanged
+  // A shell function shadows any real `pbc` on PATH, so the step runs unchanged
   // and its redirect captures the argv instead of a deploy record.
-  const script = `pb() { printf '%s\\n' "$@"; }\n${stepScript("Deploy")}`;
+  const script = `pbc() { printf '%s\\n' "$@"; }\n${stepScript("Deploy")}`;
   const child = new Deno.Command("bash", {
     args: ["-c", script],
     env: {
       PATH: Deno.env.get("PATH") ?? "",
       RUNNER_TEMP: dir,
-      PB_KIND: "auto",
-      PB_PROJECT: "",
-      PB_NAME: "",
-      PB_ENVIRONMENT: "",
-      PB_COMPUTE: "",
-      PB_LOCATION: "",
-      PB_SKIP_BUILD: "false",
-      PB_EXTRA_ARGS: "",
+      PBC_KIND: "auto",
+      PBC_PROJECT: "",
+      PBC_NAME: "",
+      PBC_ENVIRONMENT: "",
+      PBC_COMPUTE: "",
+      PBC_LOCATION: "",
+      PBC_SKIP_BUILD: "false",
+      PBC_EXTRA_ARGS: "",
       ...env,
     },
     stdout: "piped",
@@ -344,17 +344,17 @@ async function runDeployStep(
   const { code, stderr } = await child.output();
   let argv: string[] = [];
   try {
-    argv = Deno.readTextFileSync(join(dir, "pb-deploy.json")).split("\n")
+    argv = Deno.readTextFileSync(join(dir, "pbc-deploy.json")).split("\n")
       .filter(
         (l) => l !== "",
       );
-  } catch { /* the step failed before running pb */ }
+  } catch { /* the step failed before running pbc */ }
   return { code, argv, stderr: new TextDecoder().decode(stderr) };
 }
 
 Deno.test("the Deploy step keeps a quoted argument in one piece", async () => {
   const { code, argv } = await runDeployStep({
-    PB_EXTRA_ARGS: '--name "My Site" --force',
+    PBC_EXTRA_ARGS: '--name "My Site" --force',
   });
   assertEquals(code, 0);
   assertEquals(argv, [
@@ -370,10 +370,10 @@ Deno.test("the Deploy step keeps a quoted argument in one piece", async () => {
 
 Deno.test("the Deploy step refuses an args string it cannot split", async () => {
   // `xargs` prints `--name`, then dies on the unterminated quote. Deploying
-  // with what it managed to emit hands `pb` a `--name` whose value is the next
+  // with what it managed to emit hands `pbc` a `--name` whose value is the next
   // flag — a silently wrong deploy where an error belongs.
   const { code, argv } = await runDeployStep({
-    PB_EXTRA_ARGS: '--name "My Site',
+    PBC_EXTRA_ARGS: '--name "My Site',
   });
   assertEquals(code === 0, false);
   assertEquals(argv, []);

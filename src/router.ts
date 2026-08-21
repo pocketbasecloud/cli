@@ -119,7 +119,7 @@ export async function dispatch(
       if (ctx.flags.help) {
         if (ctx.flags.json) {
           const fallback: CommandSpec = {
-            usage: `Usage: pb ${key}`,
+            usage: `Usage: pbc ${key}`,
             summary: "",
             args: [],
             flags: [],
@@ -134,7 +134,7 @@ export async function dispatch(
             ),
           );
         } else {
-          console.log(`Usage: pb ${key}`);
+          console.log(`Usage: pbc ${key}`);
         }
         return 0;
       }
@@ -171,8 +171,8 @@ export async function dispatch(
   const suggestion = nearestCommand(attempted, Object.keys(registry));
   console.error(
     `Unknown command: ${attempted || "(none)"}.` +
-      (suggestion ? ` Did you mean \`pb ${suggestion}\`?` : "") +
-      " Try `pb --help`.",
+      (suggestion ? ` Did you mean \`pbc ${suggestion}\`?` : "") +
+      " Try `pbc --help`.",
   );
   return 1;
 }

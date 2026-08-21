@@ -1,18 +1,70 @@
-import { dirname, join } from "@std/path";
+import { basename, dirname, join } from "@std/path";
 import type { ResourceKind } from "./clients/types.ts";
 
 /**
- * The platform's hosts are fixed, not configurable. `PB_TOKEN` still selects
+ * The one place the `PBC_` → `PB_` precedence lives: current spelling first,
+ * the pre-0.6.0 one second, and empty counting as unset on both — which is how
+ * a CI job has always said "no token", so `PBC_TOKEN=""` still falls through.
+ *
+ * Returns the name as well as the value because a message that asks the user
+ * to change a variable has to name the one they actually set. Deriving both
+ * from a single walk is what stops the value and the name disagreeing about
+ * which spelling won.
+ *
+ * Takes a getter rather than an object so the same precedence serves callers
+ * holding a `Deno.env`-shaped record and callers holding an injected `env()`.
+ */
+function pickEnv(
+  get: (key: string) => string | undefined,
+  suffix: string,
+): { name: string; value: string } | undefined {
+  for (const name of [`PBC_${suffix}`, `PB_${suffix}`]) {
+    const value = get(name);
+    if (value !== undefined && value !== "") return { name, value };
+  }
+  return undefined;
+}
+
+/** {@link pickEnv}'s value, for a caller holding an injected `env()`. */
+export function readEnv(
+  get: (key: string) => string | undefined,
+  suffix: string,
+): string | undefined {
+  return pickEnv(get, suffix)?.value;
+}
+
+/** {@link readEnv} against a plain record, which is how most callers hold env. */
+export function envVar(
+  suffix: string,
+  env: Record<string, string | undefined> = Deno.env.toObject(),
+): string | undefined {
+  return readEnv((key) => env[key], suffix);
+}
+
+/**
+ * Which spelling actually supplied the value. Telling someone to unset
+ * `PBC_TOKEN` when their shell exports `PB_TOKEN` sends them looking for a
+ * variable that is not there.
+ */
+export function envVarName(
+  suffix: string,
+  env: Record<string, string | undefined> = Deno.env.toObject(),
+): string | undefined {
+  return pickEnv((key) => env[key], suffix)?.name;
+}
+
+/**
+ * The platform's hosts are fixed, not configurable. `PBC_TOKEN` still selects
  * *who* the CLI acts as, but nothing selects *where* it sends that token —
  * an overridable backend URL is a way to hand a user's credentials to a host
  * the platform does not control.
  */
-function envUrl(key: string, fallback: string): string {
-  return Deno.env.get(key) || fallback;
+function envUrl(suffix: string, fallback: string): string {
+  return envVar(suffix) || fallback;
 }
 /** e2e smoke tests override these — not a user-facing feature. */
 export function backendUrl(): string {
-  return envUrl("PB_BACKEND_URL", "https://backend.pocketbasecloud.com");
+  return envUrl("BACKEND_URL", "https://backend.pocketbasecloud.com");
 }
 /**
  * backend-extension is a separate service from PocketBase, on its own host. It
@@ -20,7 +72,7 @@ export function backendUrl(): string {
  * bulk env, export — and the CLI calls it directly with the user's token.
  */
 export function backendExtUrl(): string {
-  return envUrl("PB_EXT_URL", "https://backend-ext.pocketbasecloud.com");
+  return envUrl("EXT_URL", "https://backend-ext.pocketbasecloud.com");
 }
 /**
  * Pinned for the same reason as the backends, and specifically *with* them: the
@@ -29,7 +81,7 @@ export function backendExtUrl(): string {
  * never accept — an unbreakable "log in again" loop.
  */
 export function portalUrl(): string {
-  return envUrl("PB_PORTAL_URL", "https://portal.pocketbasecloud.com/login");
+  return envUrl("PORTAL_URL", "https://portal.pocketbasecloud.com/login");
 }
 
 export type CloudAuth = {
@@ -109,7 +161,7 @@ export type BuildConfig = {
 };
 
 /**
- * A directory's pb.json: fields shared by every environment, plus the per
+ * A directory's link file: fields shared by every environment, plus the per
  * environment deltas. `projectId` is deliberately not overridable — every
  * environment of a directory lives in the same cloud project.
  */
@@ -133,13 +185,29 @@ export function defaultConfig(): Config {
   };
 }
 
+function configBase(env: Record<string, string | undefined>): string {
+  const xdg = env["XDG_CONFIG_HOME"];
+  const home = env["HOME"] ?? env["USERPROFILE"] ?? ".";
+  return xdg && xdg.length > 0 ? xdg : join(home, ".config");
+}
+
+/** Where the CLI keeps the saved login. Everything writes here. */
 export function configPath(
   env: Record<string, string | undefined> = Deno.env.toObject(),
 ): string {
-  const xdg = env["XDG_CONFIG_HOME"];
-  const home = env["HOME"] ?? env["USERPROFILE"] ?? ".";
-  const base = xdg && xdg.length > 0 ? xdg : join(home, ".config");
-  return join(base, "pb", "config.json");
+  return join(configBase(env), "pbc", "config.json");
+}
+
+/**
+ * The pre-0.6.0 location, read when {@link configPath} holds nothing. Left in
+ * place rather than moved: the first save writes the new file and the old one
+ * stops being consulted, but a `pb` binary from before the rename keeps its own
+ * login working.
+ */
+export function legacyConfigPath(
+  env: Record<string, string | undefined> = Deno.env.toObject(),
+): string {
+  return join(configBase(env), "pb", "config.json");
 }
 
 /**
@@ -153,13 +221,18 @@ export function updateCheckPath(
 }
 
 export async function loadConfig(): Promise<Config> {
-  try {
-    const text = await Deno.readTextFile(configPath());
-    return fillInHosts({ ...defaultConfig(), ...JSON.parse(text) });
-  } catch (e) {
-    if (e instanceof Deno.errors.NotFound) return defaultConfig();
-    throw e;
+  // Only absence falls through to the older location — malformed JSON is still
+  // an error, so a corrupt config surfaces instead of silently reverting to a
+  // login the user replaced.
+  for (const path of [configPath(), legacyConfigPath()]) {
+    try {
+      const text = await Deno.readTextFile(path);
+      return fillInHosts({ ...defaultConfig(), ...JSON.parse(text) });
+    } catch (e) {
+      if (!(e instanceof Deno.errors.NotFound)) throw e;
+    }
   }
+  return defaultConfig();
 }
 
 /**
@@ -182,72 +255,127 @@ export async function saveConfig(c: Config): Promise<void> {
   await Deno.chmod(path, 0o600).catch(() => {}); // no-op on Windows
 }
 
-/** True when `PB_TOKEN` is shadowing whatever login is saved on disk. */
-export function usesEnvToken(
-  env: Record<string, string | undefined> = Deno.env.toObject(),
-): boolean {
-  return Boolean(env["PB_TOKEN"]);
-}
-
 /**
- * Who the CLI is acting as. `PB_TOKEN` wins over the saved login so CI can
+ * Who the CLI is acting as. `PBC_TOKEN` wins over the saved login so CI can
  * authenticate without a browser; the hosts are not part of that choice, and
  * are stamped from the constants above whichever way the token arrives —
  * including over whatever an older config wrote to disk.
  *
- * Because the env token wins silently, `login`/`logout` call {@link usesEnvToken}
- * to warn when their work is about to be overridden by it.
+ * Because the env token wins silently, `login`/`logout` call {@link envVarName}
+ * to warn — by the name that is actually set — when their work is about to be
+ * overridden by it.
  */
 export function resolveCloudAuth(
   c: Config,
   env: Record<string, string | undefined> = Deno.env.toObject(),
 ): CloudAuth | null {
   const hosts = { backendUrl: backendUrl(), extUrl: backendExtUrl() };
-  const token = env["PB_TOKEN"];
+  const token = envVar("TOKEN", env);
   if (token) return { ...hosts, userToken: token, userId: "" };
   if (!c.cloud) return null;
   return { ...c.cloud, ...hosts };
 }
 
+/** The link file a directory is read from, newest name first. */
+export const LINK_FILE = "pbc.json";
+/** What it was called before 0.6.0. Still read, and still written to when it
+ * is the file a directory already has. */
+export const LEGACY_LINK_FILE = "pb.json";
+const LINK_FILES = [LINK_FILE, LEGACY_LINK_FILE] as const;
+
+/**
+ * Which link file this directory writes to: whichever one it already has,
+ * `pbc.json` when it has neither.
+ *
+ * Writing back to the file that is there is the whole compatibility story for
+ * committed repositories — a checkout holding `pb.json` keeps one link file
+ * rather than growing a second one that only the newer CLI can see, and its
+ * diffs stay about the binding rather than about the rename.
+ */
+export async function linkFilePath(cwd: string): Promise<string> {
+  for (const name of LINK_FILES) {
+    const path = join(cwd, name);
+    try {
+      if ((await Deno.stat(path)).isFile) return path;
+    } catch { /* try the next name */ }
+  }
+  return join(cwd, LINK_FILE);
+}
+
+/**
+ * Just the name of that file, for messages about what this directory writes. A
+ * directory still on `pb.json` must be pointed at `pb.json` — naming the file
+ * it does not have is worse than not naming one at all.
+ */
+export async function linkFileName(cwd: string): Promise<string> {
+  return basename(await linkFilePath(cwd));
+}
+
+/**
+ * The name of the file that *binds* `cwd`, which {@link readLinkFile} may have
+ * found in a parent. Messages about a binding have to walk the same way it did:
+ * in a monorepo whose root holds the link file, naming `cwd`'s own would name a
+ * file that exists nowhere.
+ */
+export async function bindingFileName(cwd: string): Promise<string> {
+  let dir = cwd;
+  while (true) {
+    for (const name of LINK_FILES) {
+      try {
+        if ((await Deno.stat(join(dir, name))).isFile) return name;
+      } catch { /* try the next name, then keep walking */ }
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return LINK_FILE;
+    dir = parent;
+  }
+}
+
 export async function readLinkFile(cwd: string): Promise<LinkFile | null> {
   let dir = cwd;
   while (true) {
-    try {
-      const text = await Deno.readTextFile(join(dir, "pb.json"));
-      const parsed = JSON.parse(text) as Partial<LinkFile>;
-      // A pb.json that does not identify a project is not a link — `pb init`
-      // writes one containing only a version pin.
-      if (parsed.projectId) return parsed as LinkFile;
-      return null;
-    } catch { /* keep walking */ }
+    for (const name of LINK_FILES) {
+      try {
+        const text = await Deno.readTextFile(join(dir, name));
+        const parsed = JSON.parse(text) as Partial<LinkFile>;
+        // A link file that does not identify a project is not a link —
+        // `pbc init` writes one containing only a version pin.
+        if (parsed.projectId) return parsed as LinkFile;
+        return null;
+      } catch { /* try the next name, then keep walking */ }
+    }
     const parent = dirname(dir);
     if (parent === dir) return null;
     dir = parent;
   }
 }
 
-/** Read the cwd's own pb.json (no walk-up), tolerating an absent/invalid file. */
-export async function readOwnPbJson(cwd: string): Promise<Partial<LinkFile>> {
-  try {
-    return JSON.parse(await Deno.readTextFile(join(cwd, "pb.json")));
-  } catch {
-    return {};
+/**
+ * Read the cwd's own link file (no walk-up), tolerating an absent or invalid
+ * one.
+ */
+export async function readOwnLinkFile(cwd: string): Promise<Partial<LinkFile>> {
+  for (const name of LINK_FILES) {
+    try {
+      return JSON.parse(await Deno.readTextFile(join(cwd, name)));
+    } catch { /* try the next name */ }
   }
+  return {};
 }
 
-async function writePbJson(
+async function writeLinkFile(
   cwd: string,
   file: Partial<LinkFile>,
 ): Promise<void> {
   await Deno.writeTextFile(
-    join(cwd, "pb.json"),
+    await linkFilePath(cwd),
     JSON.stringify(file, null, 2) + "\n",
   );
 }
 
 /**
  * Record the cloud resource one environment of this directory deploys to.
- * Writes to the cwd's own pb.json (creating it, self-contained, if absent),
+ * Writes to the cwd's own link file (creating it, self-contained, if absent),
  * preserving other fields and the environment's own build overrides.
  *
  * `projectId` always names the project the bound resources live in — the two
@@ -271,7 +399,7 @@ export async function upsertEnvironment(
     entry: EnvEntry;
   },
 ): Promise<void> {
-  const existing = await readOwnPbJson(cwd);
+  const existing = await readOwnLinkFile(cwd);
   const environments = { ...existing.environments };
   const prev = environments[opts.environment];
   environments[opts.environment] = {
@@ -281,7 +409,7 @@ export async function upsertEnvironment(
       ? { build: { ...prev?.build, ...opts.entry.build } }
       : {}),
   };
-  await writePbJson(cwd, {
+  await writeLinkFile(cwd, {
     ...existing,
     projectId: opts.projectId,
     kind: opts.kind,
@@ -303,7 +431,7 @@ export type RemoveEnvResult = {
 };
 
 /**
- * Forget one environment of the cwd's *own* pb.json. Unlike `readLinkFile` this
+ * Forget one environment of the cwd's *own* link file. Unlike `readLinkFile` this
  * never walks up, so `rm` and `unlink` cannot detach a parent directory.
  *
  * Removing the default leaves the file without one rather than silently
@@ -314,7 +442,7 @@ export async function removeEnvironment(
   cwd: string,
   environment: string,
 ): Promise<RemoveEnvResult> {
-  const existing = await readOwnPbJson(cwd);
+  const existing = await readOwnLinkFile(cwd);
   const environments = { ...existing.environments };
   if (!(environment in environments)) return { removed: false };
   delete environments[environment];
@@ -325,7 +453,7 @@ export async function removeEnvironment(
     delete next.environments;
     delete next.defaultEnvironment;
     delete next.kind;
-    await writePbJson(cwd, next);
+    await writeLinkFile(cwd, next);
     return { removed: true, emptied: true };
   }
 
@@ -340,7 +468,7 @@ export async function removeEnvironment(
       result.defaultDropped = true;
     }
   }
-  await writePbJson(cwd, next);
+  await writeLinkFile(cwd, next);
   return result;
 }
 
@@ -354,7 +482,7 @@ export async function removeEnvironmentFor(
   environment: string,
   id: string,
 ): Promise<RemoveEnvResult> {
-  const existing = await readOwnPbJson(cwd);
+  const existing = await readOwnLinkFile(cwd);
   if (existing.environments?.[environment]?.id !== id) {
     return { removed: false };
   }
@@ -363,18 +491,18 @@ export async function removeEnvironmentFor(
 
 /** Forget every environment, leaving `projectId` and `build` intact. */
 export async function clearEnvironments(cwd: string): Promise<string[]> {
-  const existing = await readOwnPbJson(cwd);
+  const existing = await readOwnLinkFile(cwd);
   const names = Object.keys(existing.environments ?? {});
   if (names.length === 0) return [];
   delete existing.environments;
   delete existing.defaultEnvironment;
   delete existing.kind;
-  await writePbJson(cwd, existing);
+  await writeLinkFile(cwd, existing);
   return names;
 }
 
 /**
- * Record an inferred build config in the cwd's pb.json so the next deploy is
+ * Record an inferred build config in the cwd's link file so the next deploy is
  * deterministic and the choice is reviewable in git. Never called when the
  * file already carries a `build` block.
  */
@@ -382,8 +510,8 @@ export async function upsertBuildConfig(
   cwd: string,
   build: BuildConfig,
 ): Promise<void> {
-  const existing = await readOwnPbJson(cwd);
-  await writePbJson(cwd, { ...existing, build });
+  const existing = await readOwnLinkFile(cwd);
+  await writeLinkFile(cwd, { ...existing, build });
 }
 
 /**
@@ -396,6 +524,6 @@ export async function setDefaultEnvironment(
   cwd: string,
   environment: string,
 ): Promise<void> {
-  const existing = await readOwnPbJson(cwd);
-  await writePbJson(cwd, { ...existing, defaultEnvironment: environment });
+  const existing = await readOwnLinkFile(cwd);
+  await writeLinkFile(cwd, { ...existing, defaultEnvironment: environment });
 }

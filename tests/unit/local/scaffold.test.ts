@@ -90,7 +90,7 @@ Deno.test("the README starts the server from the binary, not a package runner", 
   const h = harness();
   await scaffoldProject(h.deps, "/work");
   const readme = h.texts.get("/work/README.md")!;
-  // npx/npm can deliver the `pb` CLI, but never the running server — the
+  // npx/npm can deliver the `pbc` CLI, but never the running server — the
   // server is always the downloaded binary.
   assertEquals(readme.includes("npx pocketbase"), false);
   assertEquals(readme.includes("npm install pocketbase"), false);

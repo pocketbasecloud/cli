@@ -1,6 +1,7 @@
 import { join } from "@std/path";
 import { CliError } from "../errors.ts";
 import { sha256Hex } from "../hash.ts";
+import { LEGACY_LINK_FILE, LINK_FILE } from "../config.ts";
 import type { LocalDeps } from "./deps.ts";
 import { detectPlatform } from "./platform.ts";
 import { extractEntry } from "./unzip.ts";
@@ -10,8 +11,6 @@ import {
   normalizeVersion,
   resolveLatest,
 } from "./releases.ts";
-
-const PB_JSON = "pb.json";
 
 export type InstallOpts = {
   version?: string;
@@ -94,7 +93,7 @@ export async function installBinary(
   if (res.status === 404) {
     throw new CliError(
       `PocketBase ${version} has no ${platform.os}/${platform.arch} build. ` +
-        "Run `pb versions` to see what is available.",
+        "Run `pbc versions` to see what is available.",
       2,
     );
   }
@@ -124,12 +123,28 @@ export async function installBinary(
   };
 }
 
-async function readPbJson(
+/**
+ * The link file this directory uses, mirroring `config.ts`'s `linkFilePath`
+ * over the injected deps these commands run on: whichever name is already
+ * there, and `pbc.json` when neither is.
+ */
+export async function linkFileIn(
+  deps: LocalDeps,
+  dir: string,
+): Promise<string> {
+  for (const name of [LINK_FILE, LEGACY_LINK_FILE]) {
+    const path = join(dir, name);
+    if ((await deps.stat(path))?.isFile) return path;
+  }
+  return join(dir, LINK_FILE);
+}
+
+async function readLinkFileIn(
   deps: LocalDeps,
   dir: string,
 ): Promise<Record<string, unknown>> {
   try {
-    return JSON.parse(await deps.readTextFile(join(dir, PB_JSON)));
+    return JSON.parse(await deps.readTextFile(await linkFileIn(deps, dir)));
   } catch {
     // Absent or unparseable — either way we start fresh rather than fail an
     // install over it.
@@ -137,15 +152,15 @@ async function readPbJson(
   }
 }
 
-/** Merges the version pin into pb.json, preserving any cloud link. */
+/** Merges the version pin into the link file, preserving any cloud link. */
 export async function pinVersion(
   deps: LocalDeps,
   dir: string,
   version: string,
 ): Promise<void> {
-  const current = await readPbJson(deps, dir);
+  const current = await readLinkFileIn(deps, dir);
   await deps.writeTextFile(
-    join(dir, PB_JSON),
+    await linkFileIn(deps, dir),
     JSON.stringify({ ...current, pocketbaseVersion: version }, null, 2) + "\n",
   );
 }
@@ -154,7 +169,7 @@ export async function readPin(
   deps: LocalDeps,
   dir: string,
 ): Promise<string | null> {
-  const current = await readPbJson(deps, dir);
+  const current = await readLinkFileIn(deps, dir);
   const pin = current["pocketbaseVersion"];
   return typeof pin === "string" && pin.length > 0 ? pin : null;
 }

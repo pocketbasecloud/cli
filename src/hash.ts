@@ -2,7 +2,7 @@ import { encodeHex } from "@std/encoding/hex";
 
 /**
  * Lowercase SHA-256 hex of `bytes`. Both download paths — the PocketBase
- * binary in `local/install.ts` and `pb` itself in `self/upgrade.ts` — check
+ * binary in `local/install.ts` and `pbc` itself in `self/upgrade.ts` — check
  * their archive against a published `checksums.txt`, which lists digests in
  * this form.
  */

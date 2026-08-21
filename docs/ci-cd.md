@@ -13,7 +13,7 @@ This guide lives on the PocketBase Cloud docs site:
 
 It is the five-minute path: deploy once from your computer, copy your token
 from the portal's **Account** page, save it as a GitHub secret named
-`PB_TOKEN`, and add one workflow file.
+`PBC_TOKEN`, and add one workflow file.
 
 For environments, monorepos, PR previews, exit codes, and every error message
 with its fix, see the

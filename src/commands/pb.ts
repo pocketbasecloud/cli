@@ -9,7 +9,7 @@ import { resolveProject } from "../resolve/project.ts";
 import type { BuildConfig } from "../config.ts";
 import {
   readLinkFile,
-  readOwnPbJson,
+  readOwnLinkFile,
   removeEnvironment,
   removeEnvironmentFor,
   upsertEnvironment,
@@ -162,7 +162,7 @@ function assertUploadableArchive(bytes: Uint8Array, fileName: string): void {
  * Deploying a bare instance is supported and is not an error, so this is a
  * note rather than a failure — but it must be said. A deploy that packaged
  * nothing looks exactly like a successful one from the outside, and the usual
- * cause is being one directory up from the project, or a `pb.json` whose build
+ * cause is being one directory up from the project, or a `pbc.json` whose build
  * block points somewhere the files are not. Staying quiet lets someone watch
  * "deployed" scroll past and wonder later why the instance is empty.
  */
@@ -173,7 +173,7 @@ function nothingToDeployNote(cwd: string, created: boolean): string {
         ? "the instance was created bare"
         : "no files were sent and the instance is unchanged"
     }. Add one of those directories, or point build.pbPublic / build.pbHooks ` +
-    `/ build.pbMigrations in pb.json at where yours live, then deploy again.`;
+    `/ build.pbMigrations in pbc.json at where yours live, then deploy again.`;
 }
 
 /**
@@ -234,10 +234,10 @@ export async function pushHooks(
   // reading it would be work thrown away.
   if (names.length > MAX_HOOKS_PER_PUSH) {
     // Names the directory, because the usual cause is that it is not the one
-    // the user meant — a bare `pb cloud pb hooks push .` in a project root
+    // the user meant — a bare `pbc cloud pb hooks push .` in a project root
     // lands here rather than uploading the repository.
     throw new CliError(
-      `${names.length} hook files in ${dir} — pb pushes at most ` +
+      `${names.length} hook files in ${dir} — pbc pushes at most ` +
         `${MAX_HOOKS_PER_PUSH} at a time. Check that this is your pb_hooks ` +
         `directory.`,
       2,
@@ -337,7 +337,7 @@ async function resolveDeployVersion(
   cwd: string,
   deps: CloudCmdDeps,
 ): Promise<string> {
-  const pinned = flagVersion ?? (await readOwnPbJson(cwd)).pocketbaseVersion;
+  const pinned = flagVersion ?? (await readOwnLinkFile(cwd)).pocketbaseVersion;
   if (pinned) return pinned;
   try {
     return await resolveLatest({
@@ -369,7 +369,7 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
    * `--name` and the positional argument are the same answer written two ways,
    * and `deploy` reads them in this order — keep them in step. Asked for on a
    * terminal, defaulting to the directory's name the way `deploy` does, since
-   * `pb cloud pb create` in a fresh project directory is the case this exists
+   * `pbc cloud pb create` in a fresh project directory is the case this exists
    * for. Nothing is read from the directory but its name.
    */
   async function newInstanceName(ctx: CmdCtx): Promise<string> {
@@ -378,7 +378,7 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
     const opts = { noInput: ctx.flags.noInput || ctx.flags.json, io: deps.io };
     if (!canPrompt(opts)) {
       throw new CliError(
-        "Pass a name: `pb cloud pb create <name>`.",
+        "Pass a name: `pbc cloud pb create <name>`.",
         2,
       );
     }
@@ -398,7 +398,7 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
    * existing resource — the wrong shape here, where the resource does not exist
    * yet and the file is only a destination. The two guards are the same ones
    * deploy enforces, for the same reasons: `kind` is shared by every
-   * environment in a pb.json, so a directory bound to frontends cannot also
+   * environment in a pbc.json, so a directory bound to frontends cannot also
    * bind a PocketBase; and repointing an environment that already names an
    * instance would silently orphan the binding to a live one.
    */
@@ -415,7 +415,7 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
     );
     if (link?.kind && link.kind !== "pocketbases") {
       throw new CliError(
-        `pb.json is bound to ${link.kind} — create a PocketBase from a ` +
+        `pbc.json is bound to ${link.kind} — create a PocketBase from a ` +
           `different directory.`,
         2,
       );
@@ -423,13 +423,13 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
     const bound = entryFor(link, "pocketbases", choice);
     if (bound) {
       throw new CliError(
-        `pb.json already binds environment "${choice.name}" to PocketBase ` +
+        `pbc.json already binds environment "${choice.name}" to PocketBase ` +
           `"${
             bound.name ?? bound.id
           }" (${bound.id}). Record the new instance ` +
           `under another environment with --env <name>, run this from a ` +
           `different directory, or remove the bound instance with ` +
-          `\`pb cloud pb rm --name ${bound.name ?? bound.id}\`.`,
+          `\`pbc cloud pb rm --name ${bound.name ?? bound.id}\`.`,
         2,
       );
     }
@@ -437,7 +437,7 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
   }
 
   /**
-   * Creates an empty instance and records it in this directory's pb.json.
+   * Creates an empty instance and records it in this directory's pbc.json.
    *
    * `deploy` is a directory command: it infers a build block, packages
    * pb_public/pb_hooks/pb_migrations, and asks which dotenv file the
@@ -446,9 +446,9 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
    * or a user with nothing to deploy yet. So `create` skips every one of those
    * steps and sends no archive at all.
    *
-   * What it does keep is the binding: the instance is written into pb.json
+   * What it does keep is the binding: the instance is written into pbc.json
    * under its environment exactly as a deploy would write it, so the next
-   * `pb cloud pb deploy` here needs no --name. The rest of the create is shared
+   * `pbc cloud pb deploy` here needs no --name. The rest of the create is shared
    * with `deploy` — owner, superuser credentials, compute, version, the
    * provisioning and reachability waits — so the two cannot drift into
    * producing differently-shaped instances.
@@ -484,7 +484,7 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
     if (existing) {
       throw new CliError(
         `A PocketBase named "${name}" already exists in this project ` +
-          `(${existing.id}). Redeploy it with \`pb cloud pb deploy --name ` +
+          `(${existing.id}). Redeploy it with \`pbc cloud pb deploy --name ` +
           `${name}\`, or create this one under another name.`,
         2,
       );
@@ -531,7 +531,7 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
     );
     // Recorded as soon as the record exists, not once it is running: an
     // instance that fails to provision is still one this directory owns, and a
-    // binding is how `pb cloud pb deploy`, `info`, `logs` and `rm` reach it.
+    // binding is how `pbc cloud pb deploy`, `info`, `logs` and `rm` reach it.
     // No envFile is written — nothing was pushed, so the first deploy here
     // still gets to ask which dotenv file this environment uses.
     await upsertEnvironment(cwd, {
@@ -567,7 +567,7 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
       }));
     } else {
       // The superuser account exists only on this instance, and a generated
-      // password is shown exactly once — `pb cloud pb info` recovers it later.
+      // password is shown exactly once — `pbc cloud pb info` recovers it later.
       console.log(
         `Admin login: ${credentials.adminUsername} / ${credentials.adminPassword}`,
       );
@@ -575,8 +575,8 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
       // that has not finished reads as if it had.
       if (final.status === "running") {
         console.log(
-          `Recorded in pb.json as environment "${environment}" — ` +
-            `\`pb cloud pb deploy\` here needs no --name.`,
+          `Recorded in pbc.json as environment "${environment}" — ` +
+            `\`pbc cloud pb deploy\` here needs no --name.`,
         );
       }
     }
@@ -625,7 +625,7 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
     // Refuse nested hook files before they travel in the archive. The platform
     // rejects them at the agent level, but that is after the upload.
     if (!ctx.raw.zip) {
-      const own = await readOwnPbJson(cwd);
+      const own = await readOwnLinkFile(cwd);
       const hooksDir = join(cwd, own.build?.pbHooks ?? "pb_hooks");
       try {
         const nested = await findNestedHooks(hooksDir);
@@ -761,7 +761,7 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
       // No separate hooks push any more: pb_hooks travels in the archive and
       // the platform installs it through the same hooks route this used to
       // call, so pushing again would write everything twice and restart the
-      // instance twice. `pb cloud hooks push` still exists for hooks alone.
+      // instance twice. `pbc cloud hooks push` still exists for hooks alone.
       log(
         hasUploadableDirs
           ? "Uploaded the archive: pb_hooks and pb_migrations are merged into " +
@@ -794,7 +794,7 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
       checkCommand: "pb",
     });
     // The admin account exists only on the new instance, so a generated
-    // password has to be shown once — `pb cloud pb info` can recover it later.
+    // password has to be shown once — `pbc cloud pb info` can recover it later.
     const admin = credentials as
       | { adminUsername: string; adminPassword: string }
       | null;
@@ -905,7 +905,7 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
 
   const hooksPush: Handler = async (ctx: CmdCtx) => {
     const dir = ctx.args[0];
-    if (!dir) throw new CliError("Usage: pb cloud pb hooks push <dir>", 2);
+    if (!dir) throw new CliError("Usage: pbc cloud pb hooks push <dir>", 2);
     // Hooks live on one instance, so resolve which — by --name/--id, or the
     // environment this directory is bound to.
     const { client, found } = await resolveOne({
@@ -953,7 +953,7 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
   const hooksRm: Handler = async (ctx: CmdCtx) => {
     const filename = ctx.args[0];
     if (!filename) {
-      throw new CliError("Usage: pb cloud pb hooks rm <filename>", 2);
+      throw new CliError("Usage: pbc cloud pb hooks rm <filename>", 2);
     }
     const { client, found } = await resolveOne({
       ...ctx,
@@ -975,7 +975,7 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Handler> {
       const domain = ctx.args[0];
       if (!domain) {
         throw new CliError(
-          "Usage: pb cloud pb domain <add|verify|remove> <domain> --name <instance>",
+          "Usage: pbc cloud pb domain <add|verify|remove> <domain> --name <instance>",
           2,
         );
       }

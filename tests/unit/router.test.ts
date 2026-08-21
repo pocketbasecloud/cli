@@ -44,7 +44,7 @@ Deno.test("dispatch returns 1 and message for unknown command", async () => {
 });
 
 const SAMPLE_SPEC: CommandSpec = {
-  usage: "pb cloud pb ls [--project <id>]",
+  usage: "pbc cloud pb ls [--project <id>]",
   summary: "List PocketBase instances in a project.",
   args: [],
   flags: [],
@@ -271,5 +271,5 @@ Deno.test("dispatch prints a suggestion for an unknown command", async () => {
   }
   assertEquals(code, 1);
   assertEquals(errs.length, 1);
-  assertEquals(errs[0].includes("Did you mean `pb cloud pb ls`?"), true);
+  assertEquals(errs[0].includes("Did you mean `pbc cloud pb ls`?"), true);
 });

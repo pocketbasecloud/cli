@@ -184,7 +184,7 @@ Deno.test("refuses a static-export config and names the frontend command", async
   await assertRejects(
     () => fix("next.config.js", `module.exports = { output: "export" };\n`),
     CliError,
-    "pb cloud frontend deploy",
+    "pbc cloud frontend deploy",
   );
 });
 

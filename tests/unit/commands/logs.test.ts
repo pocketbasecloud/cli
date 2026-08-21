@@ -122,7 +122,7 @@ Deno.test("logs --env streams that environment's instance", async () => {
   };
   const cwd = Deno.makeTempDirSync();
   await Deno.writeTextFile(
-    `${cwd}/pb.json`,
+    `${cwd}/pbc.json`,
     JSON.stringify({
       projectId: p.id,
       kind: "pocketbases",
@@ -203,7 +203,7 @@ Deno.test("logs announces the project resolved from config.currentProject", asyn
     });
     assertEquals(code, 0);
     assertEquals(log.lines[0].includes(`Project: ${p.name}`), true);
-    assertEquals(log.lines[0].includes("pb cloud project use"), true);
+    assertEquals(log.lines[0].includes("pbc cloud project use"), true);
   } finally {
     log.restore();
   }

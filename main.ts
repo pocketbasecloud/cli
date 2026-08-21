@@ -9,11 +9,11 @@ export async function run(argv: string[]): Promise<number> {
   const { path, ctx } = parseGlobal(argv);
 
   // `--version`/`-v` is the CLI's own version only when it stands alone —
-  // otherwise `pb install 0.39.9 --version` would never reach the command.
+  // otherwise `pbc install 0.39.9 --version` would never reach the command.
   if (
     path.length === 0 && (argv.includes("--version") || argv.includes("-v"))
   ) {
-    console.log(`pb ${VERSION}`);
+    console.log(`pbc ${VERSION}`);
     return 0;
   }
 
@@ -39,7 +39,7 @@ if (import.meta.main) {
   // The update notice is a courtesy and must never delay the work, so it runs
   // twice with different budgets. The pass before the command reads the cache
   // and nothing else — free, and the only pass a command that never returns
-  // (`pb cloud logs --follow`) will ever reach. The pass after is the one
+  // (`pbc cloud logs --follow`) will ever reach. The pass after is the one
   // allowed to hit the network and refresh that cache, and it is skipped when
   // the first already spoke. Imported here so `run()` stays importable without
   // it.

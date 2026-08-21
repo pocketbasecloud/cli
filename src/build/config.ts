@@ -1,5 +1,5 @@
 import type { BuildConfig, LinkFile } from "../config.ts";
-import { readOwnPbJson, upsertBuildConfig } from "../config.ts";
+import { linkFileName, readOwnLinkFile, upsertBuildConfig } from "../config.ts";
 import type { ResourceKind } from "../clients/types.ts";
 import { describeBuild, inferBuild } from "./detect.ts";
 
@@ -28,7 +28,7 @@ export function mergeEnvBuild(
 /**
  * Resolves the build config for a deploy: flag > environment > base > inference.
  *
- * The `build` blocks are read from the cwd's *own* pb.json, never a parent's — a
+ * The `build` blocks are read from the cwd's *own* pbc.json, never a parent's — a
  * parent directory's build command must not silently govern a child's deploy,
  * even though `readLinkFile` walks up to find the project binding.
  *
@@ -46,14 +46,15 @@ export async function resolveBuildConfig(opts: {
   log: (msg: string) => void;
 }): Promise<BuildConfig> {
   const { cwd, kind, flags, environment, log } = opts;
-  const own = await readOwnPbJson(cwd);
+  const own = await readOwnLinkFile(cwd);
 
   if (!own.build && !own.environments?.[environment ?? ""]?.build) {
     const inferred = await inferBuild(cwd, kind);
-    log(`No "build" block in pb.json — inferred from ${cwd}:`);
+    const name = await linkFileName(cwd);
+    log(`No "build" block in ${name} — inferred from ${cwd}:`);
     for (const line of describeBuild(inferred)) log(line);
     await upsertBuildConfig(cwd, inferred);
-    log(`Recorded it in pb.json.`);
+    log(`Recorded it in ${name}.`);
     own.build = inferred;
   }
 

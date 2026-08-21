@@ -48,7 +48,7 @@ export function buildCloudDeps(): CloudCmdDeps {
     requireAuth: async () => {
       const config = await loadConfig();
       const auth = resolveCloudAuth(config);
-      if (!auth) throw new CliError("Not logged in. Run `pb cloud login`.", 4);
+      if (!auth) throw new CliError("Not logged in. Run `pbc cloud login`.", 4);
       return { client: new PocketBaseCloudClient(auth), config, auth };
     },
     loadConfig,
@@ -63,11 +63,11 @@ export function buildAdminDeps(): AdminCmdDeps {
       const config = await loadConfig();
       const name = activeProfileName(config);
       if (!name || !config.profiles[name]) {
-        throw new CliError("No instance selected. Run `pb use <url>`.", 2);
+        throw new CliError("No instance selected. Run `pbc use <url>`.", 2);
       }
       const profile = config.profiles[name];
       if (!profile.superuserToken) {
-        throw new CliError("Not logged in. Run `pb login`.", 4);
+        throw new CliError("Not logged in. Run `pbc login`.", 4);
       }
       return {
         client: new PocketBaseAdminClient(profile.url, profile.superuserToken),
@@ -132,7 +132,7 @@ export function registerCommands(registry: Record<string, Handler>): void {
     frontend,
     backend,
     // Dispatches to the three above rather than deploying anything itself, so
-    // `pb cloud deploy` and `pb cloud <kind> deploy` can never drift apart.
+    // `pbc cloud deploy` and `pbc cloud <kind> deploy` can never drift apart.
     makeDeployCommands(cloud, {
       pocketbases: pb["cloud pb deploy"],
       frontends: frontend["cloud frontend deploy"],

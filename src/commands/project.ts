@@ -2,7 +2,7 @@ import type { CmdCtx, Handler } from "../router.ts";
 import type { BuildConfig, CloudAuth, Config } from "../config.ts";
 import {
   clearEnvironments,
-  readOwnPbJson,
+  readOwnLinkFile,
   removeEnvironment,
   upsertEnvironment,
 } from "../config.ts";
@@ -67,7 +67,7 @@ export function makeProjectCommands(
 
   const create: Handler = async (ctx: CmdCtx) => {
     const name = ctx.args[0];
-    if (!name) throw new CliError("Usage: pb cloud project create <name>", 2);
+    if (!name) throw new CliError("Usage: pbc cloud project create <name>", 2);
     const { client } = await deps.requireAuth();
     const p = await client.createProject(name);
     console.log(
@@ -80,7 +80,7 @@ export function makeProjectCommands(
 
   const use: Handler = async (ctx: CmdCtx) => {
     const token = ctx.args[0];
-    if (!token) throw new CliError("Usage: pb cloud project use <name|id>", 2);
+    if (!token) throw new CliError("Usage: pbc cloud project use <name|id>", 2);
     const { client } = await deps.requireAuth();
     const p = await resolveProject({
       client,
@@ -102,7 +102,7 @@ export function makeProjectCommands(
 
   const rm: Handler = async (ctx: CmdCtx) => {
     const token = ctx.args[0];
-    if (!token) throw new CliError("Usage: pb cloud project rm <name|id>", 2);
+    if (!token) throw new CliError("Usage: pbc cloud project rm <name|id>", 2);
     const { client, config } = await deps.requireAuth();
     const p = await resolveProject({
       client,
@@ -148,10 +148,10 @@ export function makeProjectCommands(
     });
     // The file's own environments decide the target, never a parent's: link
     // writes here, so it must read from here.
-    const own = await readOwnPbJson(cwd);
+    const own = await readOwnLinkFile(cwd);
     if (own.kind && own.kind !== kind) {
       throw new CliError(
-        `pb.json is bound to ${own.kind} — link ${kind} from a different ` +
+        `pbc.json is bound to ${own.kind} — link ${kind} from a different ` +
           `directory.`,
         2,
       );
@@ -206,7 +206,7 @@ export function makeProjectCommands(
 
   const unlink: Handler = async (ctx: CmdCtx) => {
     const cwd = deps.cwd();
-    const own = await readOwnPbJson(cwd);
+    const own = await readOwnLinkFile(cwd);
     const bound = Object.keys(own.environments ?? {});
     if (bound.length === 0) {
       console.log(

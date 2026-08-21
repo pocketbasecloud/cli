@@ -67,7 +67,7 @@ export function makeLogsCommands(deps: CloudCmdDeps): Record<string, Handler> {
     const which = ctx.args[0];
     if (which !== "pb" && which !== "backend") {
       throw new CliError(
-        "Usage: pb cloud logs <pb|backend> --name <n> [-f]",
+        "Usage: pbc cloud logs <pb|backend> --name <n> [-f]",
         2,
       );
     }

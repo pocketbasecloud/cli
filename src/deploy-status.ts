@@ -18,7 +18,7 @@ const FAILURE_REASONS: Record<string, string> = {
   agentUnreachable:
     "the compute stopped responding, so the deploy could not be confirmed — it may still have finished; check again before retrying",
   deploymentFailed:
-    "the compute rejected the deployment — check the logs with `pb cloud logs`",
+    "the compute rejected the deployment — check the logs with `pbc cloud logs`",
   setupFailed: "the compute for this deployment could not be reached",
   failedToDownloadZip:
     "the uploaded archive could not be read — rebuild and deploy again",

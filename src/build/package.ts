@@ -1,6 +1,6 @@
 import { globToRegExp, join } from "@std/path";
 import { CliError } from "../errors.ts";
-import type { BuildConfig } from "../config.ts";
+import { type BuildConfig, linkFileName } from "../config.ts";
 import type { ResourceKind } from "../clients/types.ts";
 import { writeZip, type ZipEntry } from "./zip.ts";
 import {
@@ -189,12 +189,15 @@ async function packPbDirs(
     [build.pbMigrations, "pb_migrations", "pbMigrations"],
   ];
   const groups: ZipEntry[][] = [];
+  // Resolved once: it only ever appears in a message, and each call stats the
+  // directory.
+  const name = await linkFileName(cwd);
   for (const [src, canonical, field] of pairs) {
     if (!src) continue;
     const abs = join(cwd, src);
     await requireDir(
       abs,
-      `${src} not found in ${cwd} (pb.json build.${field}).`,
+      `${src} not found in ${cwd} (${name} build.${field}).`,
     );
     // Staged under the canonical name whatever the source path is called —
     // that is the layout the agent extracts.
@@ -241,7 +244,7 @@ export async function packageResource(opts: {
     // Before the build, because the build is what needs them: a project whose
     // node_modules is missing (fresh clone, CI runner, a dependency added but
     // never installed) fails with `sh: next: not found` and no hint that the
-    // fix is an install. `install: ""` in pb.json opts out.
+    // fix is an install. `install: ""` in pbc.json opts out.
     const plan = build.install === ""
       ? null
       : await planInstall(cwd, build.install);
@@ -254,8 +257,9 @@ export async function packageResource(opts: {
           throw new CliError(
             `Installing dependencies failed (${plan.command} exited ${code} ` +
               `in ${plan.cwd}). Install them yourself and deploy again, or ` +
-              `set "install" in the build block of pb.json to the right ` +
-              `command.`,
+              `set "install" in the build block of ${await linkFileName(
+                plan.cwd,
+              )} to the right command.`,
             7,
           );
         }
@@ -295,12 +299,13 @@ export async function packageResource(opts: {
     } else {
       const dir = build.outputDir ?? (strategy === "static" ? "dist" : ".");
       const abs = join(cwd, dir);
+      const name = await linkFileName(cwd);
       await requireDir(
         abs,
         strategy === "static"
           ? `Build output ${dir} not found in ${cwd}. Set build.outputDir in ` +
-            `pb.json, or check that the build command produced it.`
-          : `${dir} not found in ${cwd} (pb.json build.outputDir).`,
+            `${name}, or check that the build command produced it.`
+          : `${dir} not found in ${cwd} (${name} build.outputDir).`,
       );
       entries = await collect(abs, "", { keepNodeModules: false, extra });
     }

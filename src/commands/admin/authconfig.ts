@@ -23,7 +23,7 @@ export function makeAuthConfigCommands(
     const sub = ctx.args[1];
     if (!collection || sub !== "config") {
       throw new CliError(
-        "Usage: pb auth <collection> config [--set '<field>=<json>']",
+        "Usage: pbc auth <collection> config [--set '<field>=<json>']",
         2,
       );
     }

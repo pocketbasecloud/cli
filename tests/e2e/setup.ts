@@ -31,9 +31,15 @@ export async function pb(args: string[], opts: PbOpts = {}): Promise<PbResult> {
   const parentEnv = Deno.env.toObject();
   // Apply overrides; an explicit "" unsets the key entirely so the child
   // process sees no value for it (falsy in resolveCloudAuth).
+  //
+  // Unsetting `PBC_X` unsets `PB_X` with it: since 0.6.0 the CLI falls back to
+  // the old spelling, so leaving it behind would let a developer shell that
+  // still exports `PB_TOKEN` authenticate a test that asked for no token.
   const childEnv = { ...parentEnv, ...opts.env };
   for (const [k, v] of Object.entries(opts.env ?? {})) {
-    if (v === "") delete childEnv[k];
+    if (v !== "") continue;
+    delete childEnv[k];
+    if (k.startsWith("PBC_")) delete childEnv[`PB_${k.slice("PBC_".length)}`];
   }
   // Run from the target directory (opts.cwd) so deps.cwd() returns the
   // project dir. main.ts is referenced by absolute path.
@@ -93,8 +99,8 @@ export function scaffold(files: Record<string, string>): string {
 // ===================================================================
 
 export function requireToken(): string {
-  const token = Deno.env.get("PB_TOKEN");
-  if (!token) throw new Error("PB_TOKEN is not set — cannot run e2e tests");
+  const token = Deno.env.get("PBC_TOKEN");
+  if (!token) throw new Error("PBC_TOKEN is not set — cannot run e2e tests");
   return token;
 }
 
@@ -111,7 +117,7 @@ export function trackCleanup(kind: ResourceKind, id: string, projectId: string):
 }
 
 export async function runCleanup(): Promise<void> {
-  const token = Deno.env.get("PB_TOKEN");
+  const token = Deno.env.get("PBC_TOKEN");
   if (!token) return;
   for (let i = _cleanup.length - 1; i >= 0; i--) {
     const { kind, id, projectId } = _cleanup[i];
@@ -119,7 +125,7 @@ export async function runCleanup(): Promise<void> {
       const cmdKind =
         kind === "pocketbases" ? "pb" : kind === "backends" ? "backend" : "frontend";
       await pb(["cloud", cmdKind, "rm", "--id", id, "--project", projectId, "--yes"], {
-        env: { PB_TOKEN: token },
+        env: { PBC_TOKEN: token },
         timeout: 30_000,
       });
     } catch { /* already gone */ }
@@ -133,12 +139,12 @@ export async function runCleanup(): Promise<void> {
  * begins from a clean slate — no manual cleanup required.
  */
 export async function cleanupOrphans(): Promise<void> {
-  const token = Deno.env.get("PB_TOKEN");
+  const token = Deno.env.get("PBC_TOKEN");
   if (!token) return;
 
   // Find e2e projects
   const proj = await pb(["cloud", "project", "ls", "--json"], {
-    env: { PB_TOKEN: token },
+    env: { PBC_TOKEN: token },
     timeout: 15_000,
   });
   if (!proj.json) return;
@@ -157,7 +163,7 @@ export async function cleanupOrphans(): Promise<void> {
       try {
         const list = await pb(
           ["cloud", cmdKind, "ls", "--project", p.id, "--json"],
-          { env: { PB_TOKEN: token }, timeout: 15_000 },
+          { env: { PBC_TOKEN: token }, timeout: 15_000 },
         );
         if (!list.json) continue;
         const resources = list.json as unknown as { id: string; name: string }[];
@@ -166,7 +172,7 @@ export async function cleanupOrphans(): Promise<void> {
           console.error(`  Deleting ${kind} ${r.name}…`);
           await pb(
             ["cloud", cmdKind, "rm", "--id", r.id, "--project", p.id, "--yes"],
-            { env: { PB_TOKEN: token }, timeout: 30_000 },
+            { env: { PBC_TOKEN: token }, timeout: 30_000 },
           );
         }
       } catch { /* continue */ }
@@ -175,7 +181,7 @@ export async function cleanupOrphans(): Promise<void> {
     console.error(`  Deleting project ${p.name}…`);
     try {
       await pb(["cloud", "project", "rm", p.id, "--yes"], {
-        env: { PB_TOKEN: token },
+        env: { PBC_TOKEN: token },
         timeout: 30_000,
       });
     } catch { /* already gone */ }

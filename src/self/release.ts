@@ -7,7 +7,7 @@ import {
   TARGETS,
 } from "../../scripts/targets.ts";
 
-/** Where `pb`'s own releases live — not the PocketBase repo. */
+/** Where `pbc`'s own releases live — not the PocketBase repo. */
 const REPO = "pocketbasecloud/cli";
 const RELEASES = `https://github.com/${REPO}/releases`;
 
@@ -29,7 +29,7 @@ export type ReleaseManifest = {
  * `checksums.txt` for a release, or for the latest one when `version` is
  * omitted. `latest/download/<name>` is a plain redirect, so resolving the
  * newest version this way costs no GitHub API quota — unauthenticated callers
- * get 60 requests an hour, and `pb upgrade` must work on the 61st.
+ * get 60 requests an hour, and `pbc upgrade` must work on the 61st.
  */
 export function checksumsUrl(version?: string): string {
   return version
@@ -75,7 +75,7 @@ export function hostAsset(
   const target = targetForHost(key);
   if (!target) {
     throw new CliError(
-      `No prebuilt pb binary for ${key}. ` +
+      `No prebuilt pbc binary for ${key}. ` +
         `Supported: ${Object.keys(hostMap(TARGETS)).join(", ")}. ` +
         "On any other platform, install from source with Deno.",
       2,
@@ -93,7 +93,7 @@ export async function fetchManifest(
     res = await doFetch(checksumsUrl(version));
   } catch (e) {
     throw new CliError(
-      `Could not reach GitHub to check for a newer pb: ${
+      `Could not reach GitHub to check for a newer pbc: ${
         e instanceof Error ? e.message : String(e)
       }`,
       1,
@@ -104,8 +104,8 @@ export async function fetchManifest(
     await res.body?.cancel();
     throw new CliError(
       version
-        ? `pb ${version} is not a published release. See ${RELEASES}.`
-        : `No published pb release found. See ${RELEASES}.`,
+        ? `pbc ${version} is not a published release. See ${RELEASES}.`
+        : `No published pbc release found. See ${RELEASES}.`,
       2,
     );
   }

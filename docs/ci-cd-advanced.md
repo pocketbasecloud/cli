@@ -11,7 +11,7 @@ This reference lives on the PocketBase Cloud docs site:
 
 ### → **[pocketbasecloud.com/docs/ci-cd/reference](https://pocketbasecloud.com/docs/ci-cd/reference)**
 
-It covers authenticating with `PB_TOKEN`, installing `pb` on a runner, the
+It covers authenticating with `PBC_TOKEN`, installing `pbc` on a runner, the
 non-interactive flags, targeting resources from CI, environment variables,
 five ready-to-copy GitHub Actions workflows, the exit codes, and every error
 message with its cause and fix.

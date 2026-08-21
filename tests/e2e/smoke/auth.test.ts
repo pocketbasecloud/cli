@@ -4,15 +4,15 @@ import {
 import { assert } from "@std/assert";
 
 // Auth tests. "Valid token" means the config file has a stored login —
-// empty PB_TOKEN lets the CLI fall back to it. "Invalid token" is an
-// explicit PB_TOKEN that the backend rejects. "Missing auth" means
+// empty PBC_TOKEN lets the CLI fall back to it. "Invalid token" is an
+// explicit PBC_TOKEN that the backend rejects. "Missing auth" means
 // no env token AND no config file (redirected XDG_CONFIG_HOME).
 
 Deno.test({
   name: "e2e: auth — whoami with valid config-stored login",
   fn: async () => {
     // Clear env token so the CLI falls back to config file.
-    const r = await pb(["cloud", "whoami", "--json"], { env: { PB_TOKEN: "" } });
+    const r = await pb(["cloud", "whoami", "--json"], { env: { PBC_TOKEN: "" } });
     assertExitOk(r);
     assertJson(r);
     assert(typeof r.json!.id === "string", "whoami should have an id");
@@ -24,10 +24,10 @@ Deno.test({
 });
 
 Deno.test({
-  name: "e2e: auth — whoami with invalid PB_TOKEN",
+  name: "e2e: auth — whoami with invalid PBC_TOKEN",
   fn: async () => {
     const r = await pb(["cloud", "whoami"], {
-      env: { PB_TOKEN: "not-a-real-token" },
+      env: { PBC_TOKEN: "not-a-real-token" },
     });
     assertExit(4, r);
     assertStderrContains("Not authenticated", r);
@@ -42,7 +42,7 @@ Deno.test({
     const tmp = Deno.makeTempDirSync({ prefix: "pb-e2e-config-" });
     try {
       const r = await pb(["cloud", "whoami"], {
-        env: { PB_TOKEN: "", XDG_CONFIG_HOME: tmp },
+        env: { PBC_TOKEN: "", XDG_CONFIG_HOME: tmp },
       });
       assertExit(4, r);
       assertStderrContains("Not logged in", r);
@@ -58,7 +58,7 @@ Deno.test({
   name: "e2e: auth — whoami --json on auth error produces valid JSON",
   fn: async () => {
     const r = await pb(["cloud", "whoami", "--json"], {
-      env: { PB_TOKEN: "not-a-real-token" },
+      env: { PBC_TOKEN: "not-a-real-token" },
     });
     assertExit(4, r);
     const parsed = JSON.parse(r.stderr.trim().split("\n").pop()!);

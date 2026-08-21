@@ -92,7 +92,7 @@ export function makeDataCommands(deps: CloudCmdDeps): Record<string, Handler> {
   const importCmd: Handler = () => {
     return Promise.reject(
       new CliError(
-        "`pb cloud data import` is not implemented — the platform's import " +
+        "`pbc cloud data import` is not implemented — the platform's import " +
           "needs a target collection and a field mapping. Use the portal's " +
           "import dialog.",
         2,

@@ -1,7 +1,7 @@
 import type { ICloudClient } from "../clients/cloud.ts";
 import type { Project } from "../clients/types.ts";
 import type { Config } from "../config.ts";
-import { readLinkFile } from "../config.ts";
+import { bindingFileName, envVarName, readLinkFile } from "../config.ts";
 import { CliError } from "../errors.ts";
 import { canPrompt, select } from "../ui/prompt.ts";
 import type { PromptIO } from "../ui/prompt.ts";
@@ -15,7 +15,7 @@ export type ResolveCtx = {
   io?: PromptIO;
   /**
    * Called once, only when the project was resolved implicitly (a linked
-   * pb.json or the globally `use`d project) — an explicit --project needs no
+   * pbc.json or the globally `use`d project) — an explicit --project needs no
    * confirmation, and an interactive pick is already visible on screen.
    */
   log?: (msg: string) => void;
@@ -42,7 +42,28 @@ async function byToken(client: ICloudClient, token: string): Promise<Project> {
       2,
     );
   }
-  if (!m) throw new CliError(`No project found matching "${token}".`, 2);
+  if (!m) {
+    // The mismatch is usually cross-account — a linked pbc.json or a `project
+    // use` from a previous login, now acted on as someone else — so name that
+    // first. PBC_TOKEN is the silent version of the same mistake: it overrides
+    // the saved login without saying so.
+    const hints = [
+      `check the account: \`pbc cloud whoami\` shows who you're logged in as (switch with \`pbc cloud logout && pbc cloud login\`)`,
+      `compare names and ids: \`pbc cloud project ls\``,
+    ];
+    const envToken = envVarName("TOKEN");
+    if (envToken) {
+      hints.unshift(
+        `${envToken} is set, so the CLI acts as that token's account, not your saved login`,
+      );
+    }
+    throw new CliError(
+      `No project found matching "${token}".\n${hints
+        .map((h) => `- ${h}.`)
+        .join("\n")}`,
+      2,
+    );
+  }
   return m;
 }
 
@@ -52,14 +73,18 @@ export async function resolveProject(ctx: ResolveCtx): Promise<Project> {
   const link = await readLinkFile(ctx.cwd);
   if (link) {
     const p = await byToken(ctx.client, link.projectId);
-    ctx.log?.(`Project: ${p.name} (${p.id}) — linked in ./pb.json`);
+    ctx.log?.(
+      `Project: ${p.name} (${p.id}) — linked in ${
+        await bindingFileName(ctx.cwd)
+      }`,
+    );
     return p;
   }
 
   if (ctx.config.currentProject) {
     const p = await byToken(ctx.client, ctx.config.currentProject);
     ctx.log?.(
-      `Project: ${p.name} (${p.id}) — set with \`pb cloud project use\``,
+      `Project: ${p.name} (${p.id}) — set with \`pbc cloud project use\``,
     );
     return p;
   }
@@ -67,7 +92,7 @@ export async function resolveProject(ctx: ResolveCtx): Promise<Project> {
   const projects = await ctx.client.listProjects();
   if (projects.length === 0) {
     throw new CliError(
-      "No projects yet. Create one with `pb cloud project create`.",
+      "No projects yet. Create one with `pbc cloud project create`.",
       2,
     );
   }
@@ -78,7 +103,7 @@ export async function resolveProject(ctx: ResolveCtx): Promise<Project> {
   const promptOpts = { noInput: ctx.noInput, io: ctx.io };
   if (!canPrompt(promptOpts)) {
     throw new CliError(
-      "No project selected. Pass --project or run `pb cloud project use`.",
+      "No project selected. Pass --project or run `pbc cloud project use`.",
       2,
     );
   }

@@ -111,7 +111,7 @@ Deno.test("the detected kind and its evidence are printed before the deploy", as
   assertEquals(log.lines.length, 1);
   assertStringIncludes(log.lines[0], "Detected a frontend");
   assertStringIncludes(log.lines[0], "vite.config.ts");
-  assertStringIncludes(log.lines[0], "`pb cloud frontend deploy`");
+  assertStringIncludes(log.lines[0], "`pbc cloud frontend deploy`");
 });
 
 Deno.test("nothing is printed under --json, where stdout carries the deploy's object", async () => {
@@ -236,10 +236,10 @@ Deno.test("an undetectable directory errors with the three explicit commands", a
   );
   assertEquals(err.exitCode, 2);
   assertStringIncludes(err.message, cwd);
-  assertStringIncludes(err.message, "pb cloud pb deploy");
-  assertStringIncludes(err.message, "pb cloud frontend deploy");
-  assertStringIncludes(err.message, "pb cloud backend deploy");
-  assertStringIncludes(err.message, "pb cloud init");
+  assertStringIncludes(err.message, "pbc cloud pb deploy");
+  assertStringIncludes(err.message, "pbc cloud frontend deploy");
+  assertStringIncludes(err.message, "pbc cloud backend deploy");
+  assertStringIncludes(err.message, "pbc cloud init");
   assertEquals(s.seen, []);
 });
 
@@ -316,7 +316,7 @@ function runningNow(client: ReturnType<typeof createMockCloudClient>) {
   });
 }
 
-/** `pb cloud deploy` wired to the real three, exactly as index.ts wires it. */
+/** `pbc cloud deploy` wired to the real three, exactly as index.ts wires it. */
 function realDeploy(d: CloudCmdDeps) {
   const pb = makePbCommands(d);
   const frontend = makeFrontendCommands(d);
@@ -343,7 +343,7 @@ Deno.test("a static directory deploys as a frontend end to end", async () => {
   assertEquals(client.calls.createResource[0][0], "frontends");
   assertEquals(client.calls.createResource[0][1].name, "web");
   // And the deploy recorded the binding, so the next run needs no detection.
-  const file = JSON.parse(await Deno.readTextFile(join(cwd, "pb.json")));
+  const file = JSON.parse(await Deno.readTextFile(join(cwd, "pbc.json")));
   assertEquals(file.kind, "frontends");
 });
 
@@ -394,7 +394,7 @@ Deno.test("an explicit kind that contradicts the binding is refused by the deplo
   const p = await client.createProject("app");
   const cwd = dir({
     "index.html": "<html></html>",
-    "pb.json": JSON.stringify({
+    "pbc.json": JSON.stringify({
       projectId: p.id,
       kind: "frontends",
       defaultEnvironment: "production",
@@ -410,6 +410,6 @@ Deno.test("an explicit kind that contradicts the binding is refused by the deplo
         raw: { name: "api", runtime: "deno", start: "deno task start" },
       }),
     CliError,
-    "pb.json is bound to frontends",
+    "pbc.json is bound to frontends",
   );
 });

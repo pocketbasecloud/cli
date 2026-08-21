@@ -5,7 +5,12 @@ import { describeSubStatus } from "../deploy-status.ts";
 import { CliError, httpError } from "../errors.ts";
 import { MAX_ARCHIVE_BYTES } from "../limits.ts";
 import type { BuildConfig } from "../config.ts";
-import { readLinkFile, readOwnPbJson } from "../config.ts";
+import {
+  bindingFileName,
+  linkFileName,
+  readLinkFile,
+  readOwnLinkFile,
+} from "../config.ts";
 import {
   assertConfigured,
   chooseEnvironment,
@@ -36,7 +41,7 @@ import { parseDotenv, prunedKeysOf } from "./env.ts";
 export type Target = {
   id?: string;
   name?: string;
-  /** True when the id came from pb.json, which makes a miss a stale binding. */
+  /** True when the id came from pbc.json, which makes a miss a stale binding. */
   fromBinding: boolean;
   /** The environment this command targets, and where deploy records its result. */
   environment: string;
@@ -47,7 +52,7 @@ export type Target = {
 /**
  * Resolve which resource a command targets, in which environment. An explicit
  * `--id`/`--name` always wins; otherwise fall back to the environment's entry
- * in the directory's pb.json, when the file binds this kind.
+ * in the directory's pbc.json, when the file binds this kind.
  *
  * The two options are deploy's, and pull in opposite directions because deploy
  * is the only command that writes the file: it may name an environment that
@@ -77,8 +82,8 @@ export async function resolveTarget(
   const environments = Object.keys(link?.environments ?? {});
   if (opts.strictKind && link?.kind && link.kind !== kind) {
     throw new CliError(
-      `pb.json is bound to ${link.kind} — deploy ${kind} from a different ` +
-        `directory.`,
+      `${await bindingFileName(cwd)} is bound to ${link.kind} — deploy ` +
+        `${kind} from a different directory.`,
       2,
     );
   }
@@ -94,9 +99,10 @@ export async function resolveTarget(
     const envEntry = link.environments?.[choice.name];
     if (envEntry?.name && envEntry.name !== token.name) {
       throw new CliError(
-        `pb.json binds environment "${choice.name}" to ${kind} "${envEntry.name}", ` +
-        `but --name "${token.name}" was passed. Drop --name to redeploy the bound ` +
-        `resource, or deploy from a different directory to create a new one.`,
+        `${await bindingFileName(cwd)} binds environment "${choice.name}" to ` +
+          `${kind} "${envEntry.name}", but --name "${token.name}" was passed. ` +
+          `Drop --name to redeploy the bound resource, or deploy from a ` +
+          `different directory to create a new one.`,
         2,
       );
     }
@@ -130,7 +136,7 @@ export function suggestName(cwd: string): string {
 }
 
 /**
- * Fill in a deploy target that neither the command line nor pb.json named.
+ * Fill in a deploy target that neither the command line nor pbc.json named.
  *
  * Selecting the *project* already prompts by default, so a bare `deploy` in a
  * fresh directory should finish the same conversation rather than stop halfway
@@ -261,7 +267,7 @@ export async function chooseCompute(
       throw new CliError(
         context.isOwner
           ? "No running compute on this account yet. A new Pro compute takes " +
-            "a few minutes to provision — check `pb cloud compute ls`."
+            "a few minutes to provision — check `pbc cloud compute ls`."
           : "The project owner has no running compute yet. Ask them to check " +
             "their Pro compute, then deploy again.",
         3,
@@ -319,7 +325,7 @@ export async function resolveOwnerId(
   client: ICloudClient,
   auth: { userId?: string },
 ): Promise<string> {
-  // Token-based auth (PB_TOKEN) carries no id, so ask the platform.
+  // Token-based auth (PBC_TOKEN) carries no id, so ask the platform.
   return auth.userId || (await client.whoami()).id;
 }
 
@@ -433,7 +439,7 @@ export async function deployResource(
      * `pb_migrations`/`pb_public` and nothing else.
      */
     beforeUpdate?: () => void | Promise<void>;
-    // When the target came from a pb.json binding, a missing resource means the
+    // When the target came from a pbc.json binding, a missing resource means the
     // binding is stale: run onStale (to clear it) and error instead of creating.
     requireExisting?: boolean;
     onStale?: () => Promise<void>;
@@ -557,8 +563,8 @@ export async function buildBundle(o: BundleOptions): Promise<Bundle> {
     }
     assertArchiveWithinLimit(bytes, basename(o.zipPath));
     // No inference here: --zip means "do not look at my project", so writing a
-    // guessed build block into pb.json would be a surprise.
-    const own = await readOwnPbJson(o.cwd);
+    // guessed build block into pbc.json would be a surprise.
+    const own = await readOwnLinkFile(o.cwd);
     return {
       build: mergeEnvBuild(own, o.environment),
       bytes,
@@ -721,7 +727,7 @@ export async function resolveEnvFile(o: {
  * Insert-only: an environment already carrying an `envFile` is never rewritten
  * by a deploy, which is what makes the prompt a once-per-environment question
  * and leaves `--env-file` a one-shot override on an environment that has one.
- * Changing a recorded choice is a hand edit of pb.json, like every other
+ * Changing a recorded choice is a hand edit of pbc.json, like every other
  * `build` field.
  */
 export async function envFileEntry(
@@ -731,12 +737,13 @@ export async function envFileEntry(
   log: (msg: string) => void,
 ): Promise<{ build?: BuildConfig }> {
   if (decision.record === undefined) return {};
-  const own = await readOwnPbJson(cwd);
+  const own = await readOwnLinkFile(cwd);
   if (own.environments?.[environment]?.build?.envFile !== undefined) return {};
+  const name = await linkFileName(cwd);
   log(
     decision.record === ""
-      ? `Recorded "no env file" for "${environment}" in pb.json.`
-      : `Recorded envFile "${decision.record}" for "${environment}" in pb.json.`,
+      ? `Recorded "no env file" for "${environment}" in ${name}.`
+      : `Recorded envFile "${decision.record}" for "${environment}" in ${name}.`,
   );
   return { build: { envFile: decision.record } };
 }
@@ -750,7 +757,7 @@ async function readEnvFile(
     text = await Deno.readTextFile(join(cwd, name));
   } catch {
     // Naming a file is an instruction, so failing to find it is an error rather
-    // than a quiet skip — whether the name came from the flag or from pb.json.
+    // than a quiet skip — whether the name came from the flag or from pbc.json.
     throw new CliError(`Env file not found: ${name}`, 2);
   }
   return { name, vars: parseDotenv(text) };
@@ -981,8 +988,8 @@ export async function awaitDeployment(
     created: boolean;
     /**
      * Which of the directory's environments this deploy belongs to. Optional
-     * because not every create belongs to one: `pb cloud pb create` writes no
-     * pb.json, so naming an environment here would claim a binding that does
+     * because not every create belongs to one: `pbc cloud pb create` writes no
+     * pbc.json, so naming an environment here would claim a binding that does
      * not exist.
      */
     environment?: string;
@@ -1060,8 +1067,8 @@ export async function pollStatus(
         `Timed out after ${Math.round(opts.timeoutMs / 1000)}s waiting for ` +
           `${label} "${name}" (last status: ${r.status}).\n` +
           `It was created and may still be provisioning. Check it with ` +
-          `\`pb cloud ${opts.checkCommand ?? kind} info --name ${name}\`, ` +
-          `or remove it with \`pb cloud ${
+          `\`pbc cloud ${opts.checkCommand ?? kind} info --name ${name}\`, ` +
+          `or remove it with \`pbc cloud ${
             opts.checkCommand ?? kind
           } rm --name ${name}\`.`,
         5,

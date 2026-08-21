@@ -127,7 +127,7 @@ export function makeFrontendCommands(
     // No subdomain is sent: the platform assigns
     // `<frontendId>.<compute shortKey>`, served by that compute's wildcard DNS
     // record, so a site costs no DNS record of its own. Use
-    // `pb cloud frontend domain` for an address a human types.
+    // `pbc cloud frontend domain` for an address a human types.
     //
     // The archive goes up inside this call — the longest silent stretch of a
     // deploy on a slow link.
@@ -251,7 +251,7 @@ export function makeFrontendCommands(
       const domain = ctx.args[0];
       if (!domain) {
         throw new CliError(
-          "Usage: pb cloud frontend domain <add|verify|remove> <domain> --name <site>",
+          "Usage: pbc cloud frontend domain <add|verify|remove> <domain> --name <site>",
           2,
         );
       }

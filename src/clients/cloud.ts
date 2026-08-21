@@ -77,7 +77,7 @@ export type ApiOpts = {
 function bodylessMessage(status: number): string {
   // The SDK uses 0 for a request that never got a response at all.
   if (status === 0) {
-    return "Could not reach PocketBase Cloud. Check your connection (and `pb cloud whoami` for the configured URL), then try again.";
+    return "Could not reach PocketBase Cloud. Check your connection (and `pbc cloud whoami` for the configured URL), then try again.";
   }
   if (status === 502 || status === 503) {
     return `Platform error (${status}): the platform is unreachable right now. This is usually brief — try again in a moment.`;
@@ -108,7 +108,7 @@ export function mapPbError(e: unknown): CliError {
       );
     }
     if (e.status === 401) {
-      return new CliError("Not authenticated. Run `pb cloud login`.", 4);
+      return new CliError("Not authenticated. Run `pbc cloud login`.", 4);
     }
     if (e.status === 413) {
       // A proxy in front of the platform rejects an oversized body before
@@ -191,7 +191,7 @@ export class PocketBaseCloudClient implements ICloudClient {
   }
 
   /**
-   * The record owner to send. Token-based auth (PB_TOKEN) carries no
+   * The record owner to send. Token-based auth (PBC_TOKEN) carries no
    * id, so ask the platform; the answer is cached for the process.
    */
   private async ownerId(): Promise<string> {

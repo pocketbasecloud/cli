@@ -253,7 +253,7 @@ Deno.test("mapPbError falls back to the org-rights hint on a bare 403", () => {
 });
 
 Deno.test("mapPbError surfaces a paused instance on a deploy", () => {
-  // `pb cloud pb deploy` writes `status = "uploading"` through the SDK, and the
+  // `pbc cloud pb deploy` writes `status = "uploading"` through the SDK, and the
   // platform's before-update hook refuses it with a sentence naming both ways
   // out. Falling back to the generic org-rights hint here would send a free
   // user who needs to upgrade looking for a permissions problem instead.

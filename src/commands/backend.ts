@@ -94,7 +94,7 @@ export function makeBackendCommands(
     const runtime = ctx.raw.runtime ?? bundle.build.runtime;
     if (!runtime) {
       throw new CliError(
-        "Pass --runtime (deno|bun|nodejs|nextjs) or set build.runtime in pb.json.",
+        "Pass --runtime (deno|bun|nodejs|nextjs) or set build.runtime in pbc.json.",
         2,
       );
     }
@@ -122,7 +122,7 @@ export function makeBackendCommands(
           `${
             runtime === "deno" ? "task to deno.json" : "script to package.json"
           }, ` +
-          `set build.startCommand in pb.json, or pass --start "<command>".`,
+          `set build.startCommand in pbc.json, or pass --start "<command>".`,
         2,
       );
     }

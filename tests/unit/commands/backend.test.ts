@@ -79,7 +79,7 @@ Deno.test("backend rm keeps a binding it did not resolve", async () => {
     envStatePath: tempStatePath(),
   };
   await Deno.writeTextFile(
-    `${cwd}/pb.json`,
+    `${cwd}/pbc.json`,
     JSON.stringify({
       projectId: p.id,
       kind: "backends",
@@ -100,7 +100,7 @@ Deno.test("backend rm keeps a binding it did not resolve", async () => {
   });
   assertEquals(code, 0);
   assertEquals(client.calls.updateResource[0][1], other.id);
-  const file = JSON.parse(await Deno.readTextFile(`${cwd}/pb.json`));
+  const file = JSON.parse(await Deno.readTextFile(`${cwd}/pbc.json`));
   assertEquals(file.environments, {
     production: { id: bound.id, name: "api" },
   });
@@ -352,7 +352,7 @@ Deno.test("backend ls announces the project resolved from config.currentProject"
     });
     assertEquals(code, 0);
     assertEquals(log.lines[0].includes(`Project: ${p.name}`), true);
-    assertEquals(log.lines[0].includes("pb cloud project use"), true);
+    assertEquals(log.lines[0].includes("pbc cloud project use"), true);
   } finally {
     log.restore();
   }

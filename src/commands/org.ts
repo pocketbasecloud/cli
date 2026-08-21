@@ -21,7 +21,7 @@ export function makeOrgCommands(deps: CloudCmdDeps): Record<string, Handler> {
 
   const create: Handler = async (ctx: CmdCtx) => {
     const name = ctx.args[0];
-    if (!name) throw new CliError("Usage: pb cloud org create <name>", 2);
+    if (!name) throw new CliError("Usage: pbc cloud org create <name>", 2);
     const { client } = await deps.requireAuth();
     // organizations.createRule is checked before any hook runs, so the platform
     // refuses this with a bare "Failed to create record." Ask who we are first
@@ -44,7 +44,7 @@ export function makeOrgCommands(deps: CloudCmdDeps): Record<string, Handler> {
 
   const rm: Handler = async (ctx: CmdCtx) => {
     const id = ctx.args[0];
-    if (!id) throw new CliError("Usage: pb cloud org rm <orgId>", 2);
+    if (!id) throw new CliError("Usage: pbc cloud org rm <orgId>", 2);
     const { client } = await deps.requireAuth();
     if (
       !await confirm(`Delete org ${id}?`, {
@@ -66,7 +66,7 @@ export function makeOrgCommands(deps: CloudCmdDeps): Record<string, Handler> {
     // `org share` takes --org, so accept it here too: one noun, one convention.
     const orgId = ctx.args[0] ?? (ctx.raw.org as string | undefined);
     if (!orgId) {
-      throw new CliError("Usage: pb cloud org members ls <orgId>", 2);
+      throw new CliError("Usage: pbc cloud org members ls <orgId>", 2);
     }
     const { client } = await deps.requireAuth();
     const members = await client.listMembers(orgId);
@@ -91,7 +91,7 @@ export function makeOrgCommands(deps: CloudCmdDeps): Record<string, Handler> {
     const email = flagOrg ? a : b;
     if (!orgId || !email) {
       throw new CliError(
-        "Usage: pb cloud org members add <orgId> <email>  (or --org <id> <email>)",
+        "Usage: pbc cloud org members add <orgId> <email>  (or --org <id> <email>)",
         2,
       );
     }
@@ -112,7 +112,7 @@ export function makeOrgCommands(deps: CloudCmdDeps): Record<string, Handler> {
     const email = flagOrg ? a : b;
     if (!orgId || !email) {
       throw new CliError(
-        "Usage: pb cloud org members rm <orgId> <email>  (or --org <id> <email>)",
+        "Usage: pbc cloud org members rm <orgId> <email>  (or --org <id> <email>)",
         2,
       );
     }
@@ -128,7 +128,7 @@ export function makeOrgCommands(deps: CloudCmdDeps): Record<string, Handler> {
     const token = ctx.args[0];
     if (!token) {
       throw new CliError(
-        "Usage: pb cloud org share <project> --org <id> | --none",
+        "Usage: pbc cloud org share <project> --org <id> | --none",
         2,
       );
     }

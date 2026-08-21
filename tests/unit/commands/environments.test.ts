@@ -34,7 +34,7 @@ Deno.test("environments lists each entry and marks the default", async () => {
   const cwd = await Deno.makeTempDir();
   try {
     await Deno.writeTextFile(
-      `${cwd}/pb.json`,
+      `${cwd}/pbc.json`,
       JSON.stringify({
         projectId: "p1",
         kind: "frontends",

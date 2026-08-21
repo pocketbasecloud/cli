@@ -93,7 +93,7 @@ Deno.test("--skip-env resolves nothing at all", async () => {
   assertEquals(d, {});
 });
 
-Deno.test("a named file that is not on disk is fatal, from flag or from pb.json", async () => {
+Deno.test("a named file that is not on disk is fatal, from flag or from pbc.json", async () => {
   const cwd = seed({ "main.ts": "x" });
   await assertRejects(
     () => resolveEnvFile({ ...base, cwd, build: {}, flag: ".env.prod" }),
@@ -185,7 +185,7 @@ Deno.test("candidates rank the environment's own file first and drop templates",
 
 Deno.test("envFileEntry writes the decision only when the environment has none", async () => {
   const cwd = seed({
-    "pb.json": JSON.stringify({
+    "pbc.json": JSON.stringify({
       projectId: "p1",
       kind: "backends",
       environments: {
