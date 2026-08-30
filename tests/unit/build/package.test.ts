@@ -21,7 +21,6 @@ function dir(files: Record<string, string>): string {
 
 const noop = () => {};
 
-/** Entry names in the produced archive, sorted for stable comparison. */
 async function names(
   cwd: string,
   kind: "frontends" | "backends" | "pocketbases",
@@ -37,7 +36,6 @@ async function names(
   return listNames(bytes).sort();
 }
 
-/** Reads entry names straight out of the central directory. */
 function listNames(zip: Uint8Array): string[] {
   const view = new DataView(zip.buffer, zip.byteOffset, zip.byteLength);
   let eocd = -1;
@@ -426,8 +424,6 @@ Deno.test("a nextjs build gets output: standalone before it runs", async () => {
     build: { command: "npm run build", runtime: "nextjs" },
     skipBuild: false,
     log: (m) => messages.push(m),
-    // Read at build time: the config must already say standalone by now,
-    // otherwise the build produces a bundle that cannot be packaged.
     run: () => {
       seen.push(Deno.readTextFileSync(join(cwd, "next.config.mjs")));
       return Promise.resolve({ code: 0 });

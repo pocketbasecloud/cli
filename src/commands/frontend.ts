@@ -1,39 +1,41 @@
-import type { CmdCtx, Handler } from "../router.ts";
+import {
+  bool,
+  type CmdCtx,
+  type Command,
+  defineCommand,
+  renamed,
+  retired,
+  str,
+} from "../command.ts";
 import type { CloudCmdDeps } from "./project.ts";
-import type { ICloudClient } from "../clients/cloud.ts";
-import type { Resource } from "../clients/types.ts";
-import { CliError, httpError } from "../errors.ts";
-import { printResult } from "../ui/output.ts";
-import { confirm } from "../ui/prompt.ts";
+import { KINDS } from "../kinds.ts";
 import { resolveProject } from "../resolve/project.ts";
+import { CliError } from "../errors.ts";
+import { emit } from "../envelope.ts";
 import {
   removeEnvironment,
-  removeEnvironmentFor,
   upsertEnvironment,
 } from "../config.ts";
 import {
-  attachZip,
   awaitDeployment,
   awaitReachable,
   buildBundle,
   computeChooser,
-  computeFlag,
   deployProgress,
   deployResource,
-  ensureTarget,
   reportUrl,
-  resolveExisting,
   resolveOwnerId,
-  resolveTarget,
+  resolveDeployIntent,
+  resolveEnvironmentTarget,
   uploadLabel,
   validateLocationChoice,
 } from "./deploy-helper.ts";
-import { reportRemoval } from "./environments.ts";
+import { deployArchive, waitForDeployment } from "../clients/deployments.ts";
 
 export function makeFrontendCommands(
   deps: CloudCmdDeps,
-): Record<string, Handler> {
-  async function ctxProject(ctx: CmdCtx, log?: (m: string) => void) {
+): Record<string, Command> {
+  async function project(ctx: CmdCtx, log?: (m: string) => void) {
     const { client, config, auth } = await deps.requireAuth();
     const p = await resolveProject({
       client,
@@ -41,252 +43,218 @@ export function makeFrontendCommands(
       cwd: deps.cwd(),
       flagProject: ctx.flags.project,
       noInput: ctx.flags.noInput || ctx.flags.json,
-      log: log ?? (ctx.flags.json ? undefined : (m) => console.log(m)),
+      log: log ?? ((m) => console.error(m)),
     });
     return { client, project: p, auth };
   }
 
-  async function requireOne(
-    ctx: CmdCtx,
-  ): Promise<
-    { client: ICloudClient; found: Resource; environment: string }
-  > {
-    const { client, project: p } = await ctxProject(ctx);
-    const base = {
-      id: ctx.raw.id as string | undefined,
-      name: (ctx.raw.name as string) ?? ctx.args[0],
-    };
-    const target = await resolveTarget(base, "frontends", deps.cwd(), {
-      envFlag: ctx.raw.env as string | undefined,
-    });
-    const found = await resolveExisting(
-      await client.listResources("frontends", p.id),
-      { id: target.id, name: target.name },
-      {
-        label: "frontend",
-        noInput: ctx.flags.noInput || ctx.flags.json,
-      },
-    );
-    return { client, found, environment: target.environment };
-  }
-
-  const deploy: Handler = async (ctx: CmdCtx) => {
-    const progress = deployProgress(ctx.flags.json);
-    const { client, project: p, auth } = await progress.step(
-      "Connecting to PocketBase Cloud",
-      () => ctxProject(ctx, progress.log),
-    );
-    const cwd = deps.cwd();
-    const name = (ctx.raw.name as string) ?? ctx.args[0];
-    const id = ctx.raw.id as string | undefined;
-    const target = await ensureTarget(
-      await resolveTarget({ id, name }, "frontends", cwd, {
-        envFlag: ctx.raw.env as string | undefined,
-        allowNewEnvironment: true,
-        strictKind: true,
-        askEnvironment: { noInput: ctx.flags.noInput || ctx.flags.json },
-      }),
-      {
-        label: "frontend",
-        cwd,
-        list: () => client.listResources("frontends", p.id),
-        noInput: ctx.flags.noInput || ctx.flags.json,
-      },
-    );
-    const log = (m: string) => progress.log(m);
-    const bundle = await buildBundle({
-      cwd,
-      kind: "frontends",
-      zipPath: ctx.raw.zip as string | undefined,
-      skipBuild: ctx.raw["skip-build"] === true,
-      environment: target.environment,
-      log,
-      progress,
-    });
-    if (ctx.raw["env-file"]) {
-      throw new CliError(
-        "Frontends have no cloud env store — build-time vars are baked into the bundle.",
-        2,
-      );
-    }
-    const data: Record<string, unknown> = { project: p.id };
-    if (target.name) data.name = target.name;
-    if (ctx.raw.location) data.location = ctx.raw.location;
-    // A Pro account's dedicated compute is `ownership: "user"`, which the
-    // platform's auto-selection (platform servers only) never picks — Pro (and
-    // organization) deploys have to name it, exactly as the portal's create
-    // page does. Unset, the compute is chosen on the create path below.
-    const compute = computeFlag(ctx.raw);
-    if (compute) data.server = compute;
-    const askCompute = computeChooser(client, p.id, {
-      noInput: ctx.flags.noInput || ctx.flags.json,
-      log,
-    });
-    attachZip(data, bundle);
-
-    // No subdomain is sent: the platform assigns
-    // `<frontendId>.<compute shortKey>`, served by that compute's wildcard DNS
-    // record, so a site costs no DNS record of its own. Use
-    // `pbc cloud frontend domain` for an address a human types.
-    //
-    // The archive goes up inside this call — the longest silent stretch of a
-    // deploy on a slow link.
-    const outcome = await progress.step(
-      uploadLabel(bundle),
-      () =>
-        deployResource(client, "frontends", p.id, {
-          id: target.id,
-          name: target.name,
-          data,
-          createData: async () => {
-            const fields: Record<string, unknown> = {
-              user: await resolveOwnerId(client, auth),
-              status: "pending",
-            };
-            // Only on create: a redeploy must never move a live site to
-            // another compute.
-            if (!data.server) {
-              const picked = await askCompute();
-              if (picked) fields.server = picked;
-              // `--location` only means anything when the platform
-              // auto-selects; refuse one the pool cannot honour.
-              else if (ctx.raw.location) {
-                await validateLocationChoice(
-                  client,
-                  p.id,
-                  String(ctx.raw.location),
-                );
-              }
-            }
-            return fields;
-          },
-          // frontend.service.ts only redeploys a record whose status says a
-          // new archive is waiting.
-          updateData: { status: "uploading" },
-          requireExisting: target.fromBinding,
-          environment: target.environment,
-          onStale: async () => {
-            await removeEnvironment(cwd, target.environment);
-          },
-        }),
-    );
-
-    const { resource, created } = outcome;
-    await upsertEnvironment(cwd, {
-      projectId: p.id,
-      kind: "frontends",
-      environment: target.environment,
-      entry: { id: resource.id, name: resource.name },
-    });
-    const final = await awaitDeployment(client, "frontends", resource, {
-      progress,
-      created,
-      environment: target.environment,
-      label: "frontend",
-      checkCommand: "frontend",
-    });
-    if (final.status === "running") reportUrl(final, { log });
-    const reachable = created && final.status === "running"
-      ? await awaitReachable(client, {
-        type: "frontend",
-        resource: final,
-        log,
-        progress,
-      })
-      : undefined;
-    if (ctx.flags.json) {
-      console.log(JSON.stringify({
-        ...final,
-        environment: target.environment,
-        ...(reachable === undefined ? {} : { reachable }),
-      }));
-    }
-    return final.status === "running" ? 0 : 6;
-  };
-
-  const ls: Handler = async (ctx: CmdCtx) => {
-    const { client, project: p } = await ctxProject(ctx);
-    printResult(await client.listResources("frontends", p.id), [
-      { header: "ID", get: (r) => r.id },
-      { header: "NAME", get: (r) => r.name },
-      { header: "STATUS", get: (r) => r.status },
-      { header: "DOMAIN", get: (r) => r.domain ?? "-" },
-      { header: "CREATED BY", get: (r) => r.createdBy },
-    ], ctx.flags.json);
-    return 0;
-  };
-
-  const info: Handler = async (ctx: CmdCtx) => {
-    const { found } = await requireOne(ctx);
-    console.log(JSON.stringify(found, null, 2));
-    return 0;
-  };
-
-  const rm: Handler = async (ctx: CmdCtx) => {
-    const { client, found, environment } = await requireOne(ctx);
-    if (
-      !await confirm(`Delete frontend ${found.name}?`, {
-        noInput: ctx.flags.noInput || ctx.flags.json,
-        yes: ctx.flags.yes,
-      })
-    ) {
-      console.log("Aborted.");
-      return 0;
-    }
-    await client.updateResource("frontends", found.id, { status: "deleted" });
-    const removal = await removeEnvironmentFor(
-      deps.cwd(),
-      environment,
-      found.id,
-    );
-    console.log(
-      ctx.flags.json ? JSON.stringify({ ok: true }) : `Deleting ${found.name}.`,
-    );
-    if (!ctx.flags.json) reportRemoval(removal, environment, console.log);
-    return 0;
-  };
-
-  function domainHandler(path: string): Handler {
-    return async (ctx: CmdCtx) => {
-      const domain = ctx.args[0];
-      if (!domain) {
-        throw new CliError(
-          "Usage: pbc cloud frontend domain <add|verify|remove> <domain> --name <site>",
-          2,
-        );
-      }
-      const { client, found } = await requireOne(ctx);
-      const res = await client.ext(path, {
-        frontend_id: found.id,
-        custom_domain: domain,
-      });
-      if (!res.ok) {
-        // The route's own sentence, not a JSON dump of its whole body.
-        throw await httpError(res, `Domain ${path.split("/").pop()}`);
-      }
-      const body = await res.json().catch(() => ({}));
-      console.log(
-        ctx.flags.json
-          ? JSON.stringify(body)
-          : `OK: ${path.split("/").pop()} ${domain}.`,
-      );
-      return 0;
-    };
-  }
-
   return {
-    "cloud frontend deploy": deploy,
-    "cloud frontend ls": ls,
-    "cloud frontend info": info,
-    "cloud frontend rm": rm,
-    "cloud frontend domain add": domainHandler(
-      "/api/frontends/custom-domain/add",
-    ),
-    "cloud frontend domain verify": domainHandler(
-      "/api/frontends/custom-domain/verify",
-    ),
-    "cloud frontend domain remove": domainHandler(
-      "/api/frontends/custom-domain/remove",
-    ),
+    "frontend deploy": defineCommand({
+      path: ["frontend", "deploy"],
+      needs: ["target:frontends", { explicit: true }],
+      usage:
+        "pbc frontend deploy [--name <name>] [--new <name>] [--skip-build] [--zip <file>] [--location <loc>] [--compute <id>] [--env <name>]",
+      summary: "Build, package, and deploy a static site.",
+      details:
+        `Runs the build command, zips the output directory, and uploads it. Both
+come from the "build" block in pbc.json, which is inferred from the directory
+(vite/svelte/angular/next config, package.json build script) and written there
+on the first deploy.
+
+A build needs its dependencies, so deploy installs them first when something
+package.json declares is not installed — with the package manager the lockfile
+names, at the workspace root when the project is one. A tree that is already
+installed is left alone; "install" in the build block sets the command outright,
+and "" turns the step off.
+
+Each wait — installing, building, packaging, uploading, provisioning, waiting
+for the domain — is reported as its own step, with a spinner and the elapsed
+time on a terminal, plain lines when the output is piped, and nothing at all
+under --json.
+
+Frontends have no cloud env store — build-time variables are baked into the
+bundle, so there is no --env-file flag here.
+
+A site is served from an address the platform assigns and never changes:
+<id>.<compute>.pocketbasecloud.com. To put a domain of your own in front of it,
+use pbc frontend domain add.
+
+With no --name and nothing bound in pbc.json, deploy asks which frontend to
+redeploy — or what to call a new one — the way it already asks which project
+to use. Pass --no-input (or --json) to get the usage error instead.
+
+Creating a site also picks the compute it runs on, whenever there is a choice to
+make: on Pro, and in a project shared with an organization, where the compute is
+the owner's. One compute is used without asking, several are offered as a menu,
+and --compute settles it outright. On the free and starter plans the platform
+picks from the shared pool and the flag is unnecessary. A redeploy never moves
+an existing site.`,
+      args: [],
+      flags: {
+        name: str({
+          description:
+            "Which existing frontend to redeploy. Asked for when omitted and pbc.json has no binding.",
+          conflicts: ["new"],
+        }),
+        new: str({
+          description:
+            "Create a new frontend with this name. Fails if the name is taken.",
+          conflicts: ["name"],
+        }),
+        zip: str({
+          description:
+            "Upload this archive instead of packaging the directory.",
+        }),
+        skipBuild: bool({
+          description: "Package without running the build command.",
+        }),
+        location: str({
+          description:
+            "Region for the deploy. Optional — without it the platform picks " +
+            "the region with the most free capacity.",
+        }),
+        compute: str({
+          description:
+            "Compute to create the site on. Asked for when the project owner " +
+            "has more than one; required under --no-input/--json.",
+        }),
+        server: renamed("compute", {
+          description: "Old name for --compute; scripts may keep using it.",
+        }),
+        env: str({
+          description:
+            "Which pbc.json environment to target. Defaults to the file's " +
+            "default, or production.",
+        }),
+        subdomain: retired({
+          description: "",
+          since: "0.6.0",
+          note: "Frontends use uid addresses.",
+        }),
+      },
+      run: async (input, ctx) => {
+        const progress = deployProgress(ctx.flags.json);
+        const { client, project: p, auth } = await progress.step(
+          "Connecting to PocketBase Cloud",
+          () => project(ctx, progress.log),
+        );
+        const cwd = deps.cwd();
+        const name = input.name ?? ctx.args[0];
+        const envTarget = await resolveEnvironmentTarget(
+          { name },
+          "frontends",
+          cwd,
+          {
+            envFlag: input.env,
+            allowNewEnvironment: true,
+            strictKind: true,
+            askEnvironment: { noInput: ctx.flags.noInput || ctx.flags.json },
+          },
+        );
+        const target = await resolveDeployIntent(envTarget, {
+          client,
+          spec: KINDS.frontends,
+          projectId: p.id,
+          cwd,
+          newName: input.new,
+          noInput: ctx.flags.noInput || ctx.flags.json,
+          io: deps.io,
+          onStale: () => removeEnvironment(cwd, envTarget.environment),
+        });
+        const log = (m: string) => progress.log(m);
+        const bundle = await buildBundle({
+          cwd,
+          kind: "frontends",
+          zipPath: input.zip,
+          skipBuild: input.skipBuild === true,
+          environment: target.environment,
+          log,
+          progress,
+        });
+        const data: Record<string, unknown> = { project: p.id };
+        if (input.location) data.location = input.location;
+        const compute = input.compute;
+        if (compute) data.server = compute;
+        const askCompute = computeChooser(client, p.id, {
+          noInput: ctx.flags.noInput || ctx.flags.json,
+          log,
+        });
+        const outcome = await progress.step(
+          uploadLabel(bundle),
+          async (step) => {
+            const out = await deployResource(client, "frontends", target, {
+              data,
+              createData: async () => {
+                const fields: Record<string, unknown> = {
+                  user: await resolveOwnerId(client, auth),
+                  status: "pending",
+                };
+                if (!data.server) {
+                  const picked = await askCompute();
+                  if (picked) fields.server = picked;
+                  else if (input.location) {
+                    await validateLocationChoice(
+                      client,
+                      p.id,
+                      input.location,
+                    );
+                  }
+                }
+                return fields;
+              },
+            });
+            const { deploymentId } = await deployArchive({
+              kind: "frontends",
+              resourceId: out.resource.id,
+              bytes: bundle.bytes,
+              onProgress: (f) =>
+                step.update(`Uploading — ${Math.round(f * 100)}%`),
+            }, { baseUrl: auth.extUrl, token: auth.userToken, fetchFn: deps.fetch });
+            const dep = await waitForDeployment(deploymentId, {
+              baseUrl: auth.backendUrl,
+              token: auth.userToken,
+              fetchFn: deps.fetch,
+            });
+            if (dep.status === "failed") {
+              throw new CliError(dep.statusMessage, { code: "PLATFORM_ERROR" });
+            }
+            return out;
+          },
+        );
+
+        const { resource, created } = outcome;
+        await upsertEnvironment(cwd, {
+          projectId: p.id,
+          kind: "frontends",
+          environment: target.environment,
+          entry: { id: resource.id, name: resource.name },
+        });
+        const final = await awaitDeployment(client, "frontends", resource, {
+          progress,
+          created,
+          environment: target.environment,
+          label: "frontend",
+          checkCommand: "frontend",
+        });
+        if (final.status === "running") reportUrl(final, { log });
+        const reachable = created && final.status === "running"
+          ? await awaitReachable(client, {
+            type: "frontend",
+            resource: final,
+            log,
+            progress,
+          })
+          : undefined;
+        if (ctx.flags.json) {
+          emit(true, {
+            ...final,
+            environment: target.environment,
+            ...(reachable === undefined ? {} : { reachable }),
+          }, "");
+        }
+        return final.status === "running" ? 0 : 6;
+      },
+    }),
+
   };
 }

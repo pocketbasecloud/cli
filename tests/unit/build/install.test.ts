@@ -126,8 +126,6 @@ Deno.test("PnP at the workspace root covers a package below it", async () => {
 });
 
 Deno.test("a lockfile with no package.json beside it is not a workspace root", async () => {
-  // A stray lockfile in a parent (a home directory, say) must not turn that
-  // directory into the place dependencies get installed.
   const root = dir({
     "package-lock.json": "{}",
     "app/package.json": pkg({ dependencies: { next: "15" } }),
@@ -144,7 +142,6 @@ Deno.test("an explicit install command overrides the inferred one", async () => 
   });
   const plan = await planInstall(cwd, "make deps");
   assertEquals(plan?.command, "make deps");
-  // The override belongs to this directory, so it runs here, not at the root.
   assertEquals(plan?.cwd, cwd);
 });
 

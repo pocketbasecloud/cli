@@ -1,22 +1,6 @@
 import { join } from "@std/path";
 import { CliError } from "../errors.ts";
 
-/**
- * Making a Next.js project produce `.next/standalone`.
- *
- * The platform never runs `next build` (it exhausts memory on a shared host),
- * so a Next.js backend is deployed as a prebuilt standalone bundle. That only
- * exists when the project's own config asks for it, and a project that has
- * never been deployed here has no reason to. Left alone, the deploy builds
- * successfully and *then* dies at packaging — the slowest possible way to
- * learn about a one-line config change.
- *
- * So the CLI writes the line itself, before the build, and says so. This is the
- * same bargain as the inferred `build` block in pbc.json: the tool edits the
- * project, the edit is idempotent, and it shows up in a diff.
- */
-
-/** Resolution order matches Next's own; the first one present is the config. */
 const CONFIG_NAMES = [
   "next.config.js",
   "next.config.mjs",
@@ -27,7 +11,6 @@ const CONFIG_NAMES = [
 ];
 
 export type StandaloneResult =
-  /** The config already builds standalone; nothing was written. */
   | { action: "ok"; file: string }
   | { action: "added"; file: string }
   | { action: "created"; file: string };
@@ -42,15 +25,6 @@ async function readIfFile(path: string): Promise<string | null> {
   }
 }
 
-/**
- * `src` with comments and regex literals blanked (`code`), and a second copy
- * with string *contents* blanked too (`mask`). Both keep the original length
- * and line breaks, so an index into either is an index into `src`.
- *
- * Two views because the two questions need different things: finding the
- * `output` key must still see `"output"` as a quoted key, while brace matching
- * must not count a `{` that lives inside a string or a template literal.
- */
 export function scanSource(src: string): { code: string; mask: string } {
   const code = src.split("");
   const mask = src.split("");
@@ -63,8 +37,6 @@ export function scanSource(src: string): { code: string; mask: string } {
   };
 
   let i = 0;
-  // Last significant character, which is what distinguishes a regex literal
-  // from division: `/` after a value divides, after an operator or `(` opens.
   let prev = "";
   while (i < src.length) {
     const c = src[i];
@@ -94,8 +66,6 @@ export function scanSource(src: string): { code: string; mask: string } {
         if (src[k] === c) break;
         k++;
       }
-      // The quotes themselves survive in both views: `output: "…"` stays
-      // recognisable, and the real value is read back out of `src`.
       blank(i + 1, Math.min(k, src.length), false);
       i = Math.min(k, src.length) + 1;
       prev = c;
@@ -128,13 +98,10 @@ export function scanSource(src: string): { code: string; mask: string } {
   return { code: code.join(""), mask: mask.join("") };
 }
 
-/** An `output:` key, quoted or not, that is not a property *access*. */
 const OUTPUT_KEY = /(?:^|[^\w$.])(["']?)output\1\s*:\s*/g;
 
-/** The braces a config object spans, so only its own keys are read. */
 export type Scope = { mask: string; open: number; close: number };
 
-/** True when `index` sits directly inside the scope's object, not nested in it. */
 function isOwnProperty(s: Scope, index: number): boolean {
   if (index < s.open || index > s.close) return false;
   let depth = 0;
@@ -145,18 +112,6 @@ function isOwnProperty(s: Scope, index: number): boolean {
   return depth === 1;
 }
 
-/**
- * What the config says about `output`: the literal string it is set to,
- * "computed" when it is set to something this cannot read (a variable, a
- * ternary, `process.env.…`), or null when the key is absent.
- *
- * Scoped to the config object's *own* keys when the object was located, since
- * `output` is a common key elsewhere — a webpack config spread inside
- * `webpack()`, a plugin's options object — and refusing a deploy over one of
- * those would be a false alarm. Unscoped it errs the other way, so a config
- * shape this cannot edit still gets diagnosed as a static export rather than
- * as an unparseable file.
- */
 export function readOutput(
   code: string,
   src: string,
@@ -176,7 +131,6 @@ export function readOutput(
   return computed ? "computed" : null;
 }
 
-/** Index of the `{` that opens the exported config object, or -1. */
 export function findConfigObject(mask: string): number {
   const assignment = /(?:module\.exports|export\s+default)\s*=?\s*/;
   const m = assignment.exec(mask);
@@ -184,16 +138,6 @@ export function findConfigObject(mask: string): number {
   return resolveObject(mask, m.index + m[0].length, 0);
 }
 
-/**
- * From the position of a config *expression*, find the object literal behind
- * it. Handles the four shapes people write: the object inline, a variable
- * holding it, a plugin wrapper around either (`withMDX({…})`,
- * `withMDX(nextConfig)`), and any nesting of the two.
- *
- * Returns -1 for anything else — notably the function form
- * (`module.exports = (phase) => ({…})`), where "the config object" is not a
- * literal in the file at all and guessing would corrupt it.
- */
 function resolveObject(mask: string, from: number, depth: number): number {
   if (depth > 5) return -1;
   let i = from;
@@ -205,10 +149,6 @@ function resolveObject(mask: string, from: number, depth: number): number {
   let j = i + ident[0].length;
   while (j < mask.length && /\s/.test(mask[j])) j++;
 
-  // `withPlugin(<config>)`. In a chain — `withBundleAnalyzer({ enabled })(<config>)`,
-  // which is how several plugins are configured — only the *last* call receives
-  // the Next config; the earlier arguments are the plugin's own options, and
-  // writing `output` into those would be silently wrong.
   if (mask[j] === "(") {
     let last = j;
     while (true) {
@@ -222,7 +162,6 @@ function resolveObject(mask: string, from: number, depth: number): number {
     return resolveObject(mask, last + 1, depth + 1);
   }
 
-  // A bare identifier: follow it to its declaration.
   const decl = new RegExp(
     `(?:const|let|var)\\s+${ident[0]}\\s*(?::[^=;]+)?=\\s*`,
   ).exec(mask);
@@ -230,7 +169,6 @@ function resolveObject(mask: string, from: number, depth: number): number {
   return resolveObject(mask, decl.index + decl[0].length, depth + 1);
 }
 
-/** Index of the delimiter closing the one at `open`, or -1. */
 export function matchDelimiter(
   mask: string,
   open: number,
@@ -245,22 +183,12 @@ export function matchDelimiter(
   return -1;
 }
 
-/**
- * Whichever quote the file's *code* already prefers, so the edit reads like the
- * file. Comments do not get a vote: the JSDoc `@type {import('next')…}` header
- * every Next config carries would otherwise decide it single-handedly.
- */
 function quoteStyle(code: string): string {
   const single = (code.match(/'/g) ?? []).length;
   const double = (code.match(/"/g) ?? []).length;
   return single > double ? "'" : '"';
 }
 
-/**
- * `src` with `output: "standalone"` added as the config object's *last*
- * property. Last, not first, so it wins over any key this could not read —
- * a later duplicate is the one JavaScript keeps.
- */
 export function insertOutput(
   src: string,
   open: number,
@@ -284,7 +212,6 @@ export function insertOutput(
   }`;
 }
 
-/** True when package.json marks the directory as ESM. */
 async function isEsm(cwd: string): Promise<boolean> {
   try {
     const pkg = JSON.parse(await Deno.readTextFile(join(cwd, "package.json")));
@@ -301,14 +228,6 @@ function newConfig(esm: boolean): string {
     (esm ? `export default nextConfig;\n` : `module.exports = nextConfig;\n`);
 }
 
-/**
- * What the directory's Next config says its build produces, or null when the
- * directory has no Next config at all.
- *
- * Shared by the deploy path below and by kind detection, which asks the same
- * question for a different reason: `output: "export"` is the one setting that
- * makes a Next.js directory a *frontend* rather than a backend.
- */
 export async function readNextOutput(
   cwd: string,
 ): Promise<{ file: string; output: string | "computed" | null } | null> {
@@ -337,15 +256,6 @@ async function findNextConfig(
   return null;
 }
 
-/**
- * Guarantees that a `next build` in `cwd` produces `.next/standalone`, writing
- * the config change when it does not. Idempotent: a config that already builds
- * standalone is left untouched.
- *
- * Throws (exit 2) rather than guessing when the config states a different
- * `output`, computes it, or is written in a form with no object literal to
- * edit — in each case the user's own intent is the thing at stake.
- */
 export async function ensureStandaloneOutput(
   cwd: string,
 ): Promise<StandaloneResult> {
@@ -375,9 +285,7 @@ export async function ensureStandaloneOutput(
     throw new CliError(
       `${file} sets output: "export", which builds a static site, not a ` +
         `server. Deploy it with \`pbc cloud frontend deploy\`, or remove that ` +
-        `line to deploy it as a Next.js backend.`,
-      2,
-    );
+        `line to deploy it as a Next.js backend.`, { code: "USAGE" });
   }
   if (output !== null) {
     throw new CliError(
@@ -386,17 +294,14 @@ export async function ensureStandaloneOutput(
           `the build produces. Set output: "standalone" there and deploy again.`
         : `${file} sets output: "${output}". Next.js backends must be built ` +
           `with output: "standalone" — change it and deploy again.`,
-      2,
-    );
+          { code: "USAGE" });
   }
 
   if (close === -1) {
     throw new CliError(
       `Could not add output: "standalone" to ${file} automatically — its ` +
         `config is not a plain object literal. Add output: "standalone" to ` +
-        `the config it exports and deploy again.`,
-      2,
-    );
+        `the config it exports and deploy again.`, { code: "USAGE" });
   }
   await Deno.writeTextFile(
     join(cwd, file),
@@ -405,7 +310,6 @@ export async function ensureStandaloneOutput(
   return { action: "added", file };
 }
 
-/** The line the deploy prints for a result, or none when nothing changed. */
 export function describeStandaloneResult(
   r: StandaloneResult,
 ): string | undefined {

@@ -6,6 +6,7 @@ import {
   mask,
   PUBLIC_FIELDS,
   resolveKind,
+  unwrapEnvelope,
 } from "../../action/summarize.mjs";
 
 const actionPath = join(
@@ -20,12 +21,6 @@ function readAction(): string {
   return Deno.readTextFileSync(actionPath);
 }
 
-/**
- * action.yml is static YAML — it cannot import VERSION the way the generator
- * does — so its `cli-version` default is pinned by hand and only this test
- * catches drift. Bumping VERSION must fail this until action.yml is bumped
- * too.
- */
 Deno.test("action.yml's cli-version default matches the CLI's own VERSION", () => {
   const text = readAction();
   const match = text.match(
@@ -72,8 +67,6 @@ Deno.test("action.yml runs as a composite action, not js or docker", () => {
 
 Deno.test("action.yml never prints the raw deploy record", () => {
   const text = readAction();
-  // The masking step must read summarize.mjs's output, never `cat`/echo the
-  // redirected JSON file itself into the log.
   assertEquals(/cat\s+"?\$\{?RUNNER_TEMP/.test(text), false);
 });
 
@@ -86,8 +79,6 @@ Deno.test("action.yml redirects the deploy record, never pipes it", () => {
   assertStringIncludes(deployLine, ">");
   assertEquals(deployLine.includes("|"), false);
 });
-
-// --- summarize.mjs ----------------------------------------------------------
 
 const summarizePath = join(
   import.meta.dirname!,
@@ -159,6 +150,20 @@ Deno.test("PUBLIC_FIELDS is the six-output whitelist minus url and kind", () => 
   assertEquals(PUBLIC_FIELDS, ["id", "name", "status", "environment"]);
 });
 
+Deno.test("unwrapEnvelope unwraps {ok, schemaVersion, data} and passes through anything else", () => {
+  assertEquals(
+    unwrapEnvelope({ ok: true, schemaVersion: 1, data: { id: "pb1" } }),
+    { id: "pb1" },
+  );
+  assertEquals(unwrapEnvelope({ id: "pb1" }), { id: "pb1" });
+  assertEquals(unwrapEnvelope({ ok: true, data: { id: "pb1" } }), {
+    ok: true,
+    data: { id: "pb1" },
+  });
+  assertEquals(unwrapEnvelope(null), null);
+  assertEquals(unwrapEnvelope([1, 2]), [1, 2]);
+});
+
 async function runSummarize(
   record: unknown | string,
   env: Record<string, string> = {},
@@ -227,6 +232,27 @@ Deno.test("summarize.mjs publishes six outputs and masks PocketBase credentials 
   assertStringIncludes(summary, "https://pb.example.com");
 });
 
+Deno.test("summarize.mjs unwraps the {ok, schemaVersion, data} envelope pbc --json now writes", async () => {
+  const { code, outputs, summary } = await runSummarize({
+    ok: true,
+    schemaVersion: 1,
+    data: {
+      id: "pb1",
+      name: "api",
+      status: "running",
+      environment: "production",
+      baseUrl: "https://pb.example.com",
+      adminUsername: "admin@example.com",
+      adminPassword: "s3cret-pass",
+    },
+  });
+  assertEquals(code, 0);
+  assertStringIncludes(outputs, "url=https://pb.example.com\n");
+  assertStringIncludes(outputs, "id=pb1\n");
+  assertEquals(outputs.includes("adminPassword"), false);
+  assertStringIncludes(summary, "https://pb.example.com");
+});
+
 Deno.test("summarize.mjs labels a frontend from domain and a backend from runtime", async () => {
   const fe = await runSummarize({
     id: "fe1",
@@ -288,14 +314,6 @@ Deno.test("summarize.mjs exits 1 on an unreadable file and deletes it", async ()
   assertEquals(gone, true);
 });
 
-// --- the Deploy step's shell, run for real ----------------------------------
-//
-// Static assertions cannot tell whether a `set -euo pipefail` script actually
-// stops on a bad input — the arg splitter's failure mode is precisely that it
-// does not. So the step's own script is lifted out of action.yml and executed
-// against a `pbc` stub that records the argv it was handed.
-
-/** The `run:` block of the step named `name`, dedented. */
 export function stepScript(name: string): string {
   const lines = readAction().split("\n");
   const start = lines.findIndex((l) => l.trim() === `- name: ${name}`);
@@ -320,8 +338,6 @@ async function runDeployStep(
   env: Record<string, string>,
 ): Promise<{ code: number; argv: string[]; stderr: string }> {
   const dir = Deno.makeTempDirSync();
-  // A shell function shadows any real `pbc` on PATH, so the step runs unchanged
-  // and its redirect captures the argv instead of a deploy record.
   const script = `pbc() { printf '%s\\n' "$@"; }\n${stepScript("Deploy")}`;
   const child = new Deno.Command("bash", {
     args: ["-c", script],
@@ -369,9 +385,6 @@ Deno.test("the Deploy step keeps a quoted argument in one piece", async () => {
 });
 
 Deno.test("the Deploy step refuses an args string it cannot split", async () => {
-  // `xargs` prints `--name`, then dies on the unterminated quote. Deploying
-  // with what it managed to emit hands `pbc` a `--name` whose value is the next
-  // flag — a silently wrong deploy where an error belongs.
   const { code, argv } = await runDeployStep({
     PBC_EXTRA_ARGS: '--name "My Site',
   });
@@ -380,9 +393,6 @@ Deno.test("the Deploy step refuses an args string it cannot split", async () => 
 });
 
 Deno.test("summarize.mjs still runs when reached through a symlink", async () => {
-  // Node resolves symlinks when it loads an ES module but leaves argv[1] as
-  // typed, so comparing the two verbatim made the whole step a silent no-op:
-  // exit 0, no outputs, no summary, a green run that published nothing.
   const dir = Deno.makeTempDirSync();
   const link = join(dir, "summarize.mjs");
   Deno.symlinkSync(summarizePath, link);

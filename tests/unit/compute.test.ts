@@ -6,7 +6,6 @@ import {
 } from "../../src/ui/compute.ts";
 
 Deno.test("computeLabel numbers from one and names the city", () => {
-  // The portal shows exactly this string for the same machine.
   assertEquals(computeLabel(0, "GRA"), "Compute 1 — Gravelines");
   assertEquals(computeLabel(2, "hil"), "Compute 3 — Hillsboro, OR");
 });
@@ -17,17 +16,12 @@ Deno.test("computeLabel drops the city when the record has no location", () => {
 });
 
 Deno.test("an unknown datacenter code is humanized rather than hidden", () => {
-  // Better a readable code than no location at all when the catalog grows a
-  // region this table has not learned yet.
   assertEquals(locationCity("xyz"), "XYZ");
   assertEquals(humanizeLocationCode("new-region"), "NEW Region");
   assertEquals(computeLabel(0, "waw2"), "Compute 1 — Waw2");
 });
 
 Deno.test("every provider and custom location code names a real city", () => {
-  // Hetzner, OVHcloud, and the custom ("bring your own") codes an admin types
-  // when registering a machine — a deployable-regions listing must never show
-  // a code where a city is known. Mirrors the portal's KNOWN_LOCATIONS.
   assertEquals(locationCity("fsn1"), "Falkenstein");
   assertEquals(locationCity("nbg1"), "Nuremberg");
   assertEquals(locationCity("hel1"), "Helsinki");

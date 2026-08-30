@@ -17,10 +17,16 @@ export function parseCallback(
   expectedState: string,
 ): { userToken: string; userId: string } {
   if (url.searchParams.get("state") !== expectedState) {
-    throw new CliError("Login failed: state mismatch (possible CSRF).", 4);
+    throw new CliError(
+      "Login failed: state mismatch (possible CSRF).",
+      { code: "NOT_AUTHENTICATED" },
+    );
   }
   const userToken = url.searchParams.get("token");
-  if (!userToken) throw new CliError("Login failed: no token in callback.", 4);
+  if (!userToken) throw new CliError(
+    "Login failed: no token in callback.",
+    { code: "NOT_AUTHENTICATED" },
+  );
   return { userToken, userId: url.searchParams.get("userId") ?? "" };
 }
 

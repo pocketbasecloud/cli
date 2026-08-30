@@ -28,7 +28,6 @@ Deno.test("win32-x64 package serves both x64 and arm64", () => {
 Deno.test("buildMainPackageJson pins every target exactly, no ranges", () => {
   const p = buildMainPackageJson("0.1.0");
   assertEquals(p.name, "@pocketbasecloud/cli");
-  // Both names, one shim: dropping `pb` would break every installed script.
   assertEquals((p.bin as Record<string, string>).pbc, "bin/pbc.js");
   assertEquals((p.bin as Record<string, string>).pb, "bin/pbc.js");
   assertEquals(p.files, ["bin", "README.md"]);
@@ -36,7 +35,7 @@ Deno.test("buildMainPackageJson pins every target exactly, no ranges", () => {
   assertEquals(Object.keys(deps).length, TARGETS.length);
   for (const [name, ver] of Object.entries(deps)) {
     assertMatch(name, /^@pocketbasecloud\/cli-/);
-    assertEquals(ver, "0.1.0"); // exact — no ^ or ~
+    assertEquals(ver, "0.1.0");
   }
 });
 
@@ -46,6 +45,5 @@ Deno.test("buildShim embeds each host key and maps win32-arm64 to win32-x64", ()
   assertStringIncludes(shim, '"win32-arm64": "win32-x64"');
   assertStringIncludes(shim, "#!/usr/bin/env node");
   assertStringIncludes(shim, "require.resolve");
-  // No stray package suffix that was never built.
   assertEquals(shim.includes("cli-win32-arm64"), false);
 });

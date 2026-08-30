@@ -10,21 +10,22 @@ import {
   awaitReachable,
   chooseCompute,
   computeChooser,
-  computeFlag,
   deployResource,
-  ensureTarget,
   findExisting,
   MAX_ARCHIVE_BYTES,
-  missingTargetMessage,
   pollStatus,
   reportUrl,
-  resolveExisting,
+  resolveDeployIntent,
+  resolveEnvironmentTarget,
   resolveOwnerId,
-  resolveTarget,
   suggestName,
   validateLocationChoice,
 } from "../../../src/commands/deploy-helper.ts";
-import type { Target } from "../../../src/commands/deploy-helper.ts";
+import type {
+  DeployIntent,
+  Target,
+} from "../../../src/commands/deploy-helper.ts";
+import { KINDS } from "../../../src/kinds.ts";
 import { CliError } from "../../../src/errors.ts";
 import { createMockCloudClient } from "../../mocks/cloud.mock.ts";
 import type { Resource } from "../../../src/clients/types.ts";
@@ -65,97 +66,44 @@ Deno.test("findExisting flags duplicate names", () => {
   );
 });
 
-Deno.test("resolveExisting returns the unique match by name", async () => {
-  const found = await resolveExisting([R("a", "one"), R("b", "two")], {
-    name: "two",
-  }, { label: "backend", noInput: false });
-  assertEquals(found.id, "b");
-});
+const ENV_BASE = { environment: "production", hasEnvironments: false };
 
-Deno.test("resolveExisting selects from the list when it can prompt", async () => {
-  const found = await resolveExisting([R("a", "one"), R("b", "two")], {}, {
-    label: "backend",
-    noInput: false,
-    io: fakeIO(["2"]),
-  });
-  assertEquals(found.id, "b");
-});
-
-Deno.test("resolveExisting errors when nothing exists", async () => {
-  await assertRejects(
-    () =>
-      resolveExisting([], {}, {
-        label: "backend",
-        noInput: false,
-        io: fakeIO([]),
-      }),
-    Error,
-    "No backend found.",
-  );
-});
-
-Deno.test("resolveExisting throws the standard error when it cannot ask", async () => {
-  await assertRejects(
-    () =>
-      resolveExisting([R("a", "one"), R("b", "one")], { name: "one" }, {
-        label: "backend",
-        noInput: false,
-      }),
-    Error,
-    "Specify a unique --name or --id.",
-  );
-});
-
-Deno.test("resolveExisting refuses to prompt under --json even on a TTY", async () => {
-  await assertRejects(
-    () =>
-      resolveExisting([R("a", "one"), R("b", "two")], {}, {
-        label: "backend",
-        noInput: true,
-        io: fakeIO(["2"]),
-      }),
-    Error,
-    "Specify a unique --name or --id.",
-  );
-});
-
-Deno.test("resolveExisting honors a custom error message", async () => {
-  await assertRejects(
-    () =>
-      resolveExisting([R("a", "one")], {}, {
-        label: "pocketbase",
-        noInput: false,
-        errorMessage: "Specify a unique --name or --id for the pocketbase.",
-      }),
-    Error,
-    "for the pocketbase.",
-  );
-});
-
-Deno.test("deployResource creates when none exists", async () => {
+Deno.test("deployResource creates for a create intent and injects the name", async () => {
   const c = createMockCloudClient();
-  const { created } = await deployResource(c, "pocketbases", "p1", {
-    name: "db1",
-    data: { name: "db1", project: "p1" },
-  });
+  const intent: DeployIntent = { ...ENV_BASE, create: true, name: "db1" };
+  const { created, resource } = await deployResource(
+    c,
+    "pocketbases",
+    intent,
+    { data: { project: "p1" } },
+  );
   assertEquals(created, true);
+  assertEquals(resource.name, "db1");
+  assertEquals(c.calls.createResource[0][1].name, "db1");
 });
 
-Deno.test("deployResource updates when name exists", async () => {
+Deno.test("deployResource updates the resolved resource for an update intent", async () => {
   const c = createMockCloudClient();
   const made = await c.createResource("pocketbases", {
     name: "db1",
     project: "p1",
   });
-  const { created, resource } = await deployResource(c, "pocketbases", "p1", {
-    name: "db1",
-    data: { note: "x" },
-  });
+  const intent: DeployIntent = {
+    ...ENV_BASE,
+    create: false,
+    resource: made,
+    fromBinding: false,
+  };
+  const { created, resource } = await deployResource(
+    c,
+    "pocketbases",
+    intent,
+    { data: { note: "x" } },
+  );
   assertEquals(created, false);
   assertEquals(resource.id, made.id);
 });
 
-/** A pbc.json with production+staging frontends, or none at all. */
 async function withBinding(bound: boolean): Promise<string> {
   const dir = await Deno.makeTempDir();
   if (bound) {
@@ -175,16 +123,10 @@ async function withBinding(bound: boolean): Promise<string> {
   return dir;
 }
 
-Deno.test("resolveTarget: explicit id/name wins over any binding", async () => {
+Deno.test("resolveEnvironmentTarget: an explicit name wins over any binding", async () => {
   const dir = await withBinding(true);
   try {
-    assertEquals(await resolveTarget({ id: "x" }, "frontends", dir), {
-      id: "x",
-      fromBinding: false,
-      environment: "production",
-      hasEnvironments: true,
-    });
-    assertEquals(await resolveTarget({ name: "y" }, "frontends", dir), {
+    assertEquals(await resolveEnvironmentTarget({ name: "y" }, "frontends", dir), {
       name: "y",
       fromBinding: false,
       environment: "production",
@@ -195,17 +137,16 @@ Deno.test("resolveTarget: explicit id/name wins over any binding", async () => {
   }
 });
 
-Deno.test("resolveTarget: falls back to the default environment's entry", async () => {
+Deno.test("resolveEnvironmentTarget: falls back to the default environment's entry", async () => {
   const dir = await withBinding(true);
   try {
-    assertEquals(await resolveTarget({}, "frontends", dir), {
+    assertEquals(await resolveEnvironmentTarget({}, "frontends", dir), {
       id: "fe1",
       fromBinding: true,
       environment: "production",
       hasEnvironments: true,
     });
-    // A file bound to a different kind is ignored, as before environments.
-    assertEquals(await resolveTarget({}, "backends", dir), {
+    assertEquals(await resolveEnvironmentTarget({}, "backends", dir), {
       fromBinding: false,
       environment: "production",
       hasEnvironments: true,
@@ -215,11 +156,11 @@ Deno.test("resolveTarget: falls back to the default environment's entry", async 
   }
 });
 
-Deno.test("resolveTarget: --env picks that environment's entry", async () => {
+Deno.test("resolveEnvironmentTarget: --env picks that environment's entry", async () => {
   const dir = await withBinding(true);
   try {
     assertEquals(
-      await resolveTarget({}, "frontends", dir, { envFlag: "staging" }),
+      await resolveEnvironmentTarget({}, "frontends", dir, { envFlag: "staging" }),
       {
         id: "fe2",
         fromBinding: true,
@@ -232,11 +173,11 @@ Deno.test("resolveTarget: --env picks that environment's entry", async () => {
   }
 });
 
-Deno.test("resolveTarget: an unconfigured --env is an error", async () => {
+Deno.test("resolveEnvironmentTarget: an unconfigured --env is an error", async () => {
   const dir = await withBinding(true);
   try {
     await assertRejects(
-      () => resolveTarget({}, "frontends", dir, { envFlag: "preview" }),
+      () => resolveEnvironmentTarget({}, "frontends", dir, { envFlag: "preview" }),
       Error,
       'Unknown environment "preview". Configured: production, staging.',
     );
@@ -245,11 +186,11 @@ Deno.test("resolveTarget: an unconfigured --env is an error", async () => {
   }
 });
 
-Deno.test("resolveTarget: strictKind refuses a directory bound to another kind", async () => {
+Deno.test("resolveEnvironmentTarget: strictKind refuses a directory bound to another kind", async () => {
   const dir = await withBinding(true);
   try {
     await assertRejects(
-      () => resolveTarget({}, "backends", dir, { strictKind: true }),
+      () => resolveEnvironmentTarget({}, "backends", dir, { strictKind: true }),
       Error,
       "pbc.json is bound to frontends — deploy backends from a different",
     );
@@ -258,10 +199,10 @@ Deno.test("resolveTarget: strictKind refuses a directory bound to another kind",
   }
 });
 
-Deno.test("resolveTarget: no flags and no binding yields nothing", async () => {
+Deno.test("resolveEnvironmentTarget: no flags and no binding yields nothing", async () => {
   const dir = await withBinding(false);
   try {
-    assertEquals(await resolveTarget({}, "frontends", dir), {
+    assertEquals(await resolveEnvironmentTarget({}, "frontends", dir), {
       fromBinding: false,
       environment: "production",
       hasEnvironments: false,
@@ -271,22 +212,39 @@ Deno.test("resolveTarget: no flags and no binding yields nothing", async () => {
   }
 });
 
-Deno.test("missingTargetMessage distinguishes an unconfigured env from a fresh directory", () => {
-  assertEquals(
-    missingTargetMessage(
-      { fromBinding: false, environment: "staging", hasEnvironments: true },
-      "frontend",
-    ),
-    'Environment "staging" is not configured — pass --name to create it.',
-  );
-  assertEquals(
-    missingTargetMessage(
-      { fromBinding: false, environment: "production", hasEnvironments: false },
-      "frontend",
-    ),
-    "Pass --name to create the first frontend, or remove --no-input / --json " +
-      "to be asked interactively.",
-  );
+Deno.test("resolveEnvironmentTarget: a --name that differs from the bound env is CONFLICT on deploy", async () => {
+  const dir = await withBinding(true);
+  try {
+    const err = await assertRejects(
+      () =>
+        resolveEnvironmentTarget({ name: "other" }, "frontends", dir, {
+          allowNewEnvironment: true,
+        }),
+      CliError,
+    );
+    assertEquals(err.code, "CONFLICT");
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test("resolveEnvironmentTarget: a --name matching the bound env is allowed on deploy", async () => {
+  const dir = await withBinding(true);
+  try {
+    assertEquals(
+      await resolveEnvironmentTarget({ name: "web" }, "frontends", dir, {
+        allowNewEnvironment: true,
+      }),
+      {
+        name: "web",
+        fromBinding: false,
+        environment: "production",
+        hasEnvironments: true,
+      },
+    );
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
 });
 
 const EMPTY: Target = {
@@ -300,87 +258,167 @@ Deno.test("suggestName slugifies the directory name", () => {
   assertEquals(suggestName("/tmp/___"), "app");
 });
 
-Deno.test("ensureTarget leaves a named target alone without listing", async () => {
-  let listed = false;
-  const t = await ensureTarget({ ...EMPTY, name: "web" }, {
-    label: "frontend",
+async function feClient(names: string[]) {
+  const c = createMockCloudClient();
+  const p = await c.createProject("app");
+  for (const n of names) {
+    await c.createResource("frontends", { name: n, project: p.id });
+  }
+  return { c, projectId: p.id };
+}
+
+function intentCtx(
+  over: Partial<Parameters<typeof resolveDeployIntent>[1]> & {
+    client: Parameters<typeof resolveDeployIntent>[1]["client"];
+    projectId: string;
+  },
+) {
+  return {
+    spec: KINDS.frontends,
     cwd: "/tmp/app",
-    list: () => {
-      listed = true;
-      return Promise.resolve([]);
-    },
     noInput: false,
     io: fakeIO([]),
-  });
-  assertEquals(t.name, "web");
-  assertEquals(listed, false);
-});
+    ...over,
+  };
+}
 
-Deno.test("ensureTarget keeps the usage error when it cannot ask", async () => {
-  await assertRejects(
-    () =>
-      ensureTarget(EMPTY, {
-        label: "frontend",
-        cwd: "/tmp/app",
-        list: () => Promise.resolve([]),
-        noInput: true,
-      }),
-    Error,
-    "Pass --name to create the first frontend, or",
+Deno.test("resolveDeployIntent: --new on a free name is a create intent", async () => {
+  const { c, projectId } = await feClient(["one"]);
+  const intent = await resolveDeployIntent(
+    EMPTY,
+    intentCtx({ client: c, projectId, newName: "two" }),
   );
+  assertEquals(intent.create, true);
+  assertEquals(intent.create && intent.name, "two");
 });
 
-Deno.test("ensureTarget selects an existing resource to redeploy", async () => {
-  const t = await ensureTarget(EMPTY, {
-    label: "frontend",
-    cwd: "/tmp/app",
-    list: () => Promise.resolve([R("a", "one"), R("b", "two")]),
-    noInput: false,
-    io: fakeIO(["2"]),
-  });
-  assertEquals([t.id, t.name], ["b", "two"]);
-  // Not a binding, so a since-deleted pick still falls through to a create.
-  assertEquals(t.fromBinding, false);
+Deno.test("resolveDeployIntent: --new on a taken name is CONFLICT", async () => {
+  const { c, projectId } = await feClient(["one"]);
+  const err = await assertRejects(
+    () =>
+      resolveDeployIntent(
+        EMPTY,
+        intentCtx({ client: c, projectId, newName: "one" }),
+      ),
+    CliError,
+  );
+  assertEquals(err.code, "CONFLICT");
 });
 
-Deno.test("ensureTarget asks for a name after the create-new entry", async () => {
-  const t = await ensureTarget(EMPTY, {
-    label: "frontend",
-    cwd: "/tmp/app",
-    list: () => Promise.resolve([R("a", "one")]),
-    noInput: false,
-    io: fakeIO(["2", "site"]),
-  });
-  assertEquals([t.id, t.name], [undefined, "site"]);
+Deno.test("resolveDeployIntent: --new combined with a positional target is USAGE", async () => {
+  const { c, projectId } = await feClient(["one"]);
+  const err = await assertRejects(
+    () =>
+      resolveDeployIntent(
+        { ...EMPTY, name: "one" },
+        intentCtx({ client: c, projectId, newName: "two" }),
+      ),
+    CliError,
+  );
+  assertEquals(err.code, "USAGE");
 });
 
-Deno.test("ensureTarget skips the menu and defaults the name when nothing exists", async () => {
-  const t = await ensureTarget(EMPTY, {
-    label: "frontend",
-    cwd: "/tmp/My React App",
-    list: () => Promise.resolve([]),
-    noInput: false,
-    io: fakeIO([""]),
-  });
-  assertEquals(t.name, "my-react-app");
+Deno.test("resolveDeployIntent: --name that matches redeploys it", async () => {
+  const { c, projectId } = await feClient(["one", "two"]);
+  const intent = await resolveDeployIntent(
+    { ...EMPTY, name: "two" },
+    intentCtx({ client: c, projectId }),
+  );
+  assertEquals(intent.create, false);
+  assertEquals(intent.create === false && intent.resource.name, "two");
+});
+
+Deno.test("resolveDeployIntent: --name that matches nothing is NOT_FOUND and creates nothing", async () => {
+  const { c, projectId } = await feClient(["api-prod"]);
+  const err = await assertRejects(
+    () =>
+      resolveDeployIntent(
+        { ...EMPTY, name: "api-prd" },
+        intentCtx({ client: c, projectId }),
+      ),
+    CliError,
+  );
+  assertEquals(err.code, "NOT_FOUND");
+  assertStringIncludes(err.message, "api-prod");
+  assertEquals(c.calls.createResource.length, 1);
+});
+
+Deno.test("resolveDeployIntent: a stale binding runs onStale then errors toward --new", async () => {
+  const { c, projectId } = await feClient(["one"]);
+  let cleaned = false;
+  const err = await assertRejects(
+    () =>
+      resolveDeployIntent(
+        { ...EMPTY, id: "gone", fromBinding: true },
+        intentCtx({
+          client: c,
+          projectId,
+          onStale: () => {
+            cleaned = true;
+            return Promise.resolve();
+          },
+        }),
+      ),
+    CliError,
+  );
+  assertEquals(err.code, "NOT_FOUND");
+  assertStringIncludes(err.message, "--new");
+  assertEquals(cleaned, true);
+});
+
+Deno.test("resolveDeployIntent: nothing named and non-interactive is NO_TARGET", async () => {
+  const { c, projectId } = await feClient(["one"]);
+  const err = await assertRejects(
+    () =>
+      resolveDeployIntent(
+        EMPTY,
+        intentCtx({ client: c, projectId, noInput: true }),
+      ),
+    CliError,
+  );
+  assertEquals(err.code, "NO_TARGET");
+  assertStringIncludes(err.message, "--new");
+});
+
+Deno.test("resolveDeployIntent: the menu offers create above the list", async () => {
+  const { c, projectId } = await feClient(["one"]);
+  const intent = await resolveDeployIntent(
+    EMPTY,
+    intentCtx({ client: c, projectId, io: fakeIO(["1", "site"]) }),
+  );
+  assertEquals(intent.create, true);
+  assertEquals(intent.create && intent.name, "site");
+});
+
+Deno.test("resolveDeployIntent: picking a list row redeploys it", async () => {
+  const { c, projectId } = await feClient(["one", "two"]);
+  const intent = await resolveDeployIntent(
+    EMPTY,
+    intentCtx({ client: c, projectId, io: fakeIO(["3"]) }),
+  );
+  assertEquals(intent.create === false && intent.resource.name, "two");
+});
+
+Deno.test("resolveDeployIntent: an empty account skips the menu and defaults the name", async () => {
+  const { c, projectId } = await feClient([]);
+  const intent = await resolveDeployIntent(
+    EMPTY,
+    intentCtx({
+      client: c,
+      projectId,
+      cwd: "/tmp/My React App",
+      io: fakeIO([""]),
+    }),
+  );
+  assertEquals(intent.create && intent.name, "my-react-app");
 });
 
 Deno.test("resolveOwnerId prefers the stored id and falls back to whoami", async () => {
   const c = createMockCloudClient();
   assertEquals(await resolveOwnerId(c, { userId: "u9" }), "u9");
-  // Token-only auth (PBC_TOKEN) stores no id.
   assertEquals(await resolveOwnerId(c, { userId: "" }), "u1");
 });
 
-Deno.test("computeFlag reads --compute, and still honours the old --server", () => {
-  assertEquals(computeFlag({ compute: "s1" }), "s1");
-  // Pinned scripts and CI predate the rename; breaking them buys nothing.
-  assertEquals(computeFlag({ server: "s2" }), "s2");
-  assertEquals(computeFlag({ compute: "s1", server: "s2" }), "s1");
-  assertEquals(computeFlag({}), undefined);
-});
-
-/** A client whose deploy-context answers with exactly these computes. */
 function clientWithComputes(
   computes: { id: string; name: string; location: string }[],
   context: {
@@ -410,14 +448,11 @@ Deno.test("chooseCompute takes the owner's only compute without asking", async (
     { noInput: false, log: (m) => said.push(m), io: fakeIO([]) },
   );
   assertEquals(picked, "s1");
-  // Named the way the portal names it — never by the internal record name.
   assertStringIncludes(said[0], "Compute 1 — Gravelines");
   assertStringIncludes(said[0], "s1");
 });
 
 Deno.test("chooseCompute offers an organization's compute off Pro", async () => {
-  // A project shared into an organization is owned by the org owner, so its
-  // compute is the organization's — offered whatever the plan lookup says.
   const picked = await chooseCompute(
     clientWithComputes([CPU("s1", "org-1")], {
       ownerPlan: "starter",
@@ -430,8 +465,6 @@ Deno.test("chooseCompute offers an organization's compute off Pro", async () => 
 });
 
 Deno.test("chooseCompute leaves an org with no compute to the platform", async () => {
-  // An organization whose owner is not on Pro has no dedicated compute at all;
-  // the shared pool is the right answer, not an error.
   const picked = await chooseCompute(
     clientWithComputes([], { ownerPlan: "free", organization: "org1" }),
     "p1",
@@ -446,7 +479,6 @@ Deno.test("chooseCompute asks which compute when the owner has several", async (
     "p1",
     { noInput: false, log: () => {}, io: fakeIO(["1"]) },
   );
-  // deploy-context is newest-first, so the menu's first entry is the oldest.
   assertEquals(picked, "s2");
 });
 
@@ -464,9 +496,6 @@ Deno.test("chooseCompute names the ids instead of guessing under --no-input", as
 });
 
 Deno.test("chooseCompute leaves the choice to the platform off Pro", async () => {
-  // Free/starter deploys are auto-placed in the shared pool by capacity, and
-  // a plan that cannot deploy at all gets the platform's own message. Compute
-  // the owner happens to have is not theirs to pick from outside Pro/an org.
   const picked = await chooseCompute(
     clientWithComputes([CPU("s1", "shared-1")], { ownerPlan: "free" }),
     "p1",
@@ -486,7 +515,7 @@ Deno.test("computeChooser asks once however often a create is retried", async ()
   const ask = computeChooser(c, "p1", {
     noInput: false,
     log: () => {},
-    io: fakeIO(["1"]), // One answer only: a second menu would hang.
+    io: fakeIO(["1"]),
   });
   assertEquals(await ask(), "s2");
   assertEquals(await ask(), "s2");
@@ -506,8 +535,6 @@ Deno.test("chooseCompute refuses to fall back to shared compute on Pro", async (
 });
 
 Deno.test("chooseCompute points a developer at the owner when their compute is down", async () => {
-  // The developer cannot provision compute in someone else's organization, so
-  // the message has to name who can.
   await assertRejects(
     () =>
       chooseCompute(clientWithComputes([], { isOwner: false }), "p1", {
@@ -519,26 +546,6 @@ Deno.test("chooseCompute points a developer at the owner when their compute is d
   );
 });
 
-Deno.test("deployResource errors on a stale binding and runs onStale", async () => {
-  const c = createMockCloudClient();
-  let cleared = false;
-  await assertRejects(
-    () =>
-      deployResource(c, "frontends", "p1", {
-        id: "gone",
-        data: { project: "p1" },
-        requireExisting: true,
-        onStale: () => {
-          cleared = true;
-          return Promise.resolve();
-        },
-      }),
-    Error,
-    "no longer exists",
-  );
-  assertEquals(cleared, true);
-  assertEquals(c.calls.createResource.length, 0);
-});
 
 Deno.test("pollStatus stops at terminal state", async () => {
   const c = createMockCloudClient();
@@ -575,7 +582,6 @@ Deno.test("pollStatus prints a line only when the status changes", async () => {
     onTick: (s) => seen.push(s),
   });
   assertEquals(final.status, "running");
-  // Four polls, two distinct statuses.
   assertEquals(seen, ["creating", "running"]);
 });
 
@@ -591,17 +597,17 @@ Deno.test("a poll timeout names the resource and how to recover", async () => {
   const err = await assertRejects(() =>
     pollStatus(client, "pocketbases", r.id, {
       terminal: ["running"],
-      timeoutMs: -1, // already past the deadline
+      timeoutMs: -1,
       intervalMs: 0,
       label: "PocketBase",
-      checkCommand: "pb",
+      checkCommand: "pocketbase",
     })
   );
   const msg = (err as Error).message;
   assertStringIncludes(msg, "stuck-db");
   assertStringIncludes(msg, "still be provisioning");
-  assertStringIncludes(msg, "pbc cloud pb info --name stuck-db");
-  assertStringIncludes(msg, "pbc cloud pb rm --name stuck-db");
+  assertStringIncludes(msg, "pbc pocketbase info --name stuck-db");
+  assertStringIncludes(msg, "pbc pocketbase rm --name stuck-db");
 });
 
 Deno.test("awaitDeployment follows the platform's status in one step", async () => {
@@ -627,7 +633,6 @@ Deno.test("awaitDeployment follows the platform's status in one step", async () 
   });
   assertEquals(final.status, "running");
   assertStringIncludes(lines[0], "Creating api (environment: production)");
-  // The step says what the platform last reported, then closes with the answer.
   assertStringIncludes(lines.join("\n"), "— creating");
   assertEquals(lines[lines.length - 1], "✓ api is running");
 });
@@ -689,8 +694,6 @@ Deno.test("reportUrl prints a verified custom domain beside the platform URL", (
     },
     { log: (m) => out.push(m) },
   );
-  // The platform URL still comes first — it is the one that always works —
-  // and the user's own domain follows it.
   assertEquals(url, "https://web.example.com");
   assertEquals(out, [
     "  https://web.example.com",
@@ -709,8 +712,6 @@ Deno.test("an unverified custom domain is printed with its status", () => {
     },
     { log: (m) => out.push(m) },
   );
-  // Saying "pending" here is the point: the deploy worked, the domain does not
-  // answer yet, and those two facts arrive together.
   assertEquals(out[1], "  https://api.mysite.com (custom domain — pending)");
 });
 
@@ -738,7 +739,6 @@ Deno.test("awaitReachable stops once the domain answers", async () => {
   client.ext = (path, body) => {
     client.calls.ext.push([path, body]);
     probes++;
-    // 503 until the certificate is issued, which is what the route reports.
     return Promise.resolve(
       new Response(null, { status: probes < 3 ? 503 : 200 }),
     );
@@ -766,7 +766,7 @@ Deno.test("awaitReachable gives up without failing the deploy", async () => {
     type: "frontend",
     resource: { ...R("r2", "web"), domain: "web.example.com" } as never,
     log: (m) => out.push(m),
-    timeoutMs: -1, // already past the deadline
+    timeoutMs: -1,
     intervalMs: 0,
   });
   assertEquals(reachable, false);
@@ -787,10 +787,6 @@ Deno.test("awaitReachable skips a resource that has no domain yet", async () => 
   assertEquals(client.calls.ext.length, 0);
 });
 
-// ===================================================================
-// Archive size pre-flight
-// ===================================================================
-
 Deno.test("assertArchiveWithinLimit accepts an archive at the limit", () => {
   assertArchiveWithinLimit(new Uint8Array(MAX_ARCHIVE_BYTES), "app.zip");
 });
@@ -805,10 +801,6 @@ Deno.test("assertArchiveWithinLimit rejects an over-limit archive by name and si
     CliError,
   );
 
-  // The point of failing here rather than on upload: the user is told what
-  // went wrong and roughly what to do, before transferring the whole archive.
-  // Both figures are derived from MAX_ARCHIVE_BYTES so that raising the cap
-  // cannot leave this asserting the old one, which is what it did.
   const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   assertStringIncludes(err.message, "app.zip");
   assertStringIncludes(err.message, mb(MAX_ARCHIVE_BYTES + 1024 * 1024));
@@ -865,16 +857,11 @@ Deno.test(
         servers: [],
       });
 
-    // Must not throw: against an older backend there is nothing to check, and
-    // guessing would break deploys the platform would have placed fine.
     await validateLocationChoice(client, "p1", "fsn1");
   },
 );
 
 Deno.test("resolveTarget: the refusal names the parent file that binds", async () => {
-  // The binding is found by walking up, so a subdirectory of a monorepo whose
-  // root still holds pb.json must be told about pb.json — not about the
-  // pbc.json it would write if it ever had one.
   const root = await Deno.makeTempDir();
   try {
     await Deno.writeTextFile(
@@ -889,7 +876,7 @@ Deno.test("resolveTarget: the refusal names the parent file that binds", async (
     const sub = join(root, "apps", "web");
     await Deno.mkdir(sub, { recursive: true });
     const err = await assertRejects(
-      () => resolveTarget({}, "backends", sub, { strictKind: true }),
+      () => resolveEnvironmentTarget({}, "backends", sub, { strictKind: true }),
       Error,
       "pb.json is bound to frontends",
     );

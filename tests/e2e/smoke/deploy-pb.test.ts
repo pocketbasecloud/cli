@@ -4,11 +4,7 @@ import {
 } from "../setup.ts";
 import { assert, assertStringIncludes } from "@std/assert";
 
-// Use config-file auth (no PBC_TOKEN) so tests work with any logged-in account.
 const ENV: Record<string, string> = {};
-// Pro accounts with multiple computes need an explicit --compute on deploy.
-// Picked from the test account's deploy-context; stable as long as computes
-// aren't added or removed. From `chooseCompute()` in deploy-helper.ts.
 const COMPUTE = "zzbtp4ke5fm3qow";
 
 let projectId: string;
@@ -53,7 +49,6 @@ Deno.test({
       assert(r.json!.status === "running", `Expected running, got ${r.json!.status}`);
       assert(typeof r.json!.baseUrl === "string", "Should have a baseUrl");
       assert(typeof r.json!.adminUsername === "string", "Should have adminUsername");
-      // Clean up
       const rm = await pb(
         ["cloud", "pb", "rm", "--id", id, "--yes", "--project", projectId],
         { env: ENV, timeout: 30_000 },
@@ -148,7 +143,6 @@ Deno.test({
     const id1 = r1.json!.id as string;
     trackCleanup("pocketbases", id1, projectId);
 
-    // Edit and redeploy from same dir — pbc.json now binds it
     Deno.writeTextFileSync(`${dir}/pb_hooks/main.pb.js`, "// v2 — updated");
 
     const r2 = await pb([
@@ -161,7 +155,6 @@ Deno.test({
       `Redeploy should update same resource (${id1}), got ${r2.json!.id}`,
     );
 
-    // Clean up
     await pb(
       ["cloud", "pb", "rm", id1, "--yes", "--project", projectId],
       { env: ENV, timeout: 30_000 },

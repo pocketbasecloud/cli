@@ -20,10 +20,9 @@ function deps(client = createMockAdminClient()): AdminCmdDeps {
 Deno.test("settings mail set updates smtp section", async () => {
   const client = createMockAdminClient();
   const cmds = makeSettingsCommands(deps(client));
-  const code = await cmds["settings mail set"]({
+  const code = await cmds["admin settings mail set"].run({}, {
     args: ['{"enabled":true,"host":"smtp.example.com"}'],
     flags: { json: true, yes: true, noInput: true, interactive: false },
-    raw: {},
   });
   assertEquals(code, 0);
   const [data] = client.calls.updateSettings[0];
@@ -33,10 +32,9 @@ Deno.test("settings mail set updates smtp section", async () => {
 Deno.test("settings backup create passes basename", async () => {
   const client = createMockAdminClient();
   const cmds = makeSettingsCommands(deps(client));
-  const code = await cmds["settings backup create"]({
+  const code = await cmds["admin settings backup create"].run({}, {
     args: ["snapshot.zip"],
     flags: { json: true, yes: true, noInput: true, interactive: false },
-    raw: {},
   });
   assertEquals(code, 0);
   assertEquals(client.calls.createBackup[0], ["snapshot.zip"]);

@@ -33,7 +33,6 @@ Deno.test("an inferred block is reported and written back to pbc.json", async ()
 });
 
 Deno.test("an existing block suppresses inference entirely", async () => {
-  // vite.config would infer dist; the recorded block must win untouched.
   const cwd = seed({
     "vite.config.ts": "",
     "pbc.json": JSON.stringify({
@@ -48,7 +47,6 @@ Deno.test("an existing block suppresses inference entirely", async () => {
     log: noop,
   });
   assertEquals(cfg.outputDir, "public");
-  // A deliberately removed command is not re-inferred.
   assertEquals(cfg.command, undefined);
 });
 
@@ -85,7 +83,6 @@ Deno.test("flags override the recorded block without rewriting it", async () => 
   });
   assertEquals(cfg.runtime, "bun");
   assertEquals(cfg.envFile, ".env.production");
-  // The file still says what the user wrote.
   const own = await readOwnLinkFile(cwd);
   assertEquals(own.build?.runtime, "nodejs");
   assertEquals(own.build?.envFile, ".env");
@@ -111,10 +108,7 @@ Deno.test("build config comes from the cwd's own pbc.json, never a parent's", as
 });
 
 Deno.test("envFileOf is tri-state and never falls back to .env", () => {
-  // Unset is "nobody has said yet" — the deploy asks. It must not read as ".env",
-  // which would push a developer's local dotenv to whatever is being deployed.
   assertEquals(envFileOf({}), undefined);
-  // Empty string is an answer: no env file for this environment.
   assertEquals(envFileOf({ envFile: "" }), "");
   assertEquals(envFileOf({ envFile: ".env.production" }), ".env.production");
 });
@@ -142,7 +136,6 @@ Deno.test("an environment's build overrides the base block key by key", async ()
     log: noop,
   });
   assertEquals(cfg.command, "npm run build:staging");
-  // Keys the environment leaves alone still come from the base.
   assertEquals(cfg.outputDir, "dist");
 });
 
@@ -212,7 +205,6 @@ Deno.test("flags still beat an environment's block", async () => {
   });
   assertEquals(cfg.runtime, "bun");
   assertEquals(cfg.envFile, ".env.ci");
-  // The file is left as written; flags apply to this run only.
   const own = await readOwnLinkFile(cwd);
   assertEquals(own.build?.runtime, "nodejs");
   assertEquals(own.environments?.staging.build?.runtime, "deno");
@@ -236,13 +228,11 @@ Deno.test('an environment can override a base envFile with "" to push nothing', 
     environment: "dev",
     log: noop,
   });
-  // Not undefined — "" is an answer, and an answer beats the base file.
   assertEquals(envFileOf(cfg), "");
   assertEquals(cfg.runtime, "deno");
 });
 
 Deno.test("an environment-only build block suppresses inference", async () => {
-  // vite.config would infer dist; a block anywhere means the user has decided.
   const cwd = seed({
     "vite.config.ts": "",
     "pbc.json": JSON.stringify({
@@ -265,7 +255,6 @@ Deno.test("an environment-only build block suppresses inference", async () => {
 });
 
 Deno.test("an inferred block is written to the base, not to the environment", async () => {
-  // Inference reads the directory, which is the same in every environment.
   const cwd = seed({
     "vite.config.ts": "",
     "pbc.json": JSON.stringify({

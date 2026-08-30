@@ -57,21 +57,18 @@ export function mapAdminError(e: unknown): CliError {
   if (e instanceof ClientResponseError) {
     if (e.status === 401 || e.status === 403) {
       return new CliError(
-        "Not authenticated to this instance. Run `pbc login`.",
-        4,
+        "Not authenticated to this instance. Run `pbc admin login`.",
+        { code: "NOT_AUTHENTICATED" },
       );
     }
     const msg = e.response?.message ?? e.message;
-    // "Failed to create collection." alone never says what was wrong with it;
-    // the reason is one entry per rejected field in `data`.
     const { detail, fields } = fieldErrors(e.response?.data);
     return new CliError(
       `Instance error (${e.status}): ${msg}${detail ? ` — ${detail}` : ""}`,
-      1,
-      fields,
+      { fields },
     );
   }
-  return new CliError(String(e), 1);
+  return new CliError(String(e));
 }
 
 function generateTraceId(): string {
@@ -88,17 +85,10 @@ export class PocketBaseAdminClient implements IAdminClient {
     this.pb = new PocketBase(url);
     if (token) this.pb.authStore.save(token, null);
 
-    // Inject trace headers for cross-service correlation.
     this.pb.beforeSend = (url, options) => {
       options.headers = Object.assign(options.headers || {}, {
         "X-Trace-Id": generateTraceId(),
         "X-Client-Type": "cli",
-        // Named explicitly so the platform's request metrics can tell CLI
-        // traffic from browser traffic. PocketBase's own request log records a
-        // User-Agent but no X-Client-Type, and that log is where the
-        // portal->backend and cli->backend hops are measured — without this
-        // the two are indistinguishable and CLI usage vanishes into the
-        // portal's numbers.
         "User-Agent": `pb-cloud-cli/${VERSION}`,
       });
       return { url, options };

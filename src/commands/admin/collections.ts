@@ -1,14 +1,15 @@
-import type { CmdCtx, Handler } from "../../router.ts";
+import {
+  bool,
+  type Command,
+  defineCommand,
+  str,
+} from "../../command.ts";
 import type { AdminCmdDeps } from "./deps.ts";
 import { CliError } from "../../errors.ts";
+import { emit } from "../../envelope.ts";
 import { printResult } from "../../ui/output.ts";
 import { confirm } from "../../ui/prompt.ts";
 
-/**
- * A collection definition passed as JSON. Rejecting a bad body here, with the
- * parser's own reason, beats letting the instance answer with a generic
- * "Failed to create collection."
- */
 function parseDefinition(json: string): Record<string, unknown> {
   let parsed: unknown;
   try {
@@ -16,15 +17,17 @@ function parseDefinition(json: string): Record<string, unknown> {
   } catch (e) {
     throw new CliError(
       `Not valid JSON: ${e instanceof Error ? e.message : String(e)}`,
-      2,
-    );
+      { code: "USAGE" });
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new CliError("A collection definition must be a JSON object.", 2);
+    throw new CliError(
+      "A collection definition must be a JSON object.",
+      { code: "USAGE" },
+    );
   }
   const body = parsed as Record<string, unknown>;
   if (typeof body.name !== "string" || body.name.length === 0) {
-    throw new CliError('The definition needs a "name".', 2);
+    throw new CliError('The definition needs a "name".', { code: "USAGE" });
   }
   body.type ??= "base";
   return body;
@@ -32,145 +35,207 @@ function parseDefinition(json: string): Record<string, unknown> {
 
 export function makeCollectionsCommands(
   deps: AdminCmdDeps,
-): Record<string, Handler> {
-  const ls: Handler = async (ctx: CmdCtx) => {
-    const { client } = await deps.requireAdmin();
-    printResult(await client.listCollections(), [
-      { header: "ID", get: (c) => c.id },
-      { header: "NAME", get: (c) => c.name },
-      { header: "TYPE", get: (c) => c.type },
-      { header: "SYSTEM", get: (c) => (c.system ? "yes" : "") },
-    ], ctx.flags.json);
-    return 0;
-  };
+): Record<string, Command> {
+  return {
+    "admin collections ls": defineCommand({
+      path: ["admin", "collections", "ls"],
+      usage: "pbc admin collections ls",
+      summary: "List collections.",
+      args: [],
+      flags: {},
+      run: async (_input, ctx) => {
+        const { client } = await deps.requireAdmin();
+        printResult(await client.listCollections(), [
+          { header: "ID", get: (c) => c.id },
+          { header: "NAME", get: (c) => c.name },
+          { header: "TYPE", get: (c) => c.type },
+          { header: "SYSTEM", get: (c) => (c.system ? "yes" : "") },
+        ], ctx.flags.json);
+        return 0;
+      },
+    }),
 
-  const get: Handler = async (ctx: CmdCtx) => {
-    const name = ctx.args[0];
-    if (!name) throw new CliError("Usage: pbc collections get <idOrName>", 2);
-    const { client } = await deps.requireAdmin();
-    console.log(JSON.stringify(await client.getCollection(name), null, 2));
-    return 0;
-  };
+    "admin collections get": defineCommand({
+      path: ["admin", "collections", "get"],
+      usage: "pbc admin collections get <idOrName>",
+      summary: "Show a collection.",
+      args: [{ name: "idOrName", required: true }],
+      flags: {},
+      run: async (_input, ctx) => {
+        const name = ctx.args[0];
+        if (!name) {
+          throw new CliError(
+            "Usage: pbc admin collections get <idOrName>",
+            { code: "USAGE" },
+          );
+        }
+        const { client } = await deps.requireAdmin();
+        const c = await client.getCollection(name);
+        emit(ctx.flags.json, c, () => JSON.stringify(c, null, 2));
+        return 0;
+      },
+    }),
 
-  const create: Handler = async (ctx: CmdCtx) => {
-    const arg = ctx.args[0] ?? (ctx.raw.data as string | undefined);
-    if (!arg) {
-      throw new CliError(
-        "Usage: pbc collections create <name> [--type base|auth|view]\n" +
-          "       pbc collections create '<json>'   (full definition, with fields)",
-        2,
-      );
-    }
-    const { client } = await deps.requireAdmin();
-    // A name alone creates an empty collection, which then needs a second
-    // `collections update` to gain any fields. Accepting the same JSON body
-    // `update` takes makes the one-step form possible — and it is what gets
-    // tried first, since a bare name that happens to be JSON is never valid.
-    const body = arg.trimStart().startsWith("{")
-      ? parseDefinition(arg)
-      : { name: arg, type: (ctx.raw.type as string) ?? "base" };
-    const c = await client.createCollection(body);
-    console.log(
-      ctx.flags.json
-        ? JSON.stringify(c)
-        : `Created collection ${c.name} (${c.id}).`,
-    );
-    return 0;
-  };
+    "admin collections create": defineCommand({
+      path: ["admin", "collections", "create"],
+      usage: "pbc admin collections create <name> [--type base|auth|view]",
+      summary: "Create a collection.",
+      args: [{ name: "name", required: true }],
+      flags: {
+        type: str({
+          description: "Collection type. One of base, auth, view.",
+          choices: ["base", "auth", "view"],
+        }),
+        data: str({
+          description:
+            "Full JSON definition — creates a collection with fields in one step.",
+        }),
+      },
+      run: async (input, ctx) => {
+        const arg = ctx.args[0] ?? input.data;
+        if (!arg) {
+          throw new CliError(
+            "Usage: pbc admin collections create <name> [--type base|auth|view]\n" +
+              "       pbc admin collections create '<json>'   (full definition, with fields)",
+              { code: "USAGE" });
+        }
+        const { client } = await deps.requireAdmin();
+        const body = arg.trimStart().startsWith("{")
+          ? parseDefinition(arg)
+          : { name: arg, type: input.type ?? "base" };
+        const c = await client.createCollection(body);
+        emit(ctx.flags.json, c, `Created collection ${c.name} (${c.id}).`);
+        return 0;
+      },
+    }),
 
-  const update: Handler = async (ctx: CmdCtx) => {
-    const name = ctx.args[0];
-    const json = ctx.args[1] ?? (ctx.raw.data as string | undefined);
-    if (!name || !json) {
-      throw new CliError(
-        "Usage: pbc collections update <idOrName> '<json>'",
-        2,
-      );
-    }
-    const { client } = await deps.requireAdmin();
-    const data = JSON.parse(json) as Record<string, unknown>;
-    const c = await client.updateCollection(name, data);
-    console.log(ctx.flags.json ? JSON.stringify(c) : `Updated ${c.name}.`);
-    return 0;
-  };
+    "admin collections update": defineCommand({
+      path: ["admin", "collections", "update"],
+      usage: "pbc admin collections update <idOrName> '<json>'",
+      summary: "Update a collection.",
+      args: [
+        { name: "idOrName", required: true },
+        { name: "json", required: true },
+      ],
+      flags: {
+        data: str({
+          description: "The JSON definition, alternative to the positional.",
+        }),
+      },
+      run: async (input, ctx) => {
+        const name = ctx.args[0];
+        const json = ctx.args[1] ?? input.data;
+        if (!name || !json) {
+          throw new CliError(
+            "Usage: pbc admin collections update <idOrName> '<json>'",
+            { code: "USAGE" });
+        }
+        const { client } = await deps.requireAdmin();
+        const data = JSON.parse(json) as Record<string, unknown>;
+        const c = await client.updateCollection(name, data);
+        emit(ctx.flags.json, c, `Updated ${c.name}.`);
+        return 0;
+      },
+    }),
 
-  const rm: Handler = async (ctx: CmdCtx) => {
-    const name = ctx.args[0];
-    if (!name) throw new CliError("Usage: pbc collections rm <idOrName>", 2);
-    const { client } = await deps.requireAdmin();
-    if (
-      !await confirm(`Delete collection ${name}? This drops its data.`, {
-        noInput: ctx.flags.noInput,
-        yes: ctx.flags.yes,
-      })
-    ) {
-      console.log("Aborted.");
-      return 0;
-    }
-    await client.deleteCollection(name);
-    console.log(
-      ctx.flags.json ? JSON.stringify({ ok: true }) : `Deleted ${name}.`,
-    );
-    return 0;
-  };
-
-  const exportCmd: Handler = async (ctx: CmdCtx) => {
-    const { client } = await deps.requireAdmin();
-    const cols = await client.listCollections();
-    const out = (ctx.raw.out as string) ?? "collections.json";
-    await Deno.writeTextFile(out, JSON.stringify(cols, null, 2));
-    console.log(
-      ctx.flags.json
-        ? JSON.stringify({ out, count: cols.length })
-        : `Exported ${cols.length} collections to ${out}.`,
-    );
-    return 0;
-  };
-
-  const importCmd: Handler = async (ctx: CmdCtx) => {
-    const file = ctx.args[0];
-    if (!file) {
-      throw new CliError(
-        "Usage: pbc collections import <file.json> [--delete-missing]",
-        2,
-      );
-    }
-    const { client } = await deps.requireAdmin();
-    const collections = JSON.parse(await Deno.readTextFile(file)) as Record<
-      string,
-      unknown
-    >[];
-    const deleteMissing = ctx.raw["delete-missing"] === true;
-    if (deleteMissing) {
-      if (
-        !await confirm(
-          "Import with --delete-missing will DROP collections not in the file. Continue?",
-          {
+    "admin collections rm": defineCommand({
+      path: ["admin", "collections", "rm"],
+      usage: "pbc admin collections rm <idOrName> [--yes]",
+      summary: "Delete a collection.",
+      args: [{ name: "idOrName", required: true }],
+      flags: {},
+      run: async (_input, ctx) => {
+        const name = ctx.args[0];
+        if (!name) throw new CliError(
+          "Usage: pbc admin collections rm <idOrName>",
+          { code: "USAGE" },
+        );
+        const { client } = await deps.requireAdmin();
+        if (
+          !await confirm(`Delete collection ${name}? This drops its data.`, {
             noInput: ctx.flags.noInput,
             yes: ctx.flags.yes,
-          },
-        )
-      ) {
-        console.log("Aborted.");
+          })
+        ) {
+          console.error("Aborted.");
+          return 0;
+        }
+        await client.deleteCollection(name);
+        emit(ctx.flags.json, { ok: true }, `Deleted ${name}.`);
         return 0;
-      }
-    }
-    await client.importCollections(collections, deleteMissing);
-    console.log(
-      ctx.flags.json
-        ? JSON.stringify({ ok: true, count: collections.length })
-        : `Imported ${collections.length} collections.`,
-    );
-    return 0;
-  };
+      },
+    }),
 
-  return {
-    "collections ls": ls,
-    "collections get": get,
-    "collections create": create,
-    "collections update": update,
-    "collections rm": rm,
-    "collections export": exportCmd,
-    "collections import": importCmd,
+    "admin collections export": defineCommand({
+      path: ["admin", "collections", "export"],
+      usage: "pbc admin collections export [--out <file>]",
+      summary: "Export all collections to JSON.",
+      args: [],
+      flags: {
+        out: str({
+          description: "Where to write the file. Defaults to collections.json.",
+        }),
+      },
+      run: async (input, ctx) => {
+        const { client } = await deps.requireAdmin();
+        const cols = await client.listCollections();
+        const out = input.out ?? "collections.json";
+        await Deno.writeTextFile(out, JSON.stringify(cols, null, 2));
+        emit(
+          ctx.flags.json,
+          { out, count: cols.length },
+          `Exported ${cols.length} collections to ${out}.`,
+        );
+        return 0;
+      },
+    }),
+
+    "admin collections import": defineCommand({
+      path: ["admin", "collections", "import"],
+      usage: "pbc admin collections import <file.json> [--delete-missing]",
+      summary:
+        "Import collections from JSON. --delete-missing drops collections not in the file.",
+      args: [{ name: "file.json", required: true }],
+      flags: {
+        deleteMissing: bool({
+          description: "Drop collections not in the file.",
+        }),
+      },
+      run: async (input, ctx) => {
+        const file = ctx.args[0];
+        if (!file) {
+          throw new CliError(
+            "Usage: pbc admin collections import <file.json> [--delete-missing]",
+            { code: "USAGE" });
+        }
+        const { client } = await deps.requireAdmin();
+        const collections = JSON.parse(await Deno.readTextFile(file)) as Record<
+          string,
+          unknown
+        >[];
+        const deleteMissing = input.deleteMissing === true;
+        if (deleteMissing) {
+          if (
+            !await confirm(
+              "Import with --delete-missing will DROP collections not in the file. Continue?",
+              {
+                noInput: ctx.flags.noInput,
+                yes: ctx.flags.yes,
+              },
+            )
+          ) {
+            console.error("Aborted.");
+            return 0;
+          }
+        }
+        await client.importCollections(collections, deleteMissing);
+        emit(
+          ctx.flags.json,
+          { ok: true, count: collections.length },
+          `Imported ${collections.length} collections.`,
+        );
+        return 0;
+      },
+    }),
   };
 }

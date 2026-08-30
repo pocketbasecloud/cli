@@ -1,5 +1,11 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { httpError } from "../../src/errors.ts";
+import {
+  CliError,
+  codeFromStatus,
+  type ErrorCode,
+  EXIT_CODES,
+  httpError,
+} from "../../src/errors.ts";
 import { describeSubStatus } from "../../src/deploy-status.ts";
 
 function res(body: unknown, status = 400): Response {
@@ -9,9 +15,6 @@ function res(body: unknown, status = 400): Response {
 }
 
 Deno.test("httpError repeats the reason PocketBase's routes put in `details`", async () => {
-  // The route answers { error: <wrapper>, details: <the useful sentence> }.
-  // Reporting the status code alone, which is what most call sites did, throws
-  // the second one away.
   const e = await httpError(
     res({
       error: "Failed to set env vars",
@@ -20,12 +23,10 @@ Deno.test("httpError repeats the reason PocketBase's routes put in `details`", a
     "Set",
   );
   assertEquals(e.message, "Set failed (400): Backend container is not running");
-  assertEquals(e.exitCode, 1);
+  assertEquals(e.exitCode, EXIT_CODES.PLATFORM);
 });
 
 Deno.test("httpError skips a wrapper that says nothing", async () => {
-  // backend-extension answers a 500 with the generic message on top and the
-  // real failure underneath.
   const e = await httpError(
     res({ message: "Internal server error", error: "ENOSPC on /var/lib" }, 500),
     "Import",
@@ -34,8 +35,6 @@ Deno.test("httpError skips a wrapper that says nothing", async () => {
 });
 
 Deno.test("httpError digs a field error out of a re-wrapped PocketBase body", async () => {
-  // The shape a hook that exceeds `content`'s max arrives in: the PocketBase
-  // response body nested two levels down, with nothing but the wrapper on top.
   const e = await httpError(
     res({
       details: {
@@ -61,8 +60,6 @@ Deno.test("httpError digs a field error out of a re-wrapped PocketBase body", as
 });
 
 Deno.test("httpError does not read the envelope as three rejected fields", async () => {
-  // `details.data` is `{ data, message, status }` — stepping into it blindly
-  // reports "data: invalid; message: invalid; status: invalid".
   const e = await httpError(
     res({ details: { data: { message: "Nope.", status: 400 } } }),
     "Hook push",
@@ -73,17 +70,16 @@ Deno.test("httpError does not read the envelope as three rejected fields", async
 Deno.test("httpError falls back to the status code when the body says nothing", async () => {
   const e = await httpError(res("not json", 502), "Hook push");
   assertEquals(e.message, "Hook push failed (502).");
-  assertEquals(e.exitCode, 1);
+  assertEquals(e.exitCode, EXIT_CODES.PLATFORM);
 });
 
 Deno.test("httpError names the fix for an expired session", async () => {
   const e = await httpError(res({}, 401), "Log stream");
   assertEquals(
     e.message,
-    "Log stream failed (401): not authenticated — run `pbc cloud login`",
+    "Log stream failed (401): not authenticated — run `pbc login`",
   );
-  // Exit 4 is the CLI's "log in again", as `mapPbError` already reports.
-  assertEquals(e.exitCode, 4);
+  assertEquals(e.exitCode, EXIT_CODES.AUTH);
 });
 
 Deno.test("httpError keeps the platform's own 403 reason and exit code", async () => {
@@ -95,7 +91,7 @@ Deno.test("httpError keeps the platform's own 403 reason and exit code", async (
     e.message,
     "Deploy failed (403): Backend deployments require a Pro plan",
   );
-  assertEquals(e.exitCode, 3);
+  assertEquals(e.exitCode, EXIT_CODES.FORBIDDEN);
 });
 
 Deno.test("describeSubStatus explains a failure and stays quiet otherwise", () => {
@@ -103,8 +99,6 @@ Deno.test("describeSubStatus explains a failure and stays quiet otherwise", () =
     describeSubStatus("computeFull"),
     "your compute is full — add-ons coming soon",
   );
-  // A refused archive is the one upload failure the user can act on, so it
-  // must not fall back to the generic "could not be written" line.
   assertStringIncludes(
     describeSubStatus("archiveMissingPbDirs") ?? "",
     "pb_public",
@@ -117,31 +111,16 @@ Deno.test("describeSubStatus explains a failure and stays quiet otherwise", () =
     describeSubStatus("hooksNotInstallable") ?? "",
     "subdirectory",
   );
-  // Progress sub-statuses are not failures, and an unknown one is not worth a
-  // guess — the caller says only what it knows.
   assertEquals(describeSubStatus("sendingToServer"), undefined);
   assertEquals(describeSubStatus(""), undefined);
   assertEquals(describeSubStatus(undefined), undefined);
 });
-
-// ---------------------------------------------------------------------------
-// Paused instances
-// ---------------------------------------------------------------------------
-//
-// The platform refuses deploys, hook writes and env writes on an instance it
-// paused for exceeding the free plan's storage limit, and the sentence it
-// sends is the only place the user is told what to do about it (upgrade, or
-// free up space). These pin the shapes each of those refusals actually
-// arrives in, because a wrapper winning over the sentence would leave the CLI
-// printing a bare status code for the one error a user can act on.
 
 const PAUSED =
   "This instance is paused because it is over the Free plan storage limit. " +
   "Upgrade to resume it, or free up space and it restarts automatically.";
 
 Deno.test("httpError surfaces a paused instance on a hook push", async () => {
-  // /api/hooks/bulk-write relays backend-extension's 409 as
-  // { error: <wrapper>, details: <sentence> }.
   const e = await httpError(
     res({ error: "Failed to write hooks", details: PAUSED }, 409),
     "Hook push",
@@ -159,8 +138,6 @@ Deno.test("httpError surfaces a paused instance on an env write", async () => {
 });
 
 Deno.test("httpError surfaces a paused instance from the extension directly", async () => {
-  // `pbc cloud deploy` pushes env vars straight to backend-extension's CORS
-  // route, which answers in its own envelope rather than PocketBase's.
   const e = await httpError(
     res(
       { success: false, message: "Failed to set env vars", error: PAUSED },
@@ -169,4 +146,98 @@ Deno.test("httpError surfaces a paused instance from the extension directly", as
     "Env push",
   );
   assertStringIncludes(e.message, "paused");
+});
+
+const ALL_CODES: ErrorCode[] = [
+  "USAGE",
+  "UNKNOWN_FLAG",
+  "MISSING_ARG",
+  "NO_TARGET",
+  "INVALID_VALUE",
+  "NOT_FOUND",
+  "NOT_AUTHENTICATED",
+  "FORBIDDEN",
+  "PLAN_LIMIT",
+  "CONFLICT",
+  "PLATFORM_ERROR",
+  "NETWORK_ERROR",
+  "INTERNAL",
+  "TIMEOUT",
+];
+
+Deno.test("every ErrorCode maps to a documented exit code", () => {
+  const expected: Record<ErrorCode, number> = {
+    USAGE: EXIT_CODES.USAGE,
+    UNKNOWN_FLAG: EXIT_CODES.USAGE,
+    MISSING_ARG: EXIT_CODES.USAGE,
+    NO_TARGET: EXIT_CODES.USAGE,
+    INVALID_VALUE: EXIT_CODES.USAGE,
+    NOT_FOUND: EXIT_CODES.NOT_FOUND,
+    NOT_AUTHENTICATED: EXIT_CODES.AUTH,
+    FORBIDDEN: EXIT_CODES.FORBIDDEN,
+    PLAN_LIMIT: EXIT_CODES.FORBIDDEN,
+    CONFLICT: EXIT_CODES.CONFLICT,
+    PLATFORM_ERROR: EXIT_CODES.PLATFORM,
+    NETWORK_ERROR: EXIT_CODES.PLATFORM,
+    INTERNAL: EXIT_CODES.PLATFORM,
+    TIMEOUT: EXIT_CODES.TIMEOUT,
+  };
+  for (const code of ALL_CODES) {
+    assertEquals(
+      new CliError("x", { code }).exitCode,
+      expected[code],
+      `${code} should exit ${expected[code]}`,
+    );
+  }
+});
+
+Deno.test("no ErrorCode is left without a default hint", () => {
+  for (const code of ALL_CODES) {
+    const e = new CliError("x", { code });
+    if (e.hint.length === 0) throw new Error(`${code} has no default hint`);
+  }
+});
+
+Deno.test("a CliError with no code defaults to PLATFORM_ERROR, exit 7", () => {
+  const e = new CliError("x");
+  assertEquals(e.code, "PLATFORM_ERROR");
+  assertEquals(e.exitCode, EXIT_CODES.PLATFORM);
+});
+
+Deno.test("an explicit hint overrides the code's default", () => {
+  const e = new CliError("x", { code: "NOT_FOUND", hint: "pbc cloud pb ls" });
+  assertEquals(e.hint, "pbc cloud pb ls");
+});
+
+Deno.test("codeFromStatus maps the resolvable HTTP statuses", () => {
+  assertEquals(codeFromStatus(401), "NOT_AUTHENTICATED");
+  assertEquals(codeFromStatus(403), "FORBIDDEN");
+  assertEquals(codeFromStatus(404), "NOT_FOUND");
+  assertEquals(codeFromStatus(409), "CONFLICT");
+  assertEquals(codeFromStatus(413), "INVALID_VALUE");
+  assertEquals(codeFromStatus(500), "PLATFORM_ERROR");
+  assertEquals(codeFromStatus(502), "PLATFORM_ERROR");
+  assertEquals(codeFromStatus(400), undefined);
+});
+
+Deno.test("httpError classifies 404 and 409 through the exit-code table", async () => {
+  const notFound = await httpError(
+    res({ message: "No such record." }, 404),
+    "Get",
+  );
+  assertEquals(notFound.code, "NOT_FOUND");
+  assertEquals(notFound.exitCode, EXIT_CODES.NOT_FOUND);
+
+  const conflict = await httpError(
+    res({ message: "Already deleted." }, 409),
+    "Delete",
+  );
+  assertEquals(conflict.code, "CONFLICT");
+  assertEquals(conflict.exitCode, EXIT_CODES.CONFLICT);
+});
+
+Deno.test("TIMEOUT and NETWORK_ERROR default to retryable, USAGE does not", () => {
+  assertEquals(new CliError("x", { code: "TIMEOUT" }).retryable, true);
+  assertEquals(new CliError("x", { code: "NETWORK_ERROR" }).retryable, true);
+  assertEquals(new CliError("x", { code: "USAGE" }).retryable, false);
 });

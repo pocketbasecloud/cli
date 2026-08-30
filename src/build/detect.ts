@@ -13,7 +13,6 @@ export async function exists(path: string): Promise<boolean> {
   }
 }
 
-/** The first file in `dir` starting with `stem` and an extension, if any. */
 export async function findConfig(
   dir: string,
   stem: string,
@@ -28,12 +27,10 @@ export async function findConfig(
   return undefined;
 }
 
-/** True when any file in `dir` starts with `stem` and has an extension. */
 async function hasConfig(dir: string, stem: string): Promise<boolean> {
   return await findConfig(dir, stem) !== undefined;
 }
 
-/** Lockfile → manager, in precedence order. `bun.lock` is bun 1.2's text form. */
 const LOCKFILES: ReadonlyArray<readonly [string, PackageManager]> = [
   ["bun.lockb", "bun"],
   ["bun.lock", "bun"],
@@ -42,7 +39,6 @@ const LOCKFILES: ReadonlyArray<readonly [string, PackageManager]> = [
   ["package-lock.json", "npm"],
 ];
 
-/** Lockfile wins over any `packageManager` field — it is what CI actually ran. */
 export async function detectPackageManager(
   dir: string,
 ): Promise<PackageManager> {
@@ -52,15 +48,6 @@ export async function detectPackageManager(
   return "npm";
 }
 
-/**
- * The nearest directory at or above `dir` holding a lockfile, and the manager
- * it names. Walking up is what makes a workspace package work: its own
- * directory has no lockfile, and installing there rather than at the workspace
- * root is exactly the mistake that produces a broken nested `node_modules`.
- *
- * A candidate must also have a package.json, so the walk cannot wander out of
- * the project and settle on a stray lockfile in a home directory.
- */
 export async function findPackageManagerRoot(
   dir: string,
 ): Promise<{ dir: string; manager: PackageManager } | null> {
@@ -77,7 +64,6 @@ export async function findPackageManagerRoot(
   }
 }
 
-/** The `build` script from package.json, or null when there is none. */
 async function buildScript(dir: string): Promise<string | null> {
   try {
     const pkg = JSON.parse(await Deno.readTextFile(join(dir, "package.json")));
@@ -88,13 +74,11 @@ async function buildScript(dir: string): Promise<string | null> {
   }
 }
 
-/** `<pm> run build`, or undefined when package.json declares no build script. */
 async function inferCommand(dir: string): Promise<string | undefined> {
   if (!await buildScript(dir)) return undefined;
   return `${await detectPackageManager(dir)} run build`;
 }
 
-/** True when package.json declares a non-empty `start` script. */
 async function hasStartScript(dir: string): Promise<boolean> {
   try {
     const pkg = JSON.parse(await Deno.readTextFile(join(dir, "package.json")));
@@ -105,7 +89,6 @@ async function hasStartScript(dir: string): Promise<boolean> {
   }
 }
 
-/** True when deno.json(c) declares a non-empty `start` task. */
 async function hasDenoStartTask(dir: string): Promise<boolean> {
   for (const name of ["deno.json", "deno.jsonc"]) {
     try {
@@ -131,8 +114,6 @@ async function firstExisting(
 
 async function inferFrontend(dir: string): Promise<BuildConfig> {
   const command = await inferCommand(dir);
-  // A Next.js frontend is a static export (`output: "export"` → out/); a
-  // Next.js *backend* is the nextjs runtime, handled in inferBackend.
   if (await hasConfig(dir, "next.config")) return { command, outputDir: "out" };
   if (await hasConfig(dir, "vite.config")) {
     return { command, outputDir: "dist" };
@@ -156,9 +137,6 @@ async function inferBackend(dir: string): Promise<BuildConfig> {
   if (await hasConfig(dir, "next.config")) {
     return { command: await inferCommand(dir), runtime: "nextjs" };
   }
-  // These three ship source, so the platform needs a command to boot them.
-  // Deferring to the start task/script the project already declares keeps the
-  // deploy consistent with how the project runs locally.
   if (
     await exists(join(dir, "deno.json")) ||
     await exists(join(dir, "deno.jsonc"))
@@ -186,17 +164,9 @@ async function inferBackend(dir: string): Promise<BuildConfig> {
         : undefined,
     };
   }
-  // Nothing recognisable: ship the directory as-is and let --runtime decide.
-  // Erroring here would block a perfectly valid `--runtime deno` on a project
-  // with no manifest.
   return { outputDir: "." };
 }
 
-/**
- * The three PocketBase directories, each recorded only if it exists on disk.
- * A directory with none of the three is not an error: the platform accepts a
- * PocketBase create with no archive at all, so this deploys a bare instance.
- */
 async function inferPocketBase(dir: string): Promise<BuildConfig> {
   const out: BuildConfig = {};
   if (await exists(join(dir, "pb_public"))) out.pbPublic = "pb_public";
@@ -207,11 +177,6 @@ async function inferPocketBase(dir: string): Promise<BuildConfig> {
   return out;
 }
 
-/**
- * Derives a build config from what is on disk. Only called when the
- * directory's own pbc.json has no `build` block — a partial block is used as
- * written, so removing a field is a decision the CLI does not second-guess.
- */
 export function inferBuild(
   dir: string,
   kind: ResourceKind,
@@ -221,7 +186,6 @@ export function inferBuild(
   return inferPocketBase(dir);
 }
 
-/** One human-readable line per resolved field, for the "inferred …" report. */
 export function describeBuild(cfg: BuildConfig): string[] {
   const lines: string[] = [];
   const add = (k: string, v: string | undefined) =>

@@ -64,7 +64,6 @@ Deno.test("resolveProject on a non-TTY gives the actionable message, not the gen
       client,
       config: defaultConfig(),
       cwd: "/tmp/none",
-      // noInput false, but stdin is not a terminal — a menu would hang.
       noInput: false,
       io: { read: () => Promise.resolve(null), write: () => {}, isTTY: false },
     })
@@ -119,7 +118,7 @@ Deno.test("resolveProject announces a project resolved from config.currentProjec
   });
   assertEquals(result.id, p.id);
   assertEquals(lines.length, 1);
-  assertEquals(lines[0].includes("pbc cloud project use"), true);
+  assertEquals(lines[0].includes("pbc project use"), true);
 });
 
 Deno.test("resolveProject never announces when --project resolved it", async () => {
@@ -151,10 +150,9 @@ Deno.test("resolveProject hints common causes when the project does not match", 
   );
   const msg = (err as Error).message;
   assertEquals(msg.includes('No project found matching "no-such-project"'), true);
-  assertEquals(msg.includes("pbc cloud whoami"), true);
-  assertEquals(msg.includes("pbc cloud logout && pbc cloud login"), true);
-  assertEquals(msg.includes("pbc cloud project ls"), true);
-  // The hint must not invent an override that is not there.
+  assertEquals(msg.includes("pbc whoami"), true);
+  assertEquals(msg.includes("pbc logout && pbc login"), true);
+  assertEquals(msg.includes("pbc project ls"), true);
   assertEquals(msg.includes("PBC_TOKEN"), false);
 });
 
@@ -174,7 +172,7 @@ Deno.test("resolveProject blames a PBC_TOKEN override first", async () => {
     );
     const msg = (err as Error).message;
     assertEquals(msg.includes("PBC_TOKEN"), true);
-    assertEquals(msg.indexOf("PBC_TOKEN") < msg.indexOf("pbc cloud whoami"), true);
+    assertEquals(msg.indexOf("PBC_TOKEN") < msg.indexOf("pbc whoami"), true);
   } finally {
     Deno.env.delete("PBC_TOKEN");
   }
@@ -197,8 +195,6 @@ Deno.test("resolveProject never announces the interactive pick — it is already
 });
 
 Deno.test("the announcement names the parent's pb.json that actually binds", async () => {
-  // The link is found by walking up, so naming the subdirectory's own file
-  // would name one that exists nowhere — the monorepo case.
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   const root = await Deno.makeTempDir();

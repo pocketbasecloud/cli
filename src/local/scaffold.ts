@@ -95,10 +95,6 @@ async function exists(deps: LocalDeps, path: string): Promise<boolean> {
   return (await deps.stat(path)) !== null;
 }
 
-/**
- * Creates the directory layout PocketBase expects. Never overwrites an
- * existing file — a user's own main.pb.js is not ours to replace.
- */
 export async function scaffoldProject(
   deps: LocalDeps,
   dir: string,
@@ -122,7 +118,6 @@ export async function scaffoldProject(
     results.push({ path: readme, status: "created" });
   }
 
-  // Check before creating — mkdir is recursive and succeeds either way.
   const migrations = join(dir, "pb_migrations");
   const hadMigrations = await exists(deps, migrations);
   await deps.mkdir(migrations);

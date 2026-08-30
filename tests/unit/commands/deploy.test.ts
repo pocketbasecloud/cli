@@ -1,18 +1,18 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
-import type { CmdCtx, Handler } from "../../../src/router.ts";
+import type { Command, CmdCtx } from "../../../src/command.ts";
 import type { ResourceKind } from "../../../src/clients/types.ts";
 import { makeDeployCommands } from "../../../src/commands/deploy.ts";
 import { makeFrontendCommands } from "../../../src/commands/frontend.ts";
 import { makePbCommands } from "../../../src/commands/pb.ts";
 import { makeBackendCommands } from "../../../src/commands/backend.ts";
 import { createMockCloudClient } from "../../mocks/cloud.mock.ts";
+import { createMockDeployFetch } from "../../mocks/deployments.mock.ts";
 import { type Config, defaultConfig } from "../../../src/config.ts";
 import type { CloudCmdDeps } from "../../../src/commands/project.ts";
 import { CliError } from "../../../src/errors.ts";
 import type { PromptIO } from "../../../src/ui/prompt.ts";
 
-/** A temp directory seeded with the given relative path → contents. */
 function dir(files: Record<string, string> = {}): string {
   const root = Deno.makeTempDirSync();
   for (const [path, body] of Object.entries(files)) {
@@ -40,19 +40,26 @@ function fakeIO(inputs: string[]): PromptIO {
   };
 }
 
-/** Records which handler ran and with what, instead of deploying anything. */
 function spies() {
-  const seen: { kind: ResourceKind; ctx: CmdCtx }[] = [];
-  const handler = (kind: ResourceKind): Handler => (ctx) => {
-    seen.push({ kind, ctx });
-    return Promise.resolve(0);
-  };
+  const seen: { kind: ResourceKind; input: Record<string, unknown>; ctx: CmdCtx }[] =
+    [];
+  const command = (kind: ResourceKind): Command => ({
+    path: [kind],
+    usage: "",
+    summary: "",
+    args: [],
+    flags: {},
+    run: (input, ctx) => {
+      seen.push({ kind, input, ctx });
+      return Promise.resolve(0);
+    },
+  });
   return {
     seen,
     handlers: {
-      pocketbases: handler("pocketbases"),
-      frontends: handler("frontends"),
-      backends: handler("backends"),
+      pocketbases: command("pocketbases"),
+      frontends: command("frontends"),
+      backends: command("backends"),
     },
   };
 }
@@ -66,21 +73,15 @@ function captureLog() {
 
 function run(
   cwd: string,
-  handlers: Record<ResourceKind, Handler>,
+  handlers: Record<ResourceKind, Command>,
   ctx: Partial<CmdCtx> = {},
   io?: PromptIO,
 ) {
-  return makeDeployCommands({ cwd: () => cwd, io }, handlers)["cloud deploy"]({
-    args: [],
-    flags: flags(),
-    raw: {},
-    ...ctx,
-  } as CmdCtx);
+  return makeDeployCommands({ cwd: () => cwd, io }, handlers)["deploy"].run(
+    {},
+    { args: [], flags: flags(), ...ctx } as CmdCtx,
+  );
 }
-
-// ===================================================================
-// Detection → the matching deploy
-// ===================================================================
 
 Deno.test("each kind of directory reaches its own deploy handler", async () => {
   const cases: [Record<string, string>, ResourceKind][] = [
@@ -111,7 +112,7 @@ Deno.test("the detected kind and its evidence are printed before the deploy", as
   assertEquals(log.lines.length, 1);
   assertStringIncludes(log.lines[0], "Detected a frontend");
   assertStringIncludes(log.lines[0], "vite.config.ts");
-  assertStringIncludes(log.lines[0], "`pbc cloud frontend deploy`");
+  assertStringIncludes(log.lines[0], "`pbc frontend deploy`");
 });
 
 Deno.test("nothing is printed under --json, where stdout carries the deploy's object", async () => {
@@ -131,19 +132,17 @@ Deno.test("nothing is printed under --json, where stdout carries the deploy's ob
 Deno.test("the context reaches the handler untouched, flags and all", async () => {
   const s = spies();
   const log = captureLog();
-  const raw = { name: "api", runtime: "deno", "skip-build": true };
   try {
     await run(dir({ "deno.json": "{}" }), s.handlers, {
       args: [],
       flags: flags({ project: "p1" }),
-      raw,
     });
   } finally {
     log.restore();
   }
-  assertEquals(s.seen[0].ctx.raw, raw);
   assertEquals(s.seen[0].ctx.flags.project, "p1");
   assertEquals(s.seen[0].ctx.args, []);
+  assertEquals(s.seen[0].input, {});
 });
 
 Deno.test("a positional name is passed through as the handler's first argument", async () => {
@@ -158,10 +157,18 @@ Deno.test("a positional name is passed through as the handler's first argument",
 });
 
 Deno.test("the handler's exit code is the command's exit code", async () => {
-  const failing: Record<ResourceKind, Handler> = {
-    pocketbases: () => Promise.resolve(6),
-    frontends: () => Promise.resolve(6),
-    backends: () => Promise.resolve(6),
+  const stub = (): Command => ({
+    path: [],
+    usage: "",
+    summary: "",
+    args: [],
+    flags: {},
+    run: () => Promise.resolve(6),
+  });
+  const failing: Record<ResourceKind, Command> = {
+    pocketbases: stub(),
+    frontends: stub(),
+    backends: stub(),
   };
   const log = captureLog();
   try {
@@ -171,15 +178,10 @@ Deno.test("the handler's exit code is the command's exit code", async () => {
   }
 });
 
-// ===================================================================
-// The explicit kind word
-// ===================================================================
-
 Deno.test("a leading kind word overrides a directory that detects otherwise", async () => {
   const s = spies();
   const log = captureLog();
   try {
-    // Every signal here says frontend; the user says backend.
     await run(dir({ "vite.config.ts": "" }), s.handlers, {
       args: ["backend"],
     });
@@ -187,9 +189,7 @@ Deno.test("a leading kind word overrides a directory that detects otherwise", as
     log.restore();
   }
   assertEquals(s.seen[0].kind, "backends");
-  // Consumed, not forwarded — otherwise it would name the new resource.
   assertEquals(s.seen[0].ctx.args, []);
-  // An explicit choice is not a detection, so there is nothing to report.
   assertEquals(log.lines, []);
 });
 
@@ -222,10 +222,6 @@ Deno.test("an explicit kind works in a directory that detects nothing", async ()
   assertEquals(s.seen[0].kind, "frontends");
 });
 
-// ===================================================================
-// When the directory says nothing
-// ===================================================================
-
 Deno.test("an undetectable directory errors with the three explicit commands", async () => {
   const s = spies();
   const cwd = dir({ "README.md": "#" });
@@ -236,10 +232,10 @@ Deno.test("an undetectable directory errors with the three explicit commands", a
   );
   assertEquals(err.exitCode, 2);
   assertStringIncludes(err.message, cwd);
-  assertStringIncludes(err.message, "pbc cloud pb deploy");
-  assertStringIncludes(err.message, "pbc cloud frontend deploy");
-  assertStringIncludes(err.message, "pbc cloud backend deploy");
-  assertStringIncludes(err.message, "pbc cloud init");
+  assertStringIncludes(err.message, "pbc pocketbase deploy");
+  assertStringIncludes(err.message, "pbc frontend deploy");
+  assertStringIncludes(err.message, "pbc backend deploy");
+  assertStringIncludes(err.message, "pbc init");
   assertEquals(s.seen, []);
 });
 
@@ -265,7 +261,6 @@ Deno.test("on a terminal an undetectable directory is asked about", async () => 
     dir(),
     s.handlers,
     { flags: flags({ noInput: false }) },
-    // 1) PocketBase instance  2) frontend  3) backend
     fakeIO(["2"]),
   );
   assertEquals(code, 0);
@@ -285,10 +280,6 @@ Deno.test("the answer to that question deploys the third kind too", async () => 
   assertEquals(s.seen[0].kind, "backends");
 });
 
-// ===================================================================
-// Against the real deploy handlers
-// ===================================================================
-
 function deps(
   client = createMockCloudClient(),
   currentProject = "",
@@ -299,15 +290,16 @@ function deps(
     cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
     currentProject,
   };
+  const deploy = createMockDeployFetch();
   return {
     requireAuth: () => Promise.resolve({ client, config, auth: config.cloud! }),
     loadConfig: () => Promise.resolve(config),
     saveConfig: () => Promise.resolve(),
     cwd: () => cwd,
+    fetch: deploy.fetchFn,
   };
 }
 
-/** Report every polled resource as running so deploy reaches a terminal state. */
 function runningNow(client: ReturnType<typeof createMockCloudClient>) {
   const orig = client.getResource.bind(client);
   client.getResource = async (k, id) => ({
@@ -316,16 +308,15 @@ function runningNow(client: ReturnType<typeof createMockCloudClient>) {
   });
 }
 
-/** `pbc cloud deploy` wired to the real three, exactly as index.ts wires it. */
 function realDeploy(d: CloudCmdDeps) {
   const pb = makePbCommands(d);
   const frontend = makeFrontendCommands(d);
   const backend = makeBackendCommands(d);
   return makeDeployCommands(d, {
-    pocketbases: pb["cloud pb deploy"],
-    frontends: frontend["cloud frontend deploy"],
-    backends: backend["cloud backend deploy"],
-  })["cloud deploy"];
+    pocketbases: pb["pocketbase deploy"],
+    frontends: frontend["frontend deploy"],
+    backends: backend["backend deploy"],
+  })["deploy"];
 }
 
 Deno.test("a static directory deploys as a frontend end to end", async () => {
@@ -334,15 +325,13 @@ Deno.test("a static directory deploys as a frontend end to end", async () => {
   const cwd = dir({ "index.html": "<html></html>" });
   const d = deps(client, p.id, cwd);
   runningNow(client);
-  const code = await realDeploy(d)({
-    args: [],
-    flags: flags({ json: true, project: p.id }),
-    raw: { name: "web", "skip-build": true },
-  });
+  const code = await realDeploy(d).run(
+    { new: "web", skipBuild: true },
+    { args: [], flags: flags({ json: true, project: p.id }) },
+  );
   assertEquals(code, 0);
   assertEquals(client.calls.createResource[0][0], "frontends");
   assertEquals(client.calls.createResource[0][1].name, "web");
-  // And the deploy recorded the binding, so the next run needs no detection.
   const file = JSON.parse(await Deno.readTextFile(join(cwd, "pbc.json")));
   assertEquals(file.kind, "frontends");
 });
@@ -353,43 +342,36 @@ Deno.test("a PocketBase directory deploys as a PocketBase instance end to end", 
   const cwd = dir({ "pb_migrations/1_init.js": "//" });
   const d = deps(client, p.id, cwd);
   runningNow(client);
-  const code = await realDeploy(d)({
-    args: [],
-    flags: flags({ json: true, project: p.id }),
-    raw: { name: "db", "pb-version": "0.34.2", "skip-build": true },
-  });
+  const code = await realDeploy(d).run(
+    { new: "db", pbVersion: "0.34.2", skipBuild: true },
+    { args: [], flags: flags({ json: true, project: p.id }) },
+  );
   assertEquals(code, 0);
   assertEquals(client.calls.createResource[0][0], "pocketbases");
 });
 
 Deno.test("the binding a first deploy wrote is what the second one follows", async () => {
-  // The point of rule 1: once the platform holds a frontend for this
-  // directory, adding a deno.json must not start deploying a backend over it.
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   const cwd = dir({ "index.html": "<html></html>" });
   const d = deps(client, p.id, cwd);
   runningNow(client);
   const deploy = realDeploy(d);
-  await deploy({
-    args: [],
-    flags: flags({ json: true, project: p.id }),
-    raw: { name: "web", "skip-build": true },
-  });
+  await deploy.run(
+    { new: "web", skipBuild: true },
+    { args: [], flags: flags({ json: true, project: p.id }) },
+  );
   Deno.writeTextFileSync(join(cwd, "deno.json"), "{}");
-  const code = await deploy({
-    args: [],
-    flags: flags({ json: true, project: p.id }),
-    raw: { "skip-build": true },
-  });
+  const code = await deploy.run(
+    { skipBuild: true },
+    { args: [], flags: flags({ json: true, project: p.id }) },
+  );
   assertEquals(code, 0);
   assertEquals(client.calls.createResource.length, 1);
   assertEquals(client.calls.updateResource[0][0], "frontends");
 });
 
 Deno.test("an explicit kind that contradicts the binding is refused by the deploy", async () => {
-  // deploy.ts does not second-guess the word; the kind check inside the
-  // handler is what catches it, with the message that names both kinds.
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   const cwd = dir({
@@ -404,11 +386,10 @@ Deno.test("an explicit kind that contradicts the binding is refused by the deplo
   const d = deps(client, p.id, cwd);
   await assertRejects(
     () =>
-      realDeploy(d)({
-        args: ["backend"],
-        flags: flags({ json: true, project: p.id }),
-        raw: { name: "api", runtime: "deno", start: "deno task start" },
-      }),
+      realDeploy(d).run(
+        { name: "api", runtime: "deno", start: "deno task start" },
+        { args: ["backend"], flags: flags({ json: true, project: p.id }) },
+      ),
     CliError,
     "pbc.json is bound to frontends",
   );

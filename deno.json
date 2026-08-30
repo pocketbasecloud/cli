@@ -6,8 +6,9 @@
     "test:e2e": "deno test -A tests/e2e/",
     "lint": "deno lint",
     "fmt": "deno fmt",
-    "build": "deno run -A scripts/release.ts --build-only",
-    "release": "deno run -A scripts/release.ts"
+    "manifest": "deno run -A scripts/gen-manifest.ts",
+    "build": "deno task manifest && deno run -A scripts/release.ts --build-only",
+    "release": "deno task manifest && deno run -A scripts/release.ts"
   },
   "compilerOptions": { "strict": true, "lib": ["deno.window"] },
   "imports": {

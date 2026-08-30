@@ -10,11 +10,6 @@ async function deflateRaw(bytes: Uint8Array): Promise<Uint8Array> {
 
 export type ZipEntry = { name: string; body: Uint8Array; store?: boolean };
 
-/**
- * Builds a minimal but structurally valid zip archive. CRC-32 fields are left
- * zero — extractEntry does not check them, and a downloaded archive's
- * integrity is covered by the SHA-256 check in install.ts.
- */
 export async function buildZip(entries: ZipEntry[]): Promise<Uint8Array> {
   const enc = new TextEncoder();
   const locals: Uint8Array[] = [];
@@ -72,7 +67,6 @@ export async function buildZip(entries: ZipEntry[]): Promise<Uint8Array> {
   return out;
 }
 
-/** Rewrites an entry's compression method in the central directory. */
 export function setCentralMethod(
   zip: Uint8Array,
   name: string,

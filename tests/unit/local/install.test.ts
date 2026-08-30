@@ -122,8 +122,6 @@ Deno.test("installBinary downloads, extracts, chmods, and renames into place", a
   assertEquals(res.checksumVerified, true);
   assertEquals(h.files.get("/work/pocketbase"), BODY);
 
-  // Written to a temp path, chmodded, then renamed — never a partial binary
-  // sitting at the final path.
   const write = h.ops.findIndex((o) => o.startsWith("write:/work/.pocketbase"));
   const chmod = h.ops.findIndex((o) => o.startsWith("chmod:"));
   const rename = h.ops.findIndex((o) => o.startsWith("rename:"));
@@ -242,7 +240,7 @@ Deno.test("pinVersion creates pbc.json when absent", async () => {
   });
 });
 
-Deno.test("pinVersion preserves an existing cloud link", async () => {
+Deno.test("pinVersion preserves an existing pbc.json binding", async () => {
   const h = harness({});
   h.texts.set(
     "/work/pbc.json",

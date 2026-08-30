@@ -36,9 +36,6 @@ const noop = () => {};
 const base = { environment: "prod", skip: false, noInput: false };
 
 Deno.test("nothing configured and no way to ask pushes nothing", async () => {
-  // The heart of the change: a directory with a .env no longer has it pushed
-  // just for existing. Under --no-input there is nobody to ask, so it is a
-  // silent no-op rather than an error.
   const cwd = seed({ ".env": "A=1\n" });
   const d = await resolveEnvFile({ ...base, cwd, build: {}, noInput: true });
   assertEquals(d, {});
@@ -50,11 +47,11 @@ Deno.test("a configured envFile is read without asking", async () => {
     ...base,
     cwd,
     build: { envFile: ".env.prod" },
-    io: fakeIO([]), // any prompt here would throw on the empty queue
+    io: fakeIO([]),
   });
   assertEquals(d.push?.name, ".env.prod");
   assertEquals(d.push?.vars, { A: "1", B: "2" });
-  assertEquals(d.record, undefined); // already recorded
+  assertEquals(d.record, undefined);
 });
 
 Deno.test('envFile "" is an answer: no push, no prompt', async () => {
@@ -115,7 +112,6 @@ Deno.test("a named file that is not on disk is fatal, from flag or from pbc.json
 
 Deno.test("the prompt offers the candidates and records the pick", async () => {
   const cwd = seed({ ".env": "A=1\n", ".env.prod": "B=2\n" });
-  // 1) Don't push  2) .env.prod  3) .env  4) Enter a path…
   const d = await resolveEnvFile({
     ...base,
     cwd,
@@ -141,7 +137,6 @@ Deno.test('the prompt\'s "don\'t push" answer records "" so it is asked once', a
 
 Deno.test("the prompt's last entry takes a path the directory does not list", async () => {
   const cwd = seed({ ".env": "A=1\n", "config/prod.env": "C=3\n" });
-  // 1) Don't push  2) .env  3) Enter a path…
   const d = await resolveEnvFile({
     ...base,
     cwd,
@@ -154,8 +149,6 @@ Deno.test("the prompt's last entry takes a path the directory does not list", as
 });
 
 Deno.test("no dotenv candidates means no prompt at all", async () => {
-  // Asking a question whose only honest answer is "no" would put a prompt in
-  // front of the first deploy of every project that has no env vars.
   const cwd = seed({ "main.ts": "x", ".env.example": "A=\n" });
   const d = await resolveEnvFile({ ...base, cwd, build: {}, io: fakeIO([]) });
   assertEquals(d, {});
@@ -195,26 +188,21 @@ Deno.test("envFileEntry writes the decision only when the environment has none",
     }),
   });
 
-  // Insert-only: prod already has one, so --env-file stays a one-shot override.
   assertEquals(
     await envFileEntry(cwd, "prod", { record: ".env.other" }, noop),
     {},
   );
-  // staging has none, so the decision is recorded.
   assertEquals(
     await envFileEntry(cwd, "staging", { record: ".env.staging" }, noop),
     { build: { envFile: ".env.staging" } },
   );
-  // "no env file" is a decision too, and is recorded as such.
   assertEquals(
     await envFileEntry(cwd, "staging", { record: "" }, noop),
     { build: { envFile: "" } },
   );
-  // Nothing decided, nothing written.
   assertEquals(await envFileEntry(cwd, "staging", {}, noop), {});
 });
 
-/** A throwaway digest store, so a test never reads or writes ~/.config/pb. */
 function statePath(): string {
   return join(Deno.makeTempDirSync(), "env-state.json");
 }
@@ -237,11 +225,9 @@ Deno.test("an unchanged env file is not pushed again", async () => {
   await pushEnvFile(client, args);
   assertEquals(client.calls.ext.length, 1);
 
-  // Same values, same target: the platform already holds exactly this.
   await pushEnvFile(client, args);
   assertEquals(client.calls.ext.length, 1);
 
-  // A changed value is a push, and re-pushing the old one is one too.
   await pushEnvFile(client, { ...args, vars: { A: "1", B: "3" } });
   assertEquals(client.calls.ext.length, 2);
   await pushEnvFile(client, args);
@@ -252,7 +238,6 @@ Deno.test("the skip is per resource, and --force-env overrides it", async () => 
   const client = createMockCloudClient();
   const args = pushArgs();
   await pushEnvFile(client, args);
-  // A second resource has its own store, however identical the file.
   await pushEnvFile(client, { ...args, targetId: "r2" });
   assertEquals(client.calls.ext.length, 2);
   await pushEnvFile(client, { ...args, targetId: "r2" });
@@ -266,8 +251,6 @@ Deno.test("--delete-missing is part of what changed", async () => {
   const client = createMockCloudClient();
   const args = pushArgs();
   await pushEnvFile(client, args);
-  // The same variables, but this run also removes cloud-only keys — work the
-  // earlier push did not do.
   await pushEnvFile(client, { ...args, deleteMissing: true });
   assertEquals(client.calls.ext.length, 2);
   assertEquals((client.calls.ext[1][1] as { prune: boolean }).prune, true);

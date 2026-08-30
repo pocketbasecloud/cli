@@ -18,7 +18,6 @@ function dir(files: Record<string, string>): string {
   return root;
 }
 
-/** Runs the fix over one config file and hands back what it now contains. */
 async function fix(
   name: string,
   body: string,

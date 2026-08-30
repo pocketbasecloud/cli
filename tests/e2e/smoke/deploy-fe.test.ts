@@ -4,7 +4,6 @@ import {
 } from "../setup.ts";
 import { assert, assertStringIncludes } from "@std/assert";
 
-// Use config-file auth — the tester must be logged in via `pbc cloud login`.
 const ENV: Record<string, string> = {};
 const COMPUTE = "zzbtp4ke5fm3qow";
 
@@ -55,7 +54,7 @@ Deno.test({
       );
     });
 
-    await t.step("deploy with auto-detection (pbc cloud deploy)", async () => {
+    await t.step("deploy with auto-detection (pbc deploy)", async () => {
       const name = testName("auto-fe");
       const dir = scaffold({
         "index.html": "<!doctype html><html><body>auto</body></html>",

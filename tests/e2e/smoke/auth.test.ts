@@ -3,15 +3,9 @@ import {
 } from "../setup.ts";
 import { assert } from "@std/assert";
 
-// Auth tests. "Valid token" means the config file has a stored login —
-// empty PBC_TOKEN lets the CLI fall back to it. "Invalid token" is an
-// explicit PBC_TOKEN that the backend rejects. "Missing auth" means
-// no env token AND no config file (redirected XDG_CONFIG_HOME).
-
 Deno.test({
   name: "e2e: auth — whoami with valid config-stored login",
   fn: async () => {
-    // Clear env token so the CLI falls back to config file.
     const r = await pb(["cloud", "whoami", "--json"], { env: { PBC_TOKEN: "" } });
     assertExitOk(r);
     assertJson(r);
@@ -55,14 +49,17 @@ Deno.test({
 });
 
 Deno.test({
-  name: "e2e: auth — whoami --json on auth error produces valid JSON",
+  name: "e2e: auth — whoami --json on auth error produces a valid failure envelope",
   fn: async () => {
     const r = await pb(["cloud", "whoami", "--json"], {
       env: { PBC_TOKEN: "not-a-real-token" },
     });
     assertExit(4, r);
-    const parsed = JSON.parse(r.stderr.trim().split("\n").pop()!);
-    assert(typeof parsed.error === "string", "auth error JSON should have 'error' key");
+    assert(r.envelope?.ok === false, "expected an {ok: false} envelope on stdout");
+    assert(r.error !== undefined, "expected r.error to be set");
+    assert(r.error!.code === "NOT_AUTHENTICATED", `unexpected code: ${r.error!.code}`);
+    assert(typeof r.error!.message === "string" && r.error!.message.length > 0);
+    assert(typeof r.error!.hint === "string" && r.error!.hint.length > 0);
   },
   sanitizeResources: false,
   sanitizeOps: false,

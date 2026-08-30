@@ -27,8 +27,6 @@ Deno.test("a pre-0.6.0 PB_PROFILE still selects the profile", () => {
 });
 
 Deno.test("an empty PB_PROFILE falls through to the saved default", () => {
-  // Empty means unset for every one of the CLI's variables, so an exported but
-  // empty PB_PROFILE must not shadow the profile the user actually chose.
   const c = { ...defaultConfig(), defaultProfile: "saved" };
   assertEquals(activeProfileName(c, undefined, { PB_PROFILE: "" }), "saved");
   assertEquals(activeProfileName(c, undefined, { PBC_PROFILE: "" }), "saved");

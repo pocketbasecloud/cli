@@ -29,11 +29,6 @@ export type InstallResult = {
   checksumVerified: boolean;
 };
 
-/**
- * Verifies the archive against the release's checksums.txt.
- * Returns false when checksums.txt is unavailable (older releases) — a
- * mismatch throws.
- */
 async function verifyChecksum(
   deps: LocalDeps,
   version: string,
@@ -49,7 +44,6 @@ async function verifyChecksum(
     return false;
   }
 
-  // Format: "<sha256 hex><two spaces><filename>"
   const line = text.split("\n").find((l) => l.trim().endsWith(assetName));
   if (!line) return false;
   const expected = line.trim().split(/\s+/)[0].toLowerCase();
@@ -57,9 +51,7 @@ async function verifyChecksum(
   if (expected !== actual) {
     throw new CliError(
       `Checksum mismatch for ${assetName}.\n  expected ${expected}\n  actual   ${actual}\n` +
-        "Nothing was written. Retry, and if it persists report it upstream.",
-      1,
-    );
+        "Nothing was written. Retry, and if it persists report it upstream.");
   }
   return true;
 }
@@ -71,8 +63,6 @@ export async function installBinary(
   const platform = detectPlatform({ os: opts.os, arch: opts.arch });
   const target = join(opts.dir, platform.binName);
 
-  // Check for an existing binary before resolving `latest`, so a no-op install
-  // costs no network call and never reports a version it did not install.
   if (!opts.force && await deps.stat(target)) {
     return {
       path: target,
@@ -93,24 +83,20 @@ export async function installBinary(
   if (res.status === 404) {
     throw new CliError(
       `PocketBase ${version} has no ${platform.os}/${platform.arch} build. ` +
-        "Run `pbc versions` to see what is available.",
-      2,
-    );
+        "Run `pbc versions` to see what is available.", { code: "USAGE" });
   }
   if (!res.ok) {
-    throw new CliError(`Download failed (${res.status}) for ${assetName}.`, 1);
+    throw new CliError(`Download failed (${res.status}) for ${assetName}.`);
   }
 
   const zip = new Uint8Array(await res.arrayBuffer());
   const checksumVerified = await verifyChecksum(deps, version, assetName, zip);
   const binary = await extractEntry(zip, platform.binName);
 
-  // Write to a temp path in the same directory, then rename, so an interrupted
-  // run can never leave a truncated binary at the final path.
   const tmp = join(opts.dir, `.${platform.binName}.download`);
   await deps.mkdir(opts.dir);
   await deps.writeFile(tmp, binary);
-  await deps.chmod(tmp, 0o755).catch(() => {}); // no-op on Windows
+  await deps.chmod(tmp, 0o755).catch(() => {});
   await deps.rename(tmp, target);
 
   return {
@@ -123,11 +109,6 @@ export async function installBinary(
   };
 }
 
-/**
- * The link file this directory uses, mirroring `config.ts`'s `linkFilePath`
- * over the injected deps these commands run on: whichever name is already
- * there, and `pbc.json` when neither is.
- */
 export async function linkFileIn(
   deps: LocalDeps,
   dir: string,
@@ -146,13 +127,10 @@ async function readLinkFileIn(
   try {
     return JSON.parse(await deps.readTextFile(await linkFileIn(deps, dir)));
   } catch {
-    // Absent or unparseable — either way we start fresh rather than fail an
-    // install over it.
     return {};
   }
 }
 
-/** Merges the version pin into the link file, preserving any cloud link. */
 export async function pinVersion(
   deps: LocalDeps,
   dir: string,

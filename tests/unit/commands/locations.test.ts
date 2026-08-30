@@ -17,7 +17,6 @@ function deps(client = createMockCloudClient()): CloudCmdDeps {
   };
 }
 
-/** Capture what the command prints so its answer can be asserted. */
 function captureLogs(fn: () => Promise<number>): {
   run: Promise<number>;
   logs: () => string[];
@@ -33,7 +32,7 @@ function captureLogs(fn: () => Promise<number>): {
   };
 }
 
-Deno.test("cloud locations answers for the caller when no project is given", async () => {
+Deno.test("locations answers for the caller when no project is given", async () => {
   const client = createMockCloudClient();
   const seen: (string | undefined)[] = [];
   client.deployContext = (projectId?: string) => {
@@ -49,17 +48,16 @@ Deno.test("cloud locations answers for the caller when no project is given", asy
   const cmds = makeLocationCommands(deps(client));
 
   const { run } = captureLogs(() =>
-    cmds["cloud locations"]({
+    cmds["locations"].run({}, {
       args: [],
       flags: { json: false, yes: true, noInput: true, interactive: false },
-      raw: {},
     })
   );
   assertEquals(await run, 0);
   assertEquals(seen, [undefined]);
 });
 
-Deno.test("cloud locations passes --project through to deploy-context", async () => {
+Deno.test("locations passes --project through to deploy-context", async () => {
   const client = createMockCloudClient();
   const seen: (string | undefined)[] = [];
   client.deployContext = (projectId?: string) => {
@@ -75,7 +73,7 @@ Deno.test("cloud locations passes --project through to deploy-context", async ()
   const cmds = makeLocationCommands(deps(client));
 
   const { run } = captureLogs(() =>
-    cmds["cloud locations"]({
+    cmds["locations"].run({}, {
       args: [],
       flags: {
         json: false,
@@ -84,14 +82,13 @@ Deno.test("cloud locations passes --project through to deploy-context", async ()
         interactive: false,
         project: "p1",
       },
-      raw: {},
     })
   );
   assertEquals(await run, 0);
   assertEquals(seen, ["p1"]);
 });
 
-Deno.test("cloud locations names every region with a city", async () => {
+Deno.test("locations names every region with a city", async () => {
   const client = createMockCloudClient();
   client.deployContext = () =>
     Promise.resolve({
@@ -104,10 +101,9 @@ Deno.test("cloud locations names every region with a city", async () => {
   const cmds = makeLocationCommands(deps(client));
 
   const { run, logs } = captureLogs(() =>
-    cmds["cloud locations"]({
+    cmds["locations"].run({}, {
       args: [],
       flags: { json: false, yes: true, noInput: true, interactive: false },
-      raw: {},
     })
   );
   assertEquals(await run, 0);
@@ -119,7 +115,7 @@ Deno.test("cloud locations names every region with a city", async () => {
   assertEquals(out.includes("Ho Chi Minh City"), true);
 });
 
-Deno.test("cloud locations --json emits the deploy-context contract", async () => {
+Deno.test("locations --json emits the deploy-context contract", async () => {
   const client = createMockCloudClient();
   client.deployContext = () =>
     Promise.resolve({
@@ -132,20 +128,19 @@ Deno.test("cloud locations --json emits the deploy-context contract", async () =
   const cmds = makeLocationCommands(deps(client));
 
   const { run, logs } = captureLogs(() =>
-    cmds["cloud locations"]({
+    cmds["locations"].run({}, {
       args: [],
       flags: { json: true, yes: true, noInput: true, interactive: false },
-      raw: {},
     })
   );
   assertEquals(await run, 0);
-  assertEquals(JSON.parse(logs().join("")), {
+  assertEquals(JSON.parse(logs().join("")).data, {
     ownerPlan: "starter",
     locations: ["hil", "sin"],
   });
 });
 
-Deno.test("cloud locations says so when the pool has nothing for the plan", async () => {
+Deno.test("locations says so when the pool has nothing for the plan", async () => {
   const client = createMockCloudClient();
   client.deployContext = () =>
     Promise.resolve({
@@ -158,10 +153,9 @@ Deno.test("cloud locations says so when the pool has nothing for the plan", asyn
   const cmds = makeLocationCommands(deps(client));
 
   const { run, logs } = captureLogs(() =>
-    cmds["cloud locations"]({
+    cmds["locations"].run({}, {
       args: [],
       flags: { json: false, yes: true, noInput: true, interactive: false },
-      raw: {},
     })
   );
   assertEquals(await run, 0);
@@ -171,7 +165,7 @@ Deno.test("cloud locations says so when the pool has nothing for the plan", asyn
   );
 });
 
-Deno.test("cloud locations passes through on an older backend", async () => {
+Deno.test("locations passes through on an older backend", async () => {
   const client = createMockCloudClient();
   client.deployContext = () =>
     Promise.resolve({
@@ -183,10 +177,9 @@ Deno.test("cloud locations passes through on an older backend", async () => {
   const cmds = makeLocationCommands(deps(client));
 
   const { run, logs } = captureLogs(() =>
-    cmds["cloud locations"]({
+    cmds["locations"].run({}, {
       args: [],
       flags: { json: false, yes: true, noInput: true, interactive: false },
-      raw: {},
     })
   );
   assertEquals(await run, 0);

@@ -3,10 +3,15 @@ import { join } from "@std/path";
 import { makeFrontendCommands } from "../../../src/commands/frontend.ts";
 import { makeBackendCommands } from "../../../src/commands/backend.ts";
 import { makePbCommands } from "../../../src/commands/pb.ts";
+import { dispatch } from "../../../src/router.ts";
 import {
   createMockCloudClient,
   type MockCloudClient,
 } from "../../mocks/cloud.mock.ts";
+import {
+  createMockDeployFetch,
+  type MockDeployFetch,
+} from "../../mocks/deployments.mock.ts";
 import { tempStatePath } from "../../mocks/state.mock.ts";
 import { type Config, defaultConfig } from "../../../src/config.ts";
 import type { CloudCmdDeps } from "../../../src/commands/project.ts";
@@ -30,17 +35,19 @@ function deps(client: MockCloudClient, projectId: string, cwd: string) {
     cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
     currentProject: projectId,
   };
-  const d: CloudCmdDeps = {
+  const deploy = createMockDeployFetch();
+  const d: CloudCmdDeps & { deploy: MockDeployFetch } = {
     requireAuth: () => Promise.resolve({ client, config, auth: config.cloud! }),
     loadConfig: () => Promise.resolve(config),
     saveConfig: () => Promise.resolve(),
     cwd: () => cwd,
     envStatePath: tempStatePath(),
+    fetch: deploy.fetchFn,
+    deploy,
   };
   return d;
 }
 
-/** Make polling terminate immediately. */
 function runningNow(client: MockCloudClient) {
   const orig = client.getResource.bind(client);
   client.getResource = async (k, id) => ({
@@ -57,48 +64,43 @@ const flags = (projectId: string) => ({
   project: projectId,
 });
 
-async function zipOf(data: Record<string, unknown>): Promise<Uint8Array> {
-  const file = data.zipFile as File;
-  return new Uint8Array(await file.arrayBuffer());
+function uploadedArchive(d: ReturnType<typeof deps>): Uint8Array {
+  const put = d.deploy.calls.find((c) => c.url === "https://r2/put");
+  return put?.bodyBytes ?? new Uint8Array();
 }
 
-/** A deno backend must declare how it starts, or deploy refuses to create it. */
 const START_TASK = JSON.stringify({ tasks: { start: "deno run -A main.ts" } });
 
-Deno.test("frontend deploy uploads the built bundle as a file", async () => {
+Deno.test("frontend deploy uploads the built bundle to the deploy endpoint", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   runningNow(client);
-  // vite.config → outputDir "dist"; no build script → nothing to run.
   const cwd = seed({
     "vite.config.ts": "export default {}",
     "package.json": "{}",
     "dist/index.html": "<h1>hi</h1>",
     "src/main.ts": "not shipped",
   });
-  const cmds = makeFrontendCommands(deps(client, p.id, cwd));
+  const d = deps(client, p.id, cwd);
+  const cmds = makeFrontendCommands(d);
 
-  const code = await cmds["cloud frontend deploy"]({
-    args: [],
-    flags: flags(p.id),
-    raw: { name: "web" },
+  const code = await cmds["frontend deploy"].run({ new: "web" }, {
+      args: [],
+      flags: flags(p.id),
   });
 
   assertEquals(code, 0);
   const [, data] = client.calls.createResource[0];
-  const file = data.zipFile as File;
-  assertEquals(file instanceof File, true);
-  assertEquals(file.name, "code.zip");
-  assertEquals(data.zipFileSize, file.size);
+  assertEquals(data.zipFile, undefined);
   assertEquals(
     new TextDecoder().decode(
-      await extractEntry(await zipOf(data), "index.html"),
+      await extractEntry(uploadedArchive(d), "index.html"),
     ),
     "<h1>hi</h1>",
   );
 });
 
-Deno.test("frontend redeploy marks the record uploading so the service acts on it", async () => {
+Deno.test("frontend redeploy creates a deployment row, not an uploading record", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   const fe = await client.createResource("frontends", {
@@ -107,55 +109,55 @@ Deno.test("frontend redeploy marks the record uploading so the service acts on i
   });
   runningNow(client);
   const cwd = seed({ "dist/index.html": "x" });
-  const cmds = makeFrontendCommands(deps(client, p.id, cwd));
+  const d = deps(client, p.id, cwd);
+  const cmds = makeFrontendCommands(d);
 
-  await cmds["cloud frontend deploy"]({
-    args: [],
-    flags: flags(p.id),
-    raw: { name: "web" },
+  await cmds["frontend deploy"].run({ name: "web" }, {
+      args: [],
+      flags: flags(p.id),
   });
 
   const [, id, data] = client.calls.updateResource[0];
   assertEquals(id, fe.id);
-  assertEquals(data.status, "uploading");
-  assertEquals((data.zipFile as File) instanceof File, true);
+  assertEquals(data.status, undefined);
+  const created = d.deploy.calls.find((c) =>
+    c.url.endsWith("/api/deployments") && c.method === "POST"
+  );
+  assertEquals(created !== undefined, true);
 });
 
-Deno.test("frontend deploy rejects --env-file: frontends have no cloud env store", async () => {
+Deno.test("frontend deploy rejects --env-file as an unknown flag", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   const cwd = seed({ "dist/index.html": "x" });
-  const cmds = makeFrontendCommands(deps(client, p.id, cwd));
-
-  await assertRejects(
-    () =>
-      cmds["cloud frontend deploy"]({
-        args: [],
-        flags: flags(p.id),
-        raw: { name: "web", "env-file": ".env" },
-      }),
-    CliError,
-    "no cloud env store",
+  const code = await dispatch(
+    makeFrontendCommands(deps(client, p.id, cwd)),
+    ["cloud", "frontend", "deploy", "--name", "web", "--env-file", ".env"],
   );
+  assertEquals(code, 2);
+  assertEquals(client.calls.createResource.length, 0);
 });
 
 Deno.test("--zip uploads the given archive and skips packaging", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   runningNow(client);
-  // No dist/ at all: packaging would fail, so a pass proves it was skipped.
   const cwd = seed({ "prebuilt.zip": "PK-not-really" });
-  const cmds = makeFrontendCommands(deps(client, p.id, cwd));
+  const d = deps(client, p.id, cwd);
+  const cmds = makeFrontendCommands(d);
 
-  const code = await cmds["cloud frontend deploy"]({
-    args: [],
-    flags: flags(p.id),
-    raw: { name: "web", zip: join(cwd, "prebuilt.zip") },
+  const code = await cmds["frontend deploy"].run({ new: "web", zip: join(cwd, "prebuilt.zip") }, {
+      args: [],
+      flags: flags(p.id),
   });
 
   assertEquals(code, 0);
   const [, data] = client.calls.createResource[0];
-  assertEquals((data.zipFile as File).name, "prebuilt.zip");
+  assertEquals(data.zipFile, undefined);
+  assertEquals(
+    new TextDecoder().decode(uploadedArchive(d)),
+    "PK-not-really",
+  );
 });
 
 Deno.test("--zip with a missing path is a usage error", async () => {
@@ -166,10 +168,9 @@ Deno.test("--zip with a missing path is a usage error", async () => {
 
   const err = await assertRejects(
     () =>
-      cmds["cloud frontend deploy"]({
-        args: [],
-        flags: flags(p.id),
-        raw: { name: "web", zip: join(cwd, "nope.zip") },
+      cmds["frontend deploy"].run({ new: "web", zip: join(cwd, "nope.zip") }, {
+          args: [],
+          flags: flags(p.id),
       }),
     CliError,
     "--zip file not found",
@@ -180,8 +181,6 @@ Deno.test("--zip with a missing path is a usage error", async () => {
 Deno.test("a failing build exits 7 and creates no resource", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
-  // A recorded command, so this exercises the real shell runner without
-  // depending on a package manager being installed.
   const cwd = seed({
     "dist/index.html": "x",
     "pbc.json": JSON.stringify({
@@ -193,10 +192,9 @@ Deno.test("a failing build exits 7 and creates no resource", async () => {
 
   const err = await assertRejects(
     () =>
-      cmds["cloud frontend deploy"]({
-        args: [],
-        flags: flags(p.id),
-        raw: { name: "web" },
+      cmds["frontend deploy"].run({ new: "web" }, {
+          args: [],
+          flags: flags(p.id),
       }),
     CliError,
     "Build failed",
@@ -211,16 +209,16 @@ Deno.test("backend deploy infers the runtime and assembles a Next.js bundle", as
   runningNow(client);
   const cwd = seed({
     "next.config.mjs": "export default {}",
-    "package.json": "{}", // no build script → nothing to run
+    "package.json": "{}",
     ".next/standalone/server.js": "listen()",
     ".next/static/chunk.js": "x",
   });
-  const cmds = makeBackendCommands(deps(client, p.id, cwd));
+  const d = deps(client, p.id, cwd);
+  const cmds = makeBackendCommands(d);
 
-  const code = await cmds["cloud backend deploy"]({
-    args: [],
-    flags: flags(p.id),
-    raw: { name: "api" },
+  const code = await cmds["backend deploy"].run({ new: "api" }, {
+      args: [],
+      flags: flags(p.id),
   });
 
   assertEquals(code, 0);
@@ -229,7 +227,7 @@ Deno.test("backend deploy infers the runtime and assembles a Next.js bundle", as
   assertEquals(data.startCommand, "node server.js");
   assertEquals(
     new TextDecoder().decode(
-      await extractEntry(await zipOf(data), "server.js"),
+      await extractEntry(uploadedArchive(d), "server.js"),
     ),
     "listen()",
   );
@@ -246,10 +244,9 @@ Deno.test("an explicit --start beats the packager's suggestion", async () => {
   });
   const cmds = makeBackendCommands(deps(client, p.id, cwd));
 
-  await cmds["cloud backend deploy"]({
-    args: [],
-    flags: flags(p.id),
-    raw: { name: "api", start: "node server.js --port 3000" },
+  await cmds["backend deploy"].run({ new: "api", start: "node server.js --port 3000" }, {
+      args: [],
+      flags: flags(p.id),
   });
 
   const [, data] = client.calls.createResource[0];
@@ -257,8 +254,6 @@ Deno.test("an explicit --start beats the packager's suggestion", async () => {
 });
 
 Deno.test("backend deploy pushes nothing when no env file is configured", async () => {
-  // A .env sitting in the directory is not an instruction to deploy it, and
-  // under --json/--no-input there is nobody to ask.
   const cwd = seed({
     "deno.json": START_TASK,
     "main.ts": "x",
@@ -268,16 +263,14 @@ Deno.test("backend deploy pushes nothing when no env file is configured", async 
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   runningNow(client);
-  await makeBackendCommands(deps(client, p.id, cwd))["cloud backend deploy"]({
-    args: [],
-    flags: flags(p.id),
-    raw: { name: "api" },
+  await makeBackendCommands(deps(client, p.id, cwd))["backend deploy"].run({ new: "api" }, {
+      args: [],
+      flags: flags(p.id),
   });
   assertEquals(
     client.calls.ext.some(([path]) => path === "/api/env/bulk-set"),
     false,
   );
-  // …and nothing was recorded in pbc.json either.
   const file = JSON.parse(Deno.readTextFileSync(join(cwd, "pbc.json")));
   assertEquals(file.environments.production.build, undefined);
 });
@@ -292,10 +285,9 @@ Deno.test("backend deploy pushes --env-file and records it for the environment",
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   runningNow(client);
-  await makeBackendCommands(deps(client, p.id, cwd))["cloud backend deploy"]({
-    args: [],
-    flags: flags(p.id),
-    raw: { name: "api", "env-file": ".env.prod", env: "prod" },
+  await makeBackendCommands(deps(client, p.id, cwd))["backend deploy"].run({ new: "api", envFile: ".env.prod", env: "prod" }, {
+      args: [],
+      flags: flags(p.id),
   });
 
   const push = client.calls.ext.find(([path]) => path === "/api/env/bulk-set");
@@ -328,10 +320,9 @@ Deno.test("backend deploy pushes the environment's configured file, and --skip-e
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   runningNow(client);
-  await makeBackendCommands(deps(client, p.id, cwd))["cloud backend deploy"]({
-    args: [],
-    flags: flags(p.id),
-    raw: { name: "api" },
+  await makeBackendCommands(deps(client, p.id, cwd))["backend deploy"].run({ new: "api" }, {
+      args: [],
+      flags: flags(p.id),
   });
   const push = client.calls.ext.find(([path]) => path === "/api/env/bulk-set");
   assertEquals((push?.[1] as { variables: Record<string, string> }).variables, {
@@ -342,12 +333,9 @@ Deno.test("backend deploy pushes the environment's configured file, and --skip-e
   const client2 = createMockCloudClient();
   const p2 = await client2.createProject("app");
   runningNow(client2);
-  await makeBackendCommands(deps(client2, p2.id, cwd2))["cloud backend deploy"](
-    {
-      args: [],
-      flags: flags(p2.id),
-      raw: { name: "api", "skip-env": true },
-    },
+  await makeBackendCommands(deps(client2, p2.id, cwd2))["backend deploy"].run(
+    { new: "api", skipEnv: true },
+    { args: [], flags: flags(p2.id) },
   );
   assertEquals(
     client2.calls.ext.some(([path]) => path === "/api/env/bulk-set"),
@@ -362,8 +350,11 @@ Deno.test("no dotenv file means no env push and no error", async () => {
   const cwd = seed({ "deno.json": START_TASK, "main.ts": "x" });
 
   const code = await makeBackendCommands(deps(client, p.id, cwd))[
-    "cloud backend deploy"
-  ]({ args: [], flags: flags(p.id), raw: { name: "api" } });
+    "backend deploy"
+  ].run(
+    { new: "api" },
+    { args: [], flags: flags(p.id) },
+  );
 
   assertEquals(code, 0);
   assertEquals(
@@ -380,16 +371,13 @@ Deno.test("a named env file that is missing fails before anything is created", a
 
   await assertRejects(
     () =>
-      makeBackendCommands(deps(client, p.id, cwd))["cloud backend deploy"]({
-        args: [],
-        flags: flags(p.id),
-        raw: { name: "api", "env-file": ".env.production" },
+      makeBackendCommands(deps(client, p.id, cwd))["backend deploy"].run({ new: "api", envFile: ".env.production" }, {
+          args: [],
+          flags: flags(p.id),
       }),
     CliError,
     "Env file not found",
   );
-  // The point of resolving env before the first cloud call: a typo'd path must
-  // not leave a provisioned backend behind.
   assertEquals(client.calls.createResource.length, 0);
 });
 
@@ -412,10 +400,9 @@ Deno.test("a pbc.json-configured env file that is missing fails the same way", a
 
   await assertRejects(
     () =>
-      makeBackendCommands(deps(client, p.id, cwd))["cloud backend deploy"]({
-        args: [],
-        flags: flags(p.id),
-        raw: { name: "api" },
+      makeBackendCommands(deps(client, p.id, cwd))["backend deploy"].run({ new: "api" }, {
+          args: [],
+          flags: flags(p.id),
       }),
     CliError,
     "Env file not found: .env.prod",
@@ -432,18 +419,18 @@ Deno.test("pb deploy packages the three directories on create", async () => {
     "pb_hooks/main.pb.js": "// hook",
     "pb_migrations/1_init.js": "// migration",
   });
-  const cmds = makePbCommands(deps(client, p.id, cwd));
+  const d = deps(client, p.id, cwd);
+  const cmds = makePbCommands(d);
 
-  const code = await cmds["cloud pb deploy"]({
+  const code = await cmds["pocketbase deploy"].run({ new: "db" }, {
     args: [],
     flags: flags(p.id),
-    raw: { name: "db" },
   });
 
   assertEquals(code, 0);
   const [, data] = client.calls.createResource[0];
-  assertEquals((data.zipFile as File).name, "data.zip");
-  const zip = await zipOf(data);
+  assertEquals(data.zipFile, undefined);
+  const zip = uploadedArchive(d);
   const dec = new TextDecoder();
   assertEquals(
     dec.decode(await extractEntry(zip, "pb_public/index.html")),
@@ -473,36 +460,29 @@ Deno.test("pb redeploy sends hooks inside the archive, not through the hooks rou
     "pb_migrations/1_init.js": "// migration",
   });
   client.calls.createResource.length = 0;
-  const cmds = makePbCommands(deps(client, p.id, cwd));
+  const d = deps(client, p.id, cwd);
+  const cmds = makePbCommands(d);
 
-  const code = await cmds["cloud pb deploy"]({
+  const code = await cmds["pocketbase deploy"].run({ name: "db" }, {
     args: [],
     flags: flags(p.id),
-    raw: { name: "db" },
   });
 
   assertEquals(code, 0);
   assertEquals(client.calls.createResource.length, 0);
-  // The archive rides on the update, with the status the platform keys the
-  // install off.
   const [, id, data] = client.calls.updateResource[0];
   assertEquals(id, pb.id);
-  assertEquals((data.zipFile as File).name, "data.zip");
-  assertEquals(data.status, "uploading");
+  assertEquals(data.zipFile, undefined);
+  assertEquals(data.status, undefined);
   const dec = new TextDecoder();
   assertEquals(
-    dec.decode(
-      await extractEntry(await zipOf(data), "pb_migrations/1_init.js"),
-    ),
+    dec.decode(await extractEntry(uploadedArchive(d), "pb_migrations/1_init.js")),
     "// migration",
   );
   assertEquals(
-    dec.decode(await extractEntry(await zipOf(data), "pb_hooks/main.pb.js")),
+    dec.decode(await extractEntry(uploadedArchive(d), "pb_hooks/main.pb.js")),
     "// hook",
   );
-  // The platform installs pb_hooks from the archive through the very route
-  // this used to call, so calling it as well would write every file twice and
-  // restart the instance twice.
   assertEquals(
     client.calls.pbApi.some(([path]) => path === "/api/hooks/bulk-write"),
     false,
@@ -510,89 +490,90 @@ Deno.test("pb redeploy sends hooks inside the archive, not through the hooks rou
 });
 
 Deno.test("pb redeploy of a hooks-only directory sends the archive", async () => {
-  // pb_hooks is installed from an archive now, so a directory holding only
-  // hooks has something to upload after all.
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   await client.createResource("pocketbases", { name: "db", project: p.id });
   runningNow(client);
   const cwd = seed({ "pb_hooks/main.pb.js": "// hook" });
-  const cmds = makePbCommands(deps(client, p.id, cwd));
+  const d = deps(client, p.id, cwd);
+  const cmds = makePbCommands(d);
 
-  const code = await cmds["cloud pb deploy"]({
+  const code = await cmds["pocketbase deploy"].run({ name: "db" }, {
     args: [],
     flags: flags(p.id),
-    raw: { name: "db" },
-  });
-
-  assertEquals(code, 0);
-  const [, , data] = client.calls.updateResource[0];
-  assertEquals((data.zipFile as File).name, "data.zip");
-  assertEquals(data.status, "uploading");
-});
-
-Deno.test("pb deploy of a directory with no pb_* directories creates without an archive", async () => {
-  // A bare instance is a supported deploy, so packaging yields zero files.
-  // The archive that describes zero files is 22 bytes of end-of-central-
-  // directory and nothing else, which `unzip` refuses outright ("zipfile is
-  // empty") — so it must never be attached.
-  const client = createMockCloudClient();
-  const p = await client.createProject("app");
-  runningNow(client);
-  const cwd = seed({ "README.md": "nothing to deploy" });
-  const cmds = makePbCommands(deps(client, p.id, cwd));
-
-  const code = await cmds["cloud pb deploy"]({
-    args: [],
-    flags: flags(p.id),
-    raw: { name: "db" },
-  });
-
-  assertEquals(code, 0);
-  const [, data] = client.calls.createResource[0];
-  assertEquals(data.zipFile, undefined);
-  assertEquals(data.zipFileSize, undefined);
-});
-
-Deno.test("pb redeploy of a configured but empty pb_public sends no archive", async () => {
-  // The directory exists, so it is configured — but it holds no files, and an
-  // entry-less archive is refused by the agent exactly as an empty one is.
-  const client = createMockCloudClient();
-  const p = await client.createProject("app");
-  await client.createResource("pocketbases", { name: "db", project: p.id });
-  runningNow(client);
-  const cwd = seed({ "README.md": "x" });
-  Deno.mkdirSync(join(cwd, "pb_public"));
-  const cmds = makePbCommands(deps(client, p.id, cwd));
-
-  const code = await cmds["cloud pb deploy"]({
-    args: [],
-    flags: flags(p.id),
-    raw: { name: "db" },
   });
 
   assertEquals(code, 0);
   const [, , data] = client.calls.updateResource[0];
   assertEquals(data.zipFile, undefined);
   assertEquals(data.status, undefined);
+  const dec = new TextDecoder();
+  assertEquals(
+    dec.decode(await extractEntry(uploadedArchive(d), "pb_hooks/main.pb.js")),
+    "// hook",
+  );
 });
 
-/**
- * Progress writes straight to stdout rather than through console.log, so the
- * notes a deploy prints are only observable there.
- */
-function captureStdout(): { text: () => string; restore: () => void } {
+Deno.test("pb deploy of a directory with no pb_* directories creates a deployment row with an empty archive", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  runningNow(client);
+  const cwd = seed({ "README.md": "nothing to deploy" });
+  const d = deps(client, p.id, cwd);
+  const cmds = makePbCommands(d);
+
+  const code = await cmds["pocketbase deploy"].run({ new: "db" }, {
+    args: [],
+    flags: flags(p.id),
+  });
+
+  assertEquals(code, 0);
+  const [, data] = client.calls.createResource[0];
+  assertEquals(data.zipFile, undefined);
+  assertEquals(data.zipFileSize, undefined);
+  assertEquals(
+    d.deploy.calls.some((c) => c.url.endsWith("/api/deployments")),
+    true,
+  );
+});
+
+Deno.test("pb redeploy of a configured but empty pb_public still creates a deployment row", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  await client.createResource("pocketbases", { name: "db", project: p.id });
+  runningNow(client);
+  const cwd = seed({ "README.md": "x" });
+  Deno.mkdirSync(join(cwd, "pb_public"));
+  const d = deps(client, p.id, cwd);
+  const cmds = makePbCommands(d);
+
+  const code = await cmds["pocketbase deploy"].run({ name: "db" }, {
+    args: [],
+    flags: flags(p.id),
+  });
+
+  assertEquals(code, 0);
+  const [, , data] = client.calls.updateResource[0];
+  assertEquals(data.zipFile, undefined);
+  assertEquals(data.status, undefined);
+  assertEquals(
+    d.deploy.calls.some((c) => c.url.endsWith("/api/deployments")),
+    true,
+  );
+});
+
+function captureStderr(): { text: () => string; restore: () => void } {
   const chunks: string[] = [];
-  const original = Deno.stdout.writeSync.bind(Deno.stdout);
+  const original = Deno.stderr.writeSync.bind(Deno.stderr);
   const dec = new TextDecoder();
-  Deno.stdout.writeSync = (b: Uint8Array) => {
+  Deno.stderr.writeSync = (b: Uint8Array) => {
     chunks.push(dec.decode(b));
     return b.byteLength;
   };
   return {
     text: () => chunks.join(""),
     restore: () => {
-      Deno.stdout.writeSync = original;
+      Deno.stderr.writeSync = original;
     },
   };
 }
@@ -603,37 +584,36 @@ Deno.test("pb deploy says so when there was nothing to deploy", async () => {
   runningNow(client);
   const cwd = seed({ "README.md": "x" });
   const cmds = makePbCommands(deps(client, p.id, cwd));
-  const out = captureStdout();
+  const out = captureStderr();
 
   try {
-    const code = await cmds["cloud pb deploy"]({
+    const code = await cmds["pocketbase deploy"].run({ new: "db" }, {
       args: [],
       flags: { ...flags(p.id), json: false },
-      raw: { name: "db" },
     });
     assertEquals(code, 0);
   } finally {
     out.restore();
   }
 
-  // A deploy that shipped nothing looks identical to one that worked, so the
-  // note has to name both the cause and the way out.
   const text = out.text();
   assertEquals(text.includes("nothing to deploy"), true);
   assertEquals(text.includes("pb_public"), true);
   assertEquals(text.includes("pbc.json"), true);
 });
 
-/** Writes a real archive to `path`, since --zip is now read before upload. */
 async function writeZipFile(
   path: string,
   names: string[],
 ): Promise<void> {
   const body = new TextEncoder().encode("x");
-  await Deno.writeFile(path, await writeZip(names.map((name) => ({
-    name,
-    body,
-  }))));
+  await Deno.writeFile(
+    path,
+    await writeZip(names.map((name) => ({
+      name,
+      body,
+    }))),
+  );
 }
 
 Deno.test("pb redeploy uploads an explicit --zip", async () => {
@@ -643,23 +623,29 @@ Deno.test("pb redeploy uploads an explicit --zip", async () => {
   runningNow(client);
   const cwd = seed({ "pb_hooks/main.pb.js": "//" });
   await writeZipFile(join(cwd, "old.zip"), ["pb_public/index.html"]);
-  const cmds = makePbCommands(deps(client, p.id, cwd));
+  const d = deps(client, p.id, cwd);
+  const cmds = makePbCommands(d);
 
-  const code = await cmds["cloud pb deploy"]({
+  const code = await cmds["pocketbase deploy"].run({
+    name: "db",
+    zip: join(cwd, "old.zip"),
+  }, {
     args: [],
     flags: flags(p.id),
-    raw: { name: "db", zip: join(cwd, "old.zip") },
   });
 
   assertEquals(code, 0);
   const [, , data] = client.calls.updateResource[0];
-  assertEquals((data.zipFile as File).name, "old.zip");
-  assertEquals(data.status, "uploading");
+  assertEquals(data.zipFile, undefined);
+  assertEquals(data.status, undefined);
+  const dec = new TextDecoder();
+  assertEquals(
+    dec.decode(await extractEntry(uploadedArchive(d), "pb_public/index.html")),
+    "x",
+  );
 });
 
 Deno.test("pb redeploy refuses a --zip holding neither pb_migrations nor pb_public", async () => {
-  // The production failure, caught before the upload: the platform would
-  // refuse this archive on the VM and mark a healthy instance errored.
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   await client.createResource("pocketbases", { name: "db", project: p.id });
@@ -670,73 +656,66 @@ Deno.test("pb redeploy refuses a --zip holding neither pb_migrations nor pb_publ
 
   const err = await assertRejects(
     () =>
-      cmds["cloud pb deploy"]({
+      cmds["pocketbase deploy"].run({ name: "db", zip: join(cwd, "site.zip") }, {
         args: [],
         flags: flags(p.id),
-        raw: { name: "db", zip: join(cwd, "site.zip") },
       }),
     CliError,
     "pb_migrations",
   );
   assertEquals(err.exitCode, 2);
-  // Naming what it did find is what turns this from a rule into a diagnosis.
   assertEquals(err.message.includes("index.html"), true);
   assertEquals(err.message.includes("pb_public"), true);
-  // Nothing was sent, so the instance is untouched.
   assertEquals(client.calls.updateResource.length, 0);
 });
 
 Deno.test("pb create accepts a --zip that only seeds pb_hooks", async () => {
-  // Creation extracts the archive wholesale — pb_hooks is a legitimate seed
-  // there, and only the *upload* route is restricted to the two directories.
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   runningNow(client);
   const cwd = seed({});
   await writeZipFile(join(cwd, "seed.zip"), ["pb_hooks/main.pb.js"]);
-  const cmds = makePbCommands(deps(client, p.id, cwd));
+  const d = deps(client, p.id, cwd);
+  const cmds = makePbCommands(d);
 
-  const code = await cmds["cloud pb deploy"]({
+  const code = await cmds["pocketbase deploy"].run({
+    new: "db",
+    zip: join(cwd, "seed.zip"),
+  }, {
     args: [],
     flags: flags(p.id),
-    raw: { name: "db", zip: join(cwd, "seed.zip") },
   });
 
   assertEquals(code, 0);
   const [, data] = client.calls.createResource[0];
-  assertEquals((data.zipFile as File).name, "seed.zip");
+  assertEquals(data.zipFile, undefined);
+  const dec = new TextDecoder();
+  assertEquals(
+    dec.decode(await extractEntry(uploadedArchive(d), "pb_hooks/main.pb.js")),
+    "x",
+  );
 });
 
 Deno.test("a failed deploy reports the platform's own message, not just the sub-status", async () => {
-  // `subStatus` maps to one fixed sentence per runtime, so it can say a hook
-  // could not be installed but never which one. `statusMessage` is the only
-  // field that can name the file, so it wins whenever the platform wrote one.
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   await client.createResource("pocketbases", { name: "db", project: p.id });
-  const orig = client.getResource.bind(client);
-  client.getResource = async (k, id) => ({
-    ...(await orig(k, id)),
-    status: "error",
-    subStatus: "hooksNotInstallable",
-    statusMessage:
-      "pb_hooks/lib/helpers.js is inside a subdirectory. Hooks must be flat files.",
-  });
   const cwd = seed({ "pb_hooks/main.pb.js": "// hook" });
-  const cmds = makePbCommands(deps(client, p.id, cwd));
-  const out = captureStdout();
+  const d = deps(client, p.id, cwd);
+  d.deploy.setStatus(
+    "failed",
+    "pb_hooks/lib/helpers.js is inside a subdirectory. Hooks must be flat files.",
+  );
+  const cmds = makePbCommands(d);
 
-  try {
-    await cmds["cloud pb deploy"]({
-      args: [],
-      flags: { ...flags(p.id), json: false },
-      raw: { name: "db" },
-    });
-  } finally {
-    out.restore();
-  }
-
-  const text = out.text();
-  assertEquals(text.includes("pb_hooks/lib/helpers.js"), true);
-  assertEquals(text.includes("inside a subdirectory"), true);
+  const err = await assertRejects(
+    () =>
+      cmds["pocketbase deploy"].run({ name: "db" }, {
+        args: [],
+        flags: flags(p.id),
+      }),
+    CliError,
+    "inside a subdirectory",
+  );
+  assertEquals(err.message.includes("pb_hooks/lib/helpers.js"), true);
 });

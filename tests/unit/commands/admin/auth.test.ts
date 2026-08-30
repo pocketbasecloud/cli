@@ -23,10 +23,9 @@ function deps(config: Config) {
 Deno.test("use creates a profile and sets default", async () => {
   const config = defaultConfig();
   const cmds = makeInstanceAuthCommands(deps(config).d);
-  const code = await cmds["use"]({
+  const code = await cmds["admin use"].run({}, {
     args: ["https://db.example.com"],
     flags: { json: true, yes: true, noInput: true, interactive: false },
-    raw: {},
   });
   assertEquals(code, 0);
   assertEquals(config.defaultProfile, "db.example.com");
@@ -40,11 +39,28 @@ Deno.test("login stores the returned token", async () => {
     profiles: { p: { url: "https://db.example.com", superuserToken: "" } },
   };
   const cmds = makeInstanceAuthCommands(deps(config).d);
-  const code = await cmds["login"]({
-    args: [],
-    flags: { json: true, yes: true, noInput: true, interactive: false },
-    raw: { email: "a@b.co", password: "secret" },
-  });
+  const code = await cmds["admin login"].run(
+    { email: "a@b.co", password: "secret" },
+    {
+      args: [],
+      flags: { json: true, yes: true, noInput: true, interactive: false },
+    },
+  );
   assertEquals(code, 0);
   assertEquals(config.profiles["p"].superuserToken, "mock-superuser-token");
+});
+
+Deno.test("whoami survives a profile with no superuserToken key", async () => {
+  const config: Config = {
+    ...defaultConfig(),
+    defaultProfile: "p",
+    profiles: { p: { url: "https://db.example.com", superuserToken: "" } },
+  };
+  delete (config.profiles.p as Record<string, unknown>).superuserToken;
+  const cmds = makeInstanceAuthCommands(deps(config).d);
+  const code = await cmds["admin whoami"].run({}, {
+    args: [],
+    flags: { json: true, yes: true, noInput: true, interactive: false },
+  });
+  assertEquals(code, 0);
 });

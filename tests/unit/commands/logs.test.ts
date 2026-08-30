@@ -26,7 +26,6 @@ Deno.test("streamToWriter unwraps SSE data frames", async () => {
   );
   assertStringIncludes(out, "line1");
   assertStringIncludes(out, "line2");
-  // Only the payloads, not the framing.
   assertEquals(out.includes("data:"), false);
 });
 
@@ -46,7 +45,6 @@ Deno.test("streamToWriter stops at the limit, since the tail never ends", async 
       for (let i = 0; i < 100; i++) {
         c.enqueue(new TextEncoder().encode(`data: {"line":"L${i}"}\n`));
       }
-      // Deliberately left open, like the real endpoint.
     },
   });
   await streamToWriter(stream, (s) => out += s, { limit: 3 });
@@ -81,23 +79,81 @@ Deno.test("logs posts to logs/stream with type and id", async () => {
     saveConfig: () => Promise.resolve(),
     cwd: () => "/tmp",
   });
-  const code = await cmds["cloud logs"]({
-    args: ["pb"],
-    flags: {
-      json: false,
-      yes: true,
-      noInput: true,
-      interactive: false,
-      project: p.id,
+  const code = await cmds["logs"].run(
+    { name: "db1" },
+    {
+      args: ["pb"],
+      flags: {
+        json: false,
+        yes: true,
+        noInput: true,
+        interactive: false,
+        project: p.id,
+      },
     },
-    raw: { name: "db1" },
-  });
+  );
   assertEquals(code, 0);
   assertEquals(client.calls.ext[0][0], "/api/logs/stream");
   assertEquals(
     (client.calls.ext[0][1] as { target_id: string }).target_id,
     pbRes.id,
   );
+});
+
+Deno.test("logs --json emits one envelope per line", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  await client.createResource("pocketbases", { name: "db1", project: p.id });
+  client.ext = () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(new TextEncoder().encode("line one\nline two\n"));
+        c.close();
+      },
+    });
+    return Promise.resolve(new Response(stream, { status: 200 }));
+  };
+  const config: Config = {
+    ...defaultConfig(),
+    cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
+    currentProject: p.id,
+  };
+  const cmds = makeLogsCommands({
+    requireAuth: () => Promise.resolve({ client, config, auth: config.cloud! }),
+    loadConfig: () => Promise.resolve(config),
+    saveConfig: () => Promise.resolve(),
+    cwd: () => "/tmp",
+  });
+  const chunks: string[] = [];
+  const original = Deno.stdout.writeSync.bind(Deno.stdout);
+  const dec = new TextDecoder();
+  Deno.stdout.writeSync = (b: Uint8Array) => {
+    chunks.push(dec.decode(b));
+    return b.byteLength;
+  };
+  try {
+    const code = await cmds["logs"].run(
+      { name: "db1" },
+      {
+        args: ["pb"],
+        flags: { json: true, yes: true, noInput: true, interactive: false },
+      },
+    );
+    assertEquals(code, 0);
+  } finally {
+    Deno.stdout.writeSync = original;
+  }
+  const text = chunks.join("");
+  const lines = text.trim().split("\n");
+  assertEquals(lines.length, 2);
+  for (const l of lines) {
+    const parsed = JSON.parse(l);
+    assertEquals(parsed.ok, true);
+    assertEquals(parsed.schemaVersion, 1);
+    assertEquals(typeof parsed.data.line, "string");
+  }
+  assertEquals(JSON.parse(lines[0]).data.line, "line one");
+  assertEquals(JSON.parse(lines[1]).data.line, "line two");
 });
 
 Deno.test("logs --env streams that environment's instance", async () => {
@@ -151,13 +207,15 @@ Deno.test("logs --env streams that environment's instance", async () => {
     interactive: false,
     project: p.id,
   };
-  await cmds["cloud logs"]({ args: ["pb"], flags, raw: { env: "staging" } });
+  await cmds["logs"].run(
+    { env: "staging" },
+    { args: ["pb"], flags },
+  );
   assertEquals(
     (client.calls.ext[0][1] as { target_id: string }).target_id,
     staging.id,
   );
-  // And with no --env, the file's default.
-  await cmds["cloud logs"]({ args: ["pb"], flags, raw: {} });
+  await cmds["logs"].run({}, { args: ["pb"], flags });
   assertEquals(
     (client.calls.ext[1][1] as { target_id: string }).target_id,
     prod.id,
@@ -167,26 +225,30 @@ Deno.test("logs --env streams that environment's instance", async () => {
 
 function captureLog() {
   const lines: string[] = [];
-  const original = console.log;
-  console.log = (...args: unknown[]) => lines.push(args.map(String).join(" "));
-  return { lines, restore: () => console.log = original };
+  const original = console.error;
+  console.error = (...args: unknown[]) =>
+    lines.push(args.map(String).join(" "));
+  return { lines, restore: () => console.error = original };
 }
 
-Deno.test("logs announces the project resolved from config.currentProject", async () => {
+Deno.test("logs resolves a named instance across projects, no project step", async () => {
   const client = createMockCloudClient();
-  const p = await client.createProject("app");
-  await client.createResource("pocketbases", { name: "db1", project: p.id });
-  client.ext = () =>
-    Promise.resolve(
+  await client.createProject("app");
+  const other = await client.createProject("other");
+  await client.createResource("pocketbases", { name: "db1", project: other.id });
+  const seen: string[] = [];
+  client.ext = (_path, body) => {
+    seen.push(String((body as { target_id?: string }).target_id));
+    return Promise.resolve(
       new Response(
         new ReadableStream<Uint8Array>({ start: (c) => c.close() }),
         { status: 200 },
       ),
     );
+  };
   const config: Config = {
     ...defaultConfig(),
     cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
-    currentProject: p.id,
   };
   const cmds = makeLogsCommands({
     requireAuth: () => Promise.resolve({ client, config, auth: config.cloud! }),
@@ -196,14 +258,17 @@ Deno.test("logs announces the project resolved from config.currentProject", asyn
   });
   const log = captureLog();
   try {
-    const code = await cmds["cloud logs"]({
-      args: ["pb"],
-      flags: { json: false, yes: true, noInput: true, interactive: false },
-      raw: { name: "db1" },
-    });
+    const code = await cmds["logs"].run(
+      { name: "db1" },
+      {
+        args: ["pb"],
+        flags: { json: false, yes: true, noInput: true, interactive: false },
+      },
+    );
     assertEquals(code, 0);
-    assertEquals(log.lines[0].includes(`Project: ${p.name}`), true);
-    assertEquals(log.lines[0].includes("pbc cloud project use"), true);
+    const db1 = (await client.listResources("pocketbases"))[0];
+    assertEquals(seen, [db1.id]);
+    assertEquals(log.lines.some((l) => l.startsWith("Project:")), false);
   } finally {
     log.restore();
   }
@@ -232,17 +297,19 @@ Deno.test("logs does not announce the project when --project names it", async ()
   });
   const log = captureLog();
   try {
-    await cmds["cloud logs"]({
-      args: ["pb"],
-      flags: {
-        json: false,
-        yes: true,
-        noInput: true,
-        interactive: false,
-        project: p.id,
+    await cmds["logs"].run(
+      { name: "db1" },
+      {
+        args: ["pb"],
+        flags: {
+          json: false,
+          yes: true,
+          noInput: true,
+          interactive: false,
+          project: p.id,
+        },
       },
-      raw: { name: "db1" },
-    });
+    );
     assertEquals(log.lines.some((l) => l.startsWith("Project:")), false);
   } finally {
     log.restore();

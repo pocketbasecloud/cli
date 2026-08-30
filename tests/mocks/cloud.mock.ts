@@ -40,12 +40,9 @@ export function createMockCloudClient(
   };
   let seq = 0;
   const id = () => `mock${++seq}`;
-  /** Resource id -> kind, so listResources can filter by kind like the real API. */
   const kinds = new Map<string, ResourceKind>();
 
   const base: ICloudClient = {
-    // `role` is staff by default: creating an organization is staff-only, so
-    // an ordinary account here would fail every org test for the wrong reason.
     whoami: () =>
       Promise.resolve(
         {
@@ -73,13 +70,13 @@ export function createMockCloudClient(
       return Promise.resolve(p);
     },
     deleteProject: () => Promise.resolve(),
-    listResources: (kind, projectId) =>
+    listResources: (kind, opts) =>
       Promise.resolve(
         state.resources.filter((r) =>
-          r.project === projectId && kinds.get(r.id) === kind &&
-          // The real client filters tombstones out, so a deleted resource
-          // must not be findable by name here either.
-          r.status !== "deleted"
+          kinds.get(r.id) === kind && r.status !== "deleted" &&
+          (opts?.project === undefined || r.project === opts.project)
+        ).sort((a, b) =>
+          String(b.updated ?? "").localeCompare(String(a.updated ?? ""))
         ),
       ),
     createResource: (kind, data) => {
@@ -124,9 +121,6 @@ export function createMockCloudClient(
           },
       ),
     listServers: () => Promise.resolve(state.servers),
-    // Seeded servers stand in for a Pro owner's dedicated compute, which is
-    // the only case where the platform reports any: a free/starter owner has
-    // none. Override the whole method for the org-developer cases.
     deployContext: () =>
       Promise.resolve({
         ownerPlan: state.servers.length > 0 ? "pro" : "free",

@@ -2,14 +2,11 @@ import { type EnvEntry, envVar, type LinkFile } from "../config.ts";
 import { CliError } from "../errors.ts";
 import { canPrompt, prompt, type PromptIO } from "../ui/prompt.ts";
 
-/** The environment a first deploy records when the file names none. */
 export const DEFAULT_ENVIRONMENT = "production";
 
 export type EnvironmentChoice = {
   name: string;
-  /** True when `--env` or PBC_ENV named it, rather than the file. */
   explicit: boolean;
-  /** True when `environments` has an entry under this name. */
   configured: boolean;
 };
 
@@ -17,21 +14,11 @@ function assertValidName(name: string): void {
   if (name.length === 0 || /\s/.test(name)) {
     throw new CliError(
       `Invalid environment name ${JSON.stringify(name)}.`,
-      2,
+      { code: "INVALID_VALUE" },
     );
   }
 }
 
-/**
- * Which environment a command targets: `--env` > PBC_ENV > `defaultEnvironment` >
- * the sole configured entry.
- *
- * With several environments and no default the answer is genuinely unknown, so
- * this errors rather than picking one — that state only arises after `rm`
- * deleted the default, and guessing there is how you deploy to production by
- * accident. With no environments at all it answers "production", the name a
- * first deploy will record.
- */
 export function resolveEnvironmentName(
   link: Partial<LinkFile> | null,
   opts: {
@@ -70,19 +57,10 @@ export function resolveEnvironmentName(
     `Multiple environments configured (${
       names.join(", ")
     }). Pass --env <name>.`,
-    2,
+    { code: "NO_TARGET", hint: "--env <name>" },
   );
 }
 
-/**
- * Ask which environment to record, for the commands that write the first one
- * into a directory — `deploy`, `link`, `init`. Everywhere else the answer is
- * already in the file.
- *
- * Left alone: an explicit `--env`/`PBC_ENV`, a file that already names an
- * environment, and anything non-interactive (`--no-input`, `--json`, no TTY),
- * which keeps "production" as the unattended default it has always been.
- */
 export async function chooseEnvironment(
   choice: EnvironmentChoice,
   link: Partial<LinkFile> | null,
@@ -101,16 +79,6 @@ export async function chooseEnvironment(
   return { name, explicit: false, configured: false };
 }
 
-/**
- * Reject an explicitly named environment the file does not configure. Only
- * commands that cannot create one call this — `deploy` answers the same
- * situation with "pass --name to create it" instead.
- *
- * A file with no `environments` block at all is not an error: nothing is
- * configured yet, so `--name`/`--id` still decide, exactly as before
- * environments existed. That also keeps a repo-wide `PBC_ENV` in CI from
- * breaking directories that have not been linked.
- */
 export function assertConfigured(
   choice: EnvironmentChoice,
   link: Partial<LinkFile> | null,
@@ -121,11 +89,10 @@ export function assertConfigured(
     `Unknown environment ${JSON.stringify(choice.name)}. Configured: ${
       names.join(", ")
     }.`,
-    2,
+    { code: "NOT_FOUND", hint: "pbc environments" },
   );
 }
 
-/** The entry for `choice`, or undefined when the file binds a different kind. */
 export function entryFor(
   link: Partial<LinkFile> | null,
   kind: LinkFile["kind"],

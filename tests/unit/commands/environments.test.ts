@@ -48,16 +48,15 @@ Deno.test("environments lists each entry and marks the default", async () => {
     const out = capture();
     let code: number;
     try {
-      code = await makeEnvironmentsCommands(deps(cwd))["cloud environments"]({
-        args: [],
-        flags: FLAGS,
-        raw: {},
-      });
+      code = await makeEnvironmentsCommands(deps(cwd))["environments"].run(
+        {},
+        { args: [], flags: FLAGS },
+      );
     } finally {
       out.restore();
     }
     assertEquals(code, 0);
-    assertEquals(JSON.parse(out.lines[0]), [
+    assertEquals(JSON.parse(out.lines[0]).data, [
       { environment: "production", name: "web", id: "fe1", default: true },
       {
         environment: "staging",
@@ -77,11 +76,10 @@ Deno.test("environments says how to create one when there are none", async () =>
     const out = capture();
     let code: number;
     try {
-      code = await makeEnvironmentsCommands(deps(cwd))["cloud environments"]({
-        args: [],
-        flags: { ...FLAGS, json: false },
-        raw: {},
-      });
+      code = await makeEnvironmentsCommands(deps(cwd))["environments"].run(
+        {},
+        { args: [], flags: { ...FLAGS, json: false } },
+      );
     } finally {
       out.restore();
     }

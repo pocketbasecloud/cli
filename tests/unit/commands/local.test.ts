@@ -4,8 +4,8 @@ import { silentProgress } from "../../../src/ui/progress.ts";
 import type { LocalDeps } from "../../../src/local/deps.ts";
 import { detectPlatform } from "../../../src/local/platform.ts";
 import { buildZip } from "../../mocks/zip.mock.ts";
-import { CliError } from "../../../src/errors.ts";
-import type { CmdCtx } from "../../../src/router.ts";
+import { CliError, EXIT_CODES } from "../../../src/errors.ts";
+import type { CmdCtx } from "../../../src/command.ts";
 
 const enc = new TextEncoder();
 const BODY = enc.encode("#!/fake/pocketbase");
@@ -21,7 +21,6 @@ function ctx(over: Partial<CmdCtx> = {}): CmdCtx {
   return {
     args: [],
     flags: { json: false, yes: true, noInput: true, interactive: false },
-    raw: {},
     ...over,
   };
 }
@@ -87,7 +86,7 @@ function harness(
 
 Deno.test("versions lists from github and marks the latest", async () => {
   const h = harness();
-  assertEquals(await h.cmds["versions"](ctx()), 0);
+  assertEquals(await h.cmds["local versions"].run({}, ctx()), 0);
   const text = h.out.join("\n");
   assertEquals(text.includes("0.39.9"), true);
   assertEquals(text.includes("latest"), true);
@@ -96,12 +95,11 @@ Deno.test("versions lists from github and marks the latest", async () => {
 
 Deno.test("versions --json reports the github source", async () => {
   const h = harness();
-  await h.cmds["versions"](
-    ctx({
-      flags: { json: true, yes: true, noInput: true, interactive: false },
-    }),
+  await h.cmds["local versions"].run(
+    {},
+    ctx({ flags: { json: true, yes: true, noInput: true, interactive: false } }),
   );
-  const parsed = JSON.parse(h.out[0]);
+  const parsed = JSON.parse(h.out[0]).data;
   assertEquals(parsed.source, "github");
   assertEquals(parsed.versions[0], "0.39.9");
   assertEquals(parsed.latest, "0.39.9");
@@ -113,7 +111,7 @@ Deno.test("versions falls back to the builtin list and says so", async () => {
   const orig = console.error;
   console.error = (s: string) => errs.push(s);
   try {
-    assertEquals(await h.cmds["versions"](ctx()), 0);
+    assertEquals(await h.cmds["local versions"].run({}, ctx()), 0);
   } finally {
     console.error = orig;
   }
@@ -122,12 +120,11 @@ Deno.test("versions falls back to the builtin list and says so", async () => {
 
 Deno.test("versions --json reports the builtin source when offline", async () => {
   const h = harness({ offline: true });
-  await h.cmds["versions"](
-    ctx({
-      flags: { json: true, yes: true, noInput: true, interactive: false },
-    }),
+  await h.cmds["local versions"].run(
+    {},
+    ctx({ flags: { json: true, yes: true, noInput: true, interactive: false } }),
   );
-  const parsed = JSON.parse(h.out[0]);
+  const parsed = JSON.parse(h.out[0]).data;
   assertEquals(parsed.source, "builtin");
   assertEquals(parsed.latest, null);
 });
@@ -136,8 +133,9 @@ Deno.test("install downloads the latest and pins it", async () => {
   const zip = await buildZip([{ name: "pocketbase", body: BODY }]);
   const sums = `${await sha256Hex(zip)}  pocketbase_0.39.9_linux_amd64.zip`;
   const h = harness({ zip, sums });
-  const code = await h.cmds["install"](
-    ctx({ raw: { os: "linux", arch: "amd64" } }),
+  const code = await h.cmds["local install"].run(
+    { os: "linux", arch: "amd64" },
+    ctx(),
   );
   assertEquals(code, 0);
   assertEquals(h.files.get("/work/pocketbase"), BODY);
@@ -151,8 +149,9 @@ Deno.test("install takes the version as a positional argument", async () => {
   const zip = await buildZip([{ name: "pocketbase", body: BODY }]);
   const sums = `${await sha256Hex(zip)}  pocketbase_0.22.50_linux_amd64.zip`;
   const h = harness({ zip, sums });
-  await h.cmds["install"](
-    ctx({ args: ["0.22.50"], raw: { os: "linux", arch: "amd64" } }),
+  await h.cmds["local install"].run(
+    { os: "linux", arch: "amd64" },
+    ctx({ args: ["0.22.50"] }),
   );
   assertEquals(
     JSON.parse(h.texts.get("/work/pbc.json")!).pocketbaseVersion,
@@ -164,8 +163,9 @@ Deno.test("install respects --dir", async () => {
   const zip = await buildZip([{ name: "pocketbase", body: BODY }]);
   const sums = `${await sha256Hex(zip)}  pocketbase_0.39.9_linux_amd64.zip`;
   const h = harness({ zip, sums });
-  await h.cmds["install"](
-    ctx({ raw: { dir: "/other", os: "linux", arch: "amd64" } }),
+  await h.cmds["local install"].run(
+    { dir: "/other", os: "linux", arch: "amd64" },
+    ctx(),
   );
   assertEquals(h.files.has("/other/pocketbase"), true);
 });
@@ -174,8 +174,9 @@ Deno.test("init installs, scaffolds, and pins", async () => {
   const zip = await buildZip([{ name: "pocketbase", body: BODY }]);
   const sums = `${await sha256Hex(zip)}  pocketbase_0.39.9_linux_amd64.zip`;
   const h = harness({ zip, sums });
-  const code = await h.cmds["init"](
-    ctx({ raw: { os: "linux", arch: "amd64" } }),
+  const code = await h.cmds["local init"].run(
+    { os: "linux", arch: "amd64" },
+    ctx(),
   );
   assertEquals(code, 0);
   assertEquals(h.files.get("/work/pocketbase"), BODY);
@@ -191,13 +192,11 @@ Deno.test("init --json emits the binary path and scaffold results", async () => 
   const zip = await buildZip([{ name: "pocketbase", body: BODY }]);
   const sums = `${await sha256Hex(zip)}  pocketbase_0.39.9_linux_amd64.zip`;
   const h = harness({ zip, sums });
-  await h.cmds["init"](
-    ctx({
-      flags: { json: true, yes: true, noInput: true, interactive: false },
-      raw: { os: "linux", arch: "amd64" },
-    }),
+  await h.cmds["local init"].run(
+    { os: "linux", arch: "amd64" },
+    ctx({ flags: { json: true, yes: true, noInput: true, interactive: false } }),
   );
-  const parsed = JSON.parse(h.out[0]);
+  const parsed = JSON.parse(h.out[0]).data;
   assertEquals(parsed.path, "/work/pocketbase");
   assertEquals(parsed.version, "0.39.9");
   assertEquals(Array.isArray(parsed.scaffold), true);
@@ -207,7 +206,7 @@ Deno.test("install tells the user how to start PocketBase", async () => {
   const zip = await buildZip([{ name: "pocketbase", body: BODY }]);
   const sums = `${await sha256Hex(zip)}  pocketbase_0.39.9_linux_amd64.zip`;
   const h = harness({ zip, sums });
-  await h.cmds["install"](ctx({ raw: { os: "linux", arch: "amd64" } }));
+  await h.cmds["local install"].run({ os: "linux", arch: "amd64" }, ctx());
   assertEquals(h.out.join("\n").includes("./pocketbase serve"), true);
 });
 
@@ -215,8 +214,9 @@ Deno.test("the start hint cds into --dir when it is not the working directory", 
   const zip = await buildZip([{ name: "pocketbase", body: BODY }]);
   const sums = `${await sha256Hex(zip)}  pocketbase_0.39.9_linux_amd64.zip`;
   const h = harness({ zip, sums });
-  await h.cmds["install"](
-    ctx({ raw: { dir: "/other", os: "linux", arch: "amd64" } }),
+  await h.cmds["local install"].run(
+    { dir: "/other", os: "linux", arch: "amd64" },
+    ctx(),
   );
   assertEquals(
     h.out.join("\n").includes("cd /other && ./pocketbase serve"),
@@ -228,7 +228,7 @@ Deno.test("init tells the user how to start PocketBase", async () => {
   const zip = await buildZip([{ name: "pocketbase", body: BODY }]);
   const sums = `${await sha256Hex(zip)}  pocketbase_0.39.9_linux_amd64.zip`;
   const h = harness({ zip, sums });
-  await h.cmds["init"](ctx({ raw: { os: "linux", arch: "amd64" } }));
+  await h.cmds["local init"].run({ os: "linux", arch: "amd64" }, ctx());
   assertEquals(h.out.join("\n").includes("./pocketbase serve"), true);
 });
 
@@ -236,9 +236,9 @@ Deno.test("the start hint still shows when the binary was already present", asyn
   const zip = await buildZip([{ name: "pocketbase", body: BODY }]);
   const sums = `${await sha256Hex(zip)}  pocketbase_0.39.9_linux_amd64.zip`;
   const h = harness({ zip, sums });
-  await h.cmds["install"](ctx({ raw: { os: "linux", arch: "amd64" } }));
+  await h.cmds["local install"].run({ os: "linux", arch: "amd64" }, ctx());
   h.out.length = 0;
-  await h.cmds["install"](ctx({ raw: { os: "linux", arch: "amd64" } }));
+  await h.cmds["local install"].run({ os: "linux", arch: "amd64" }, ctx());
   const text = h.out.join("\n");
   assertEquals(text.includes("already exists"), true);
   assertEquals(text.includes("./pocketbase serve"), true);
@@ -248,18 +248,14 @@ Deno.test("--json output carries no prose hint", async () => {
   const zip = await buildZip([{ name: "pocketbase", body: BODY }]);
   const sums = `${await sha256Hex(zip)}  pocketbase_0.39.9_linux_amd64.zip`;
   const h = harness({ zip, sums });
-  await h.cmds["install"](
-    ctx({
-      flags: { json: true, yes: true, noInput: true, interactive: false },
-      raw: { os: "linux", arch: "amd64" },
-    }),
+  await h.cmds["local install"].run(
+    { os: "linux", arch: "amd64" },
+    ctx({ flags: { json: true, yes: true, noInput: true, interactive: false } }),
   );
   assertEquals(h.out.length, 1);
-  assertEquals(JSON.parse(h.out[0]).version, "0.39.9");
+  assertEquals(JSON.parse(h.out[0]).data.version, "0.39.9");
 });
 
-// `which` resolves the binary name from the host, so these tests install for
-// the host platform rather than hardcoding a Unix name.
 const HOST = detectPlatform();
 const HOST_BIN = `/work/${HOST.binName}`;
 
@@ -267,24 +263,24 @@ Deno.test("which reports the binary and its pin", async () => {
   const zip = await buildZip([{ name: HOST.binName, body: BODY }]);
   const sums = `${await sha256Hex(zip)}  ${HOST.assetName("0.39.9")}`;
   const h = harness({ zip, sums });
-  await h.cmds["install"](ctx({ raw: { os: HOST.os, arch: HOST.arch } }));
+  await h.cmds["local install"].run({ os: HOST.os, arch: HOST.arch }, ctx());
   h.out.length = 0;
-  assertEquals(await h.cmds["which"](ctx()), 0);
+  assertEquals(await h.cmds["local which"].run({}, ctx()), 0);
   const text = h.out.join("\n");
   assertEquals(text.includes(HOST_BIN), true);
   assertEquals(text.includes("0.39.9"), true);
 });
 
-Deno.test("which exits 1 when nothing is installed", async () => {
+Deno.test("which exits with a platform error when nothing is installed", async () => {
   const h = harness();
-  const e = await assertRejects(() => h.cmds["which"](ctx()), CliError);
-  assertEquals((e as CliError).exitCode, 1);
-  assertEquals((e as Error).message.includes("pbc init"), true);
+  const e = await assertRejects(() => h.cmds["local which"].run({}, ctx()), CliError);
+  assertEquals((e as CliError).exitCode, EXIT_CODES.PLATFORM);
+  assertEquals((e as Error).message.includes("pbc local init"), true);
 });
 
 Deno.test("which reports unknown when the binary has no pin", async () => {
   const h = harness();
   h.files.set(HOST_BIN, BODY);
-  assertEquals(await h.cmds["which"](ctx()), 0);
+  assertEquals(await h.cmds["local which"].run({}, ctx()), 0);
   assertEquals(h.out.join("\n").includes("unknown"), true);
 });

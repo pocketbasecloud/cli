@@ -21,11 +21,13 @@ Deno.test("auth config --set updates a field on an auth collection", async () =>
   const client = createMockAdminClient();
   await client.createCollection({ name: "users", type: "auth" });
   const cmds = makeAuthConfigCommands(deps(client));
-  const code = await cmds["auth"]({
-    args: ["users", "config"],
-    flags: { json: true, yes: true, noInput: true, interactive: false },
-    raw: { set: 'oauth2={"enabled":true}' },
-  });
+  const code = await cmds["admin auth"].run(
+    { set: 'oauth2={"enabled":true}' },
+    {
+      args: ["users", "config"],
+      flags: { json: true, yes: true, noInput: true, interactive: false },
+    },
+  );
   assertEquals(code, 0);
   const [, data] = client.calls.updateCollection[0];
   assertEquals(data.oauth2, { enabled: true });
@@ -37,10 +39,9 @@ Deno.test("auth config rejects non-auth collections", async () => {
   const cmds = makeAuthConfigCommands(deps(client));
   await assertRejects(
     () =>
-      cmds["auth"]({
+      cmds["admin auth"].run({}, {
         args: ["posts", "config"],
         flags: { json: true, yes: true, noInput: true, interactive: false },
-        raw: {},
       }),
     Error,
     "not an auth collection",

@@ -1,88 +1,48 @@
-import type { Handler } from "./router.ts";
-import { COMMANDS, type CommandSpec, type FlagSpec } from "./usage.ts";
+import type { ArgSpec, CommandRegistry } from "./command.ts";
+import { canonicalKeys } from "./command.ts";
+import { GLOBAL_FLAGS } from "./globals.ts";
+import { manifestEntry, type ManifestEntry } from "./router.ts";
 
-const GLOBAL_FLAGS: FlagSpec[] = [
-  {
-    name: "json",
-    type: "boolean",
-    required: false,
-    description: "Output machine-readable JSON",
-  },
-  {
-    name: "yes",
-    type: "boolean",
-    required: false,
-    description: "Skip confirmation prompts (-y)",
-  },
-  {
-    name: "no-input",
-    type: "boolean",
-    required: false,
-    description: "Fail instead of prompting",
-  },
-  {
-    name: "interactive",
-    type: "boolean",
-    required: false,
-    description: "Prompt for missing required values instead of erroring (-i)",
-  },
-  {
-    name: "project",
-    type: "string",
-    required: false,
-    description: "Which cloud project a `cloud ...` command targets",
-  },
-  {
-    name: "profile",
-    type: "string",
-    required: false,
-    description: "Which saved instance login a non-cloud command targets",
-  },
-  {
-    name: "version",
-    type: "boolean",
-    required: false,
-    description: "Print version (-v)",
-  },
-  {
-    name: "help",
-    type: "boolean",
-    required: false,
-    description: "Show help (-h)",
-  },
-];
-
-const EMPTY_SPEC: CommandSpec = { usage: "", summary: "", args: [], flags: [] };
-
-/** Commands that act on this machine rather than on a PocketBase instance. */
-export const LOCAL_COMMANDS = new Set([
-  "init",
-  "install",
-  "upgrade",
-  "versions",
-  "which",
+export const CLOUD_FAMILIES = new Set([
+  "pocketbase", "frontend", "backend", "env", "environments", "locations",
+  "project", "compute", "server", "deploy", "init", "plan", "cloud",
+  "logs", "ci", "login", "logout", "whoami",
 ]);
+export const LOCAL_FAMILIES = new Set(["local", "self"]);
 
-function specFor(key: string): CommandSpec {
-  return COMMANDS[key] ?? { ...EMPTY_SPEC, usage: `Usage: pbc ${key}` };
+function familyOf(command: string): "cloud" | "local" | "instance" {
+  const root = command.split(" ")[0];
+  if (CLOUD_FAMILIES.has(root)) return "cloud";
+  if (LOCAL_FAMILIES.has(root)) return "local";
+  return "instance";
 }
 
-function formatSection(commands: string[]): string[] {
+function specFor(registry: CommandRegistry, key: string): ManifestEntry {
+  const cmd = registry[key];
+  return cmd
+    ? manifestEntry(cmd)
+    : {
+      usage: `Usage: pbc ${key}`,
+      summary: "",
+      args: [] as ArgSpec[],
+      flags: [],
+      targets: [],
+    };
+}
+
+function formatSection(registry: CommandRegistry, commands: string[]): string[] {
   const width = Math.max(0, ...commands.map((c) => c.length));
   return commands.map((c) => {
-    const desc = COMMANDS[c]?.summary ?? "";
-    if (!desc) return `  ${c}`;
-    return `  ${c}${" ".repeat(width - c.length)}  ${desc}`;
+    const desc = registry[c]?.summary ?? "";
+    return `  ${c}${" ".repeat(width - c.length)}  ${desc}`.trimEnd();
   });
 }
 
-export function buildHelpText(registry: Record<string, Handler>): string {
-  const commands = Object.keys(registry).sort();
-  const cloud = commands.filter((c) => c.startsWith("cloud "));
-  const local = commands.filter((c) => LOCAL_COMMANDS.has(c));
-  const instance = commands.filter(
-    (c) => !c.startsWith("cloud ") && !LOCAL_COMMANDS.has(c),
-  );
+export function buildHelpText(registry: CommandRegistry): string {
+  const commands = canonicalKeys(registry).sort();
+  const cloud = commands.filter((c) => familyOf(c) === "cloud");
+  const local = commands.filter((c) => familyOf(c) === "local");
+  const instance = commands.filter((c) => familyOf(c) === "instance");
 
   return [
     "pbc — PocketBase Cloud CLI",
@@ -94,41 +54,41 @@ export function buildHelpText(registry: Record<string, Handler>): string {
     "  --yes, -y          Skip confirmation prompts",
     "  --no-input         Fail instead of prompting",
     "  --interactive, -i  Prompt for missing required values instead of erroring",
-    "  --project <id>     Which cloud project a `cloud ...` command targets",
-    "                     (defaults to the linked/`use`d project)",
-    "  --profile <name>   Which saved instance login (from `pbc use <url>`)",
-    "                     a non-cloud command targets",
+    "  --project <id>     Narrow which project's resources are considered when",
+    "                     resolving a target (defaults to the linked/`use`d project)",
+    "  --profile <name>   Which saved instance login a command that targets an",
+    "                     instance uses (from `pbc admin use <url>`)",
     "  --version, -v      Print version",
     "  --help, -h         Show this help",
     "",
     ...(local.length > 0
       ? [
         "Local commands (pbc itself, and a PocketBase binary on this machine):",
-        ...formatSection(local),
+        ...formatSection(registry, local),
         "",
       ]
       : []),
-    "Instance commands (a specific PocketBase instance, via `pbc use <url>`):",
-    ...formatSection(instance),
+    "Instance commands (a specific PocketBase instance, via `pbc admin use <url>`):",
+    ...formatSection(registry, instance),
     "",
     "Cloud commands (your PocketBase Cloud account):",
-    ...formatSection(cloud),
+    ...formatSection(registry, cloud),
     "",
     "Run `pbc <command> --help` for details on a specific command.",
   ].join("\n");
 }
 
 export function buildManifest(
-  registry: Record<string, Handler>,
+  registry: CommandRegistry,
 ): {
-  globalFlags: FlagSpec[];
-  commands: (CommandSpec & { command: string })[];
+  globalFlags: (typeof GLOBAL_FLAGS)[number][];
+  commands: (ManifestEntry & { command: string })[];
 } {
   return {
     globalFlags: GLOBAL_FLAGS,
-    commands: Object.keys(registry).sort().map((command) => ({
+    commands: canonicalKeys(registry).sort().map((command) => ({
       command,
-      ...specFor(command),
+      ...specFor(registry, command),
     })),
   };
 }

@@ -16,24 +16,10 @@ import {
 const NPM_PACKAGE = "@pocketbasecloud/cli";
 
 export type SelfDeps = LocalDeps & {
-  /** Absolute path of the binary currently executing. */
   execPath: () => string;
-  /** This machine as a `${process.platform}-${process.arch}` key. */
   hostKey: () => string;
 };
 
-/**
- * How this copy of `pbc` got here, which decides whether it can replace itself.
- *
- * - `standalone` — a compiled binary on PATH, from `install.sh` or a release
- *   archive. Nothing else owns the file, so `pbc upgrade` swaps it directly.
- * - `npm` — running out of `node_modules/@pocketbasecloud/cli-<key>/bin/`.
- *   Overwriting that file would be silently reverted by the next `npm i`, and
- *   the shim pins its platform package to an exact version, so the two have to
- *   move together. npm is the only thing that can do that.
- * - `source` — `deno run`/`deno install`, where `execPath()` is Deno itself.
- *   There is no `pbc` binary to replace; the clone is the install.
- */
 export type InstallKind = "standalone" | "npm" | "source";
 export type InstallInfo = { kind: InstallKind; path: string };
 
@@ -45,7 +31,6 @@ export function detectInstall(execPath: string): InstallInfo {
   return { kind: "standalone", path: execPath };
 }
 
-/** The command that upgrades an install `pbc` cannot upgrade itself. */
 export function manualCommand(
   kind: Exclude<InstallKind, "standalone">,
 ): string {
@@ -58,13 +43,10 @@ export type UpgradeAction = "upgrade" | "up-to-date" | "manual";
 
 export type UpgradePlan = {
   current: string;
-  /** The version that would be installed — the newest, or the one requested. */
   target: string;
   install: InstallInfo;
   action: UpgradeAction;
-  /** True when `target` is strictly newer than `current`. */
   updateAvailable: boolean;
-  /** Set when `action` is "manual". */
   command?: string;
 };
 
@@ -79,12 +61,8 @@ export async function planUpgrade(
   const install = detectInstall(deps.execPath());
   const target = manifest.version;
 
-  // compareSemverDesc sorts newest-first, so a positive result means the
-  // right-hand side is the newer of the two.
   const updateAvailable = compareSemverDesc(VERSION, target) > 0;
 
-  // An explicit version is an instruction, not a suggestion: it may be a
-  // downgrade, and that is a legitimate way to get off a bad release.
   const wants = requested ? target !== VERSION : updateAvailable;
 
   let action: UpgradeAction;
@@ -120,9 +98,7 @@ async function download(
   if (!expected) {
     throw new CliError(
       `The release for pbc ${version} lists no checksum for ${name}, ` +
-        "so the download cannot be verified. Nothing was changed.",
-      1,
-    );
+        "so the download cannot be verified. Nothing was changed.");
   }
 
   let res: Response;
@@ -132,13 +108,11 @@ async function download(
     throw new CliError(
       `Download failed for ${name}: ${
         e instanceof Error ? e.message : String(e)
-      }`,
-      1,
-    );
+      }`);
   }
   if (!res.ok) {
     await res.body?.cancel();
-    throw new CliError(`Download failed (${res.status}) for ${name}.`, 1);
+    throw new CliError(`Download failed (${res.status}) for ${name}.`);
   }
 
   const bytes = new Uint8Array(await res.arrayBuffer());
@@ -146,9 +120,7 @@ async function download(
   if (actual !== expected) {
     throw new CliError(
       `Checksum mismatch for ${name}.\n  expected ${expected}\n  actual   ${actual}\n` +
-        "Nothing was changed. Retry, and if it persists report it upstream.",
-      1,
-    );
+        "Nothing was changed. Retry, and if it persists report it upstream.");
   }
   return bytes;
 }
@@ -159,15 +131,6 @@ function isPermissionError(e: unknown): boolean {
   return /permission denied|not permitted|EACCES|EPERM/i.test(msg);
 }
 
-/**
- * Swaps the running binary for `binary`.
- *
- * On POSIX a running executable cannot be written to (ETXTBSY) but its
- * directory entry can be replaced: `rename` is atomic and the running process
- * keeps the old inode until it exits. Windows forbids renaming *onto* a
- * running image but allows renaming the image itself out of the way, so the
- * old file is moved aside first and deleted if the OS lets go of it.
- */
 export async function replaceBinary(
   deps: SelfDeps,
   target: string,
@@ -183,17 +146,13 @@ export async function replaceBinary(
     if (isPermissionError(e)) {
       throw new CliError(
         `No permission to write to ${dir}.\n` +
-          `Re-run with elevated privileges (e.g. \`sudo pbc upgrade\`), or ` +
+          `Re-run with elevated privileges (e.g. \`sudo pbc self upgrade\`), or ` +
           `reinstall into a directory you own with ` +
-          `\`PBC_INSTALL_DIR=$HOME/.local/bin\`.`,
-        1,
-      );
+          `\`PBC_INSTALL_DIR=$HOME/.local/bin\`.`);
     }
     throw e;
   }
 
-  // A binary that cannot be executed is worse than no upgrade at all, so give
-  // up before anything replaces the working copy.
   try {
     await deps.chmod(tmp, 0o755);
   } catch {
@@ -209,12 +168,9 @@ export async function replaceBinary(
       try {
         await deps.rename(tmp, target);
       } catch (e) {
-        // Put the working binary back rather than leaving nothing on PATH.
         await deps.rename(aside, target).catch(() => {});
         throw e;
       }
-      // The image is still mapped by this process, so this usually fails; the
-      // next upgrade clears it.
       leftBehind = await deps.remove(aside).then(() => undefined).catch(() =>
         aside
       );
@@ -226,11 +182,9 @@ export async function replaceBinary(
     if (isPermissionError(e)) {
       throw new CliError(
         `No permission to replace ${target}.\n` +
-          `Re-run with elevated privileges (e.g. \`sudo pbc upgrade\`), or ` +
+          `Re-run with elevated privileges (e.g. \`sudo pbc self upgrade\`), or ` +
           `reinstall into a directory you own with ` +
-          `\`PBC_INSTALL_DIR=$HOME/.local/bin\`.`,
-        1,
-      );
+          `\`PBC_INSTALL_DIR=$HOME/.local/bin\`.`);
     }
     throw e;
   }
@@ -240,7 +194,6 @@ export async function replaceBinary(
 
 export type UpgradeResult = { path: string; leftBehind?: string };
 
-/** Downloads, verifies, and installs `plan.target`. Only valid for standalone. */
 export async function applyUpgrade(
   deps: SelfDeps,
   plan: UpgradePlan,

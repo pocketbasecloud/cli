@@ -4,9 +4,9 @@ The `pbc` command-line tool for working with **any** PocketBase instance,
 local/remote - and [PocketBase Cloud](https://pocketbasecloud.com), from your
 terminal.
 
-One binary takes a project from `pbc init` on your laptop to a deployed instance
-in the cloud, and manages everything in between: collections, records, API
-rules, backups, hooks, and deployments.
+One binary takes a project from `pbc local init` on your laptop to a deployed
+instance in the cloud, and manages everything in between: collections, records,
+API rules, backups, hooks, and deployments.
 
 > **Renamed in 0.6.0: `pb` is now `pbc`** — the command, the project file
 > (`pb.json` → `pbc.json`), the variables (`PB_TOKEN` → `PBC_TOKEN`, and so on
@@ -20,19 +20,27 @@ rules, backups, hooks, and deployments.
 > and leaves the old where it is. The one thing to do by hand is a repository
 > secret: new workflows read `secrets.PBC_TOKEN`.
 
+> **Renamed in 0.8.0: the command names moved onto their roots.** `pbc cloud pb
+> …` is now `pbc pocketbase …`, `pbc cloud upgrade` is `pbc plan`, `pbc cloud
+> init` is `pbc init`, `pbc cloud logs` is `pbc logs`, `pbc cloud ci init` is
+> `pbc ci init`, and `pbc init|install|versions|which|upgrade` are
+> `pbc local init|install|versions|which` / `pbc self upgrade`. Nothing is left
+> under `pbc cloud`. Every old name still works — the CLI prints the new one
+> once on stderr, then runs the command.
+
 ## Why `pbc`
 
 - **Full lifecycle, one tool.** Scaffold and run PocketBase locally, then deploy
   PocketBase instances, backends, and static sites to the cloud — without
   leaving the shell.
 - **Works with any instance, not just the cloud.** Point `pbc` at any PocketBase
-  URL with `pbc use <url>` to manage collections, records, rules, settings,
-  SMTP/S3, cron jobs, and backups.
+  URL with `pbc admin use <url>` to manage collections, records, rules,
+  settings, SMTP/S3, cron jobs, and backups.
 - **Native, self-contained binary.** Compiled ahead of time — no runtime to
   install when you use the `curl | sh` installer, and a fast cold start.
 - **Built for scripting and CI.** `--json` for machine-readable output, `--yes`
   to skip confirmations, and `--no-input` to fail instead of prompting.
-- **Version-pinned local dev.** `pbc init` / `pbc install` download a specific
+- **Version-pinned local dev.** `pbc local init` / `pbc local install` download a specific
   PocketBase build and record the pin, so your team runs the same version.
 
 ## Install
@@ -66,25 +74,25 @@ Override the location with `PBC_INSTALL_DIR`.
 ### Staying up to date
 
 ```sh
-pbc upgrade --check   # what's installed vs what's published
-pbc upgrade           # update in place
+pbc self upgrade --check   # what's installed vs what's published
+pbc self upgrade           # update in place
 ```
 
-`pbc upgrade` downloads the release archive for your OS and CPU, verifies its
+`pbc self upgrade` downloads the release archive for your OS and CPU, verifies its
 SHA-256 against the release's `checksums.txt`, and replaces the running binary —
 nothing is changed unless the checksum matches. Pass a version to install a
 specific release, including an older one to roll back:
 
 ```sh
-pbc upgrade 0.2.1
+pbc self upgrade 0.2.1
 ```
 
 Only a standalone binary (the `curl | sh` installer above, or a release archive)
 can be replaced in place. An npm install has to be updated with npm, and a
-from-source install by updating its clone; in both cases `pbc upgrade` prints the
+from-source install by updating its clone; in both cases `pbc self upgrade` prints the
 exact command and exits non-zero rather than pretending to succeed.
 
-> `pbc upgrade` updates the CLI. To change your **plan**, use `pbc cloud upgrade`.
+> `pbc self upgrade` updates the CLI. To change your **plan**, use `pbc plan`.
 
 ### From source (Deno)
 
@@ -105,64 +113,54 @@ The shim refers to the clone by absolute path, so keep it where it is.
 **Local development:**
 
 ```sh
-pbc init            # download PocketBase + scaffold a project here
+pbc local init      # download PocketBase + scaffold a project here
 ./pocketbase serve  # start it locally
 ```
 
 **Deploy to PocketBase Cloud:**
 
 ```sh
-pbc cloud login                   # authenticate via browser
-pbc cloud project create my-app   # create a project
-pbc cloud project use my-app      # make it the current one
-pbc cloud deploy                  # detect what's in this directory, deploy it
-pbc cloud logs pb                 # stream its logs
+pbc login                     # authenticate via browser
+pbc project create my-app     # create a project
+pbc project use my-app        # make it the current one
+pbc deploy                    # detect what's in this directory, deploy it
+pbc logs pocketbase     # stream its logs
 ```
 
 **Manage any running instance:**
 
 ```sh
-pbc use https://my-instance.example.com   # select an instance
-pbc login                                 # log in as superuser
-pbc collections ls                        # list collections
-pbc records ls posts                      # list records
-pbc settings backup create                # back it up
+pbc admin use https://my-instance.example.com   # select an instance
+pbc admin login                                # log in as superuser
+pbc admin collections ls                       # list collections
+pbc admin records ls posts                     # list records
+pbc admin settings backup create               # back it up
 ```
 
-## Linking local ↔ cloud
+## Binding a directory to a cloud resource
 
-Give each PocketBase, frontend, or backend its own directory, and link that
-directory to its cloud resource once. Afterwards `deploy`, `info`, `rm`, `logs`,
-and `env` run there with no `--name`/`--id`:
+Give each PocketBase, frontend, or backend its own directory, and the first
+deploy records the binding. Afterwards `deploy`, `info`, `rm`, `logs`, and
+`env` run there with no `--name`/`--id`:
 
 ```sh
 cd frontend
-pbc cloud link frontend web   # bind ./ to the frontend named "web"
-pbc cloud frontend deploy     # no flags — redeploys the bound frontend
-pbc cloud frontend info       # no flags — describes it
-pbc cloud unlink              # detach (the cloud resource is untouched)
+pbc frontend deploy --new web   # create "web", bind ./ to it
+pbc frontend deploy     # no flags — redeploys the bound frontend
+pbc frontend info       # no flags — describes it
 ```
 
-(`logs` still takes its kind — `pbc cloud logs pb` or `pbc cloud logs backend` —
+There is no link command — the file is the link. Deploys write the binding
+themselves; `pbc frontend rm` clears it. To detach a directory without touching
+the cloud resource, edit `pbc.json` by hand.
+
+(`logs` still takes its kind — `pbc logs pocketbase` or `pbc logs backend` —
 because it is one command over two resource types. Frontends are static files
 and have no logs.)
 
-`pbc cloud link` never creates or changes anything in the cloud — it only writes
-the binding. Run it with no arguments to pick from every resource in the
-project, or with a kind (`pb`, `frontend`, `backend`) to narrow the list:
-
-```sh
-pbc cloud link                # pick from all resources
-pbc cloud link frontend       # pick from frontends only
-```
-
-Deploying also records the binding, so the first deploy of a new resource links
-the directory too, and `pbc cloud frontend rm` clears it.
-
 The binding lives in `pbc.json`. Each file carries its own `projectId`, so
-directories stay independent — and every `pbc cloud …` command run under one
-resolves to that project automatically (the file is found by walking up parent
-directories):
+directories stay independent — and every command run under one resolves to that
+project automatically (the file is found by walking up parent directories):
 
 ```jsonc
 // frontend/pbc.json
@@ -177,7 +175,7 @@ directories):
 ```
 
 To set a default project for directories that aren't linked, use
-`pbc cloud project use <name|id>`.
+`pbc project use <name|id>`.
 
 ### Environments
 
@@ -207,21 +205,20 @@ only what differs:
 Pick one with `--env`; without it, commands use `defaultEnvironment`:
 
 ```sh
-pbc cloud frontend deploy                             # production
-pbc cloud frontend deploy --env staging               # staging
-pbc cloud frontend deploy --env staging --name web-staging   # create it
-PBC_ENV=staging pbc cloud frontend deploy             # for a whole shell (CI)
+pbc frontend deploy                             # production
+pbc frontend deploy --env staging               # staging
+pbc frontend deploy --env staging --new web-staging   # create it
+PBC_ENV=staging pbc frontend deploy             # for a whole shell (CI)
 ```
 
 A `--env` naming an environment the file does not have is an error everywhere
-except `deploy`, which creates it — and, like a first deploy, wants a `--name`
-to create it under. `pbc cloud link … --env staging` binds an environment to a
-resource that already exists.
+except `deploy`, which creates it — and, like a first deploy, wants a `--new`
+to name the resource it creates.
 
 `--env` works the same way on `info`, `rm`, `logs`, and `env`, so
-`pbc cloud env set API_KEY=… --target backend --env staging` writes to staging
-only. `pbc cloud environments` lists what the file records, and
-`pbc cloud unlink --env staging` forgets one (`--all` forgets them all).
+`pbc env set API_KEY=… --target backend --env staging` writes to staging
+only. `pbc environments` lists what the file records; delete an environment's
+entry from `pbc.json` to forget it.
 
 ## Building and deploying
 
@@ -229,13 +226,13 @@ only. `pbc cloud environments` lists what the file records, and
 
 ```sh
 cd web
-pbc cloud deploy --name web            # detects the kind, then does all that
-pbc cloud frontend deploy --name web   # the same deploy, kind named yourself
+pbc deploy --new web            # detects the kind, then does all that
+pbc frontend deploy --new web   # the same deploy, kind named yourself
 ```
 
 ### One deploy command for all three
 
-`pbc cloud deploy` works out whether the directory holds a PocketBase instance,
+`pbc deploy` works out whether the directory holds a PocketBase instance,
 a static site, or a backend, and runs that kind's deploy. Nothing else changes:
 every flag the three commands take works here and is passed straight through,
 so the deploy that runs is the one you would have typed.
@@ -243,15 +240,15 @@ so the deploy that runs is the one you would have typed.
 It says what it decided, and on the strength of which file:
 
 ```
-$ pbc cloud deploy
-Detected a frontend (vite.config.ts) — running `pbc cloud frontend deploy`.
+$ pbc deploy
+Detected a frontend (vite.config.ts) — running `pbc frontend deploy`.
 ```
 
 The answer comes from the first of these that applies:
 
 | # | Evidence | Kind |
 | - | -------- | ---- |
-| 1 | the `kind` in `pbc.json` (written by a previous deploy or `pbc cloud link`) | as recorded |
+| 1 | the `kind` in `pbc.json` (written by a previous deploy) | as recorded |
 | 2 | `pb_hooks/`, `pb_migrations/`, or `pb_public/` | PocketBase |
 | 3 | `next.config.*` with `output: "export"` … | frontend |
 |   | … `next.config.*` with anything else | backend |
@@ -271,16 +268,40 @@ A leading kind word overrides the detection outright, which is also how you
 deploy a directory that matches none of the rules:
 
 ```sh
-pbc cloud deploy backend        # deploy as a backend, whatever is here
-pbc cloud deploy frontend web   # …and call the new resource "web"
+pbc deploy backend        # deploy as a backend, whatever is here
+pbc deploy frontend web   # …and redeploy the existing "web"
 ```
 
 When nothing points either way, a terminal is asked; `--no-input` and `--json`
 get an error naming the three explicit commands instead of a prompt.
 
+### Which resource a command acts on
+
+A `pbc <kind> <verb>` names a resource, and everything else — its project,
+environment, compute — comes back with it. The resolution order:
+
+1. **The `pbc.json` link** in this directory (or an ancestor) — used with no
+   flags, printed so it is visible.
+2. **A name you pass** — `pbc pocketbase deploy api-db`, or `acme-prod/api-db`
+   when two projects share the name. Resolved across every project; `--project`
+   only narrows the search, it is never required.
+3. **`--new <name>`** on `deploy` — creates. `--name` never creates: a name
+   that matches nothing is an error suggesting the nearest one, or `--new`.
+4. **A menu**, on a terminal, listing every candidate plus "create new".
+5. **An error** naming all three ways out, under `--no-input` / `--json` / no
+   TTY.
+
+Read verbs (`info`, `logs`, `domain status`) use the one obvious candidate;
+write verbs (`deploy`, `rm`, `env set`, `domain add`) always want a link, a
+name, or a menu answer — "it was the only one" is not intent. `--yes` skips a
+confirmation, it never picks a target.
+
+**The CI contract:** a pipeline either commits `pbc.json` or names the target
+on the command line. It can never inherit one from the shape of the account.
+
 How to build and what to package lives in a `build` block in `pbc.json`. You
 never have to write it — the first deploy infers it from the directory, prints
-what it found, and records it. Run `pbc cloud init` to do that step on its own
+what it found, and records it. Run `pbc init` to do that step on its own
 and review the guess before anything ships:
 
 ```jsonc
@@ -354,7 +375,7 @@ you had no reason to write, and it prints the change. It writes a
 `node server.js`.
 
 A config setting `output: "export"` is refused rather than rewritten: that is a
-static site, so deploy it with `pbc cloud frontend deploy`.
+static site, so deploy it with `pbc frontend deploy`.
 
 ```jsonc
 // api/pbc.json
@@ -371,11 +392,11 @@ Pro plan. One compute is used without asking, several are offered as a menu, and
 `--no-input` and `--json` will not choose for you. Redeploying never moves a
 backend to another compute.
 
-The same applies to `pbc cloud pb deploy` and `pbc cloud frontend deploy`: they
+The same applies to `pbc pocketbase deploy` and `pbc frontend deploy`: they
 pick a compute whenever there is one to pick — on Pro, and in a project shared
 with an organization. On the free and starter plans the platform places the
 deploy in its shared pool by capacity, so `--compute` is unnecessary there.
-`pbc cloud compute ls` lists the ids the flag accepts. (`--server` is the flag's
+`pbc compute ls` lists the ids the flag accepts. (`--server` is the flag's
 former name and still works.)
 
 ### PocketBase
@@ -395,7 +416,7 @@ anywhere:
 ```
 
 They are packaged and shipped when the instance is **created**. The platform
-reads that archive only at creation, so a later `pbc cloud pb deploy` pushes the
+reads that archive only at creation, so a later `pbc pocketbase deploy` pushes the
 `.js` and `.json` files in `pb_hooks/` instead and tells you that `pb_public`
 and `pb_migrations` were left as they are.
 
@@ -414,7 +435,7 @@ production. The first deploy of an environment asks once and records the answer
 in `pbc.json`:
 
 ```sh
-$ pbc cloud pb deploy --env prod
+$ pbc pocketbase deploy --env prod
 
 No env file configured for environment "prod".
   1) Don't push env vars
@@ -437,11 +458,11 @@ No env file configured for environment "prod".
 question is never asked again. Edit `pbc.json` to change any of them.
 
 ```sh
-pbc cloud backend deploy                        # pushes what pbc.json configures
-pbc cloud backend deploy --env-file .env.prod   # names it outright
-pbc cloud backend deploy --skip-env             # pushes nothing this run
-pbc cloud backend deploy --delete-missing       # the file is the whole truth
-pbc cloud backend deploy --force-env            # push even if nothing changed
+pbc backend deploy                        # pushes what pbc.json configures
+pbc backend deploy --env-file .env.prod   # names it outright
+pbc backend deploy --skip-env             # pushes nothing this run
+pbc backend deploy --delete-missing       # the file is the whole truth
+pbc backend deploy --force-env            # push even if nothing changed
 ```
 
 `--env-file` is also recorded, but only for an environment that has no `envFile`
@@ -479,41 +500,41 @@ One directory per resource, each linked once. They can all live in the same repo
 and the same cloud project:
 
 ```sh
-pbc cloud login
-pbc cloud project create my-app
-pbc cloud project use my-app
+pbc login
+pbc project create my-app
+pbc project use my-app
 
-cd db  && pbc cloud pb deploy --name my-app-db        # PocketBase + hooks + migrations
-cd ../api && pbc cloud backend deploy --name my-app-api  # Pro plan only
-cd ../web && pbc cloud frontend deploy --name my-app-web
+cd db  && pbc pocketbase deploy --new my-app-db        # PocketBase + hooks + migrations
+cd ../api && pbc backend deploy --new my-app-api  # Pro plan only
+cd ../web && pbc frontend deploy --new my-app-web
 ```
 
 Each deploy prints what it packaged, records the binding in that directory's
 `pbc.json`, and asks once which dotenv file this environment uses. From then on a bare
-`pbc cloud <kind> deploy` in the same directory redeploys it.
+`pbc <kind> deploy` in the same directory redeploys it.
 
 ### Create a database with nothing in it
 
-`pbc cloud pb create` provisions an instance and stops there — no build, no
+`pbc pocketbase create` provisions an instance and stops there — no build, no
 archive, nothing uploaded. It is the command for a script, a CI step, or the
 moment before there is anything to deploy:
 
 ```sh
-pbc cloud pb create my-app-db                  # asks for the name if you omit it
-pbc cloud pb create my-app-db --json           # id, URL and the generated login
+pbc pocketbase create my-app-db                  # asks for the name if you omit it
+pbc pocketbase create my-app-db --json           # id, URL and the generated login
 ```
 
-The superuser password is generated and printed once (`pbc cloud pb info`
+The superuser password is generated and printed once (`pbc pocketbase info`
 recovers it). A name already used in the project is refused rather than
-duplicated — redeploy that one with `pbc cloud pb deploy --name my-app-db`.
+duplicated — redeploy that one with `pbc pocketbase deploy --name my-app-db`.
 
 The instance is recorded in the directory's `pbc.json` exactly as a deploy would
 record it, so shipping files to it later takes no flags:
 
 ```sh
-pbc cloud pb create my-app-db   # in the directory the project will live in
+pbc pocketbase create my-app-db   # in the directory the project will live in
 # …add pb_hooks/, pb_migrations/, pb_public/
-pbc cloud pb deploy             # no --name: the binding is already there
+pbc pocketbase deploy             # no --name: the binding is already there
 ```
 
 `--env <name>` records it under another environment (default: `production`, or
@@ -521,7 +542,7 @@ whatever the file's default is). A directory bound to frontends or backends is
 refused, and so is an environment that already names an instance — repointing
 it would leave the old one with nothing pointing at it.
 
-`pbc cloud pb deploy` creates an instance too, and creates it **empty** when the
+`pbc pocketbase deploy` creates an instance too, and creates it **empty** when the
 directory holds no `pb_public`, `pb_hooks` or `pb_migrations` — it sends no
 archive at all and says so, rather than reporting a silent success. So neither
 command requires you to have files ready; `create` is the one that never builds
@@ -531,10 +552,10 @@ or uploads anything.
 
 ```sh
 cd web
-pbc cloud frontend deploy --name web-staging --env staging  # first deploy creates + links
-pbc cloud environments                                      # show what this directory targets
-pbc cloud frontend deploy --name web --env production       # --name: production isn't linked yet
-pbc cloud frontend deploy --env production                  # from now on, no flags
+pbc frontend deploy --new web-staging --env staging   # first deploy creates + links
+pbc environments                                      # show what this directory targets
+pbc frontend deploy --new web --env production        # production isn't linked yet
+pbc frontend deploy --env production                  # from now on, no flags
 ```
 
 ### Update a running instance
@@ -547,43 +568,42 @@ wholesale, and new migrations applied by the restart that follows:
 
 ```sh
 cd db
-pbc cloud pb deploy            # hooks + pb_migrations + pb_public
-pbc cloud pb hooks ls          # what the instance has
-pbc cloud pb hooks rm old.pb.js
+pbc pocketbase deploy            # hooks + pb_migrations + pb_public
+pbc pocketbase hooks ls          # what the instance has
+pbc pocketbase hooks rm old.pb.js
 ```
 
 ### Work with data on a deployed instance
 
-`pbc use` points the instance commands at any PocketBase, cloud-hosted or not:
+`pbc admin use` points the instance commands at any PocketBase, cloud-hosted or not:
 
 ```sh
-pbc cloud pb info --name my-app-db          # URL + generated superuser login
-pbc use https://<id>.<key>.pocketbasecloud.com
-pbc login                                    # superuser
+pbc pocketbase info --name my-app-db          # URL + generated superuser login
+pbc admin use https://<id>.<key>.pocketbasecloud.com
+pbc admin login                              # superuser
 
-pbc collections create '{"name":"tasks","fields":[
+pbc admin collections create '{"name":"tasks","fields":[
   {"name":"title","type":"text","required":true},
   {"name":"done","type":"bool"}]}'
-pbc records create tasks '{"title":"first"}'
-pbc rules set tasks --list-rule '@request.auth.id != ""'
+pbc admin records create tasks '{"title":"first"}'
+pbc admin rules set tasks --list-rule '@request.auth.id != ""'
 ```
 
 ### Back up, export, restore
 
 ```sh
-pbc settings backup create              # snapshot on the instance
-pbc settings backup ls
-pbc settings backup download <key> --out backup.zip
-pbc cloud data export --name my-app-db --out data.zip   # via the platform
+pbc admin settings backup create              # snapshot on the instance
+pbc admin settings backup ls
+pbc admin settings backup download <key> --out backup.zip
 ```
 
 ### Manage environment variables
 
 ```sh
-pbc cloud env ls --target backend --name my-app-api
-pbc cloud env set API_KEY=secret --target backend --name my-app-api
-pbc cloud env import .env.production --target backend --name my-app-api
-pbc cloud env import .env.production --target backend --name my-app-api \
+pbc env ls --target backend --name my-app-api
+pbc env set API_KEY=secret --target backend --name my-app-api
+pbc env import .env.production --target backend --name my-app-api
+pbc env import .env.production --target backend --name my-app-api \
   --delete-missing                 # the file is the whole truth
 ```
 
@@ -593,15 +613,15 @@ them in plaintext.
 An import merges by default: keys in the file are written, keys only in the
 cloud are left alone. `--delete-missing` removes those cloud-only keys instead,
 so the instance ends up with exactly what the file lists. The same flag works on
-`pbc cloud pb deploy` and `pbc cloud backend deploy`, which push the environment's
+`pbc pocketbase deploy` and `pbc backend deploy`, which push the environment's
 configured dotenv file as part of a deploy.
 
 ### Diagnose a deploy that went wrong
 
 ```sh
-pbc cloud pb ls                       # statuses at a glance
-pbc cloud pb info --name my-app-db    # status, URL, compute, admin login
-pbc cloud logs backend --name my-app-api -f   # follow container logs
+pbc pocketbase ls                       # statuses at a glance
+pbc pocketbase info --name my-app-db    # status, URL, compute, admin login
+pbc logs backend --name my-app-api -f   # follow container logs
 ```
 
 If a deploy times out, the resource was still created — the error names the
@@ -626,23 +646,35 @@ so while the platform has yet to verify it:
 An unverified one reads `(custom domain — pending)`, which is the answer to
 "the deploy worked, so why does my domain show nothing?".
 
-### Share a project with a team
+### Custom domains
+
+Every deployable kind — PocketBase, backend, frontend — takes the same four
+verbs:
 
 ```sh
-pbc cloud org create acme
-pbc cloud org share my-app --org <orgId>
-pbc cloud org members add <orgId> teammate@example.com
-pbc cloud org share my-app --none          # stop sharing
+pbc pocketbase domain add app.mysite.com --name my-app-db
+pbc pocketbase domain verify --name my-app-db
+pbc pocketbase domain status --name my-app-db        # is it reachable yet?
+pbc pocketbase domain remove --name my-app-db
+
+pbc backend domain add api.mysite.com --name my-app-api
+pbc frontend domain add www.mysite.com --name my-app-web
 ```
 
-Everyone in the organization deploys against the **owner's** plan and onto the
-owner's compute, so a member on the free plan can deploy backends into a shared
-project whose owner is on Pro — and give them custom domains. Deleting a
-resource stays with its owner.
+`domain status` reports whether the platform can reach the domain and exits `0`
+either way — the answer is in the output (`data.reachable`), not the exit code.
+
+### Share a project with a team
+
+Sharing happens in the portal — create an organization there, and add the
+project to it. Everyone in the organization deploys against the **owner's**
+plan and onto the owner's compute, so a member on the free plan can deploy
+backends into a shared project whose owner is on Pro — and give them custom
+domains. Deleting a resource stays with its owner.
 
 ### Run in CI (no browser, no prompts)
 
-**Setting up GitHub Actions? Run `pbc cloud ci init`** — it writes the workflow
+**Setting up GitHub Actions? Run `pbc ci init`** — it writes the workflow
 file for you, wired to the official
 [`pocketbasecloud/cli/action`](./action) (installs `pbc`, deploys, masks a
 PocketBase deploy's admin credentials before anything reads the JSON). See
@@ -650,23 +682,38 @@ PocketBase deploy's admin credentials before anything reads the JSON). See
 for the walkthrough.
 
 The mechanics, for any other CI: authenticate with a token instead of
-`pbc cloud login`, and make every command fail rather than ask:
+`pbc login`, and make every command fail rather than ask:
 
 ```sh
 export PBC_TOKEN=…            # a PocketBase Cloud user token
 
-pbc cloud whoami --json                       # preflight
-pbc cloud frontend deploy --no-input --json   # never prompts; JSON on stdout
+pbc whoami --json                             # preflight
+pbc frontend deploy --no-input --json   # never prompts; JSON on stdout
 ```
 
 `PBC_TOKEN` is all a CI job sets: the CLI always talks to PocketBase Cloud's own
 hosts.
 
-`--json` prints machine-readable output on stdout and keeps build output on
-stderr, so `pbc … --json | jq` is safe. Errors are `{"error":"…"}` on stderr with
-a non-zero exit: `2` usage, `3` not permitted (plan or slot limits), `4` not
-authenticated, `5` timed out, `6` the resource finished in a failed state, `7`
-your build command failed.
+`--json` prints exactly one JSON object on stdout — progress, spinners and
+prompts always go to stderr, so `pbc … --json | jq` is safe. Every result is
+an envelope:
+
+```json
+{ "ok": true,  "schemaVersion": 1, "data": { "…": "…" } }
+
+{ "ok": false, "schemaVersion": 1,
+  "error": { "code": "NOT_AUTHENTICATED", "message": "…",
+             "hint": "pbc login", "retryable": false } }
+```
+
+`error.hint` is a runnable next step where one exists. Exit codes:
+
+| Code | Meaning | Code | Meaning |
+| --- | --- | --- | --- |
+| 0 | ok | 5 | forbidden / plan limit |
+| 2 | usage — bad flag, no target | 6 | conflict |
+| 3 | not found | 7 | platform error |
+| 4 | auth | 8 | timeout |
 
 Environments, monorepos, PR previews, and every error a pipeline hits are in
 the **[full CI/CD reference](https://pocketbasecloud.com/docs/ci-cd/reference)**.
@@ -677,8 +724,8 @@ Deploys use the newest published release unless told otherwise. Pin one to keep
 cloud and local identical:
 
 ```sh
-pbc install 0.39.9                       # local binary + records the pin in pbc.json
-pbc cloud pb deploy --pb-version 0.39.9  # or set it per deploy
+pbc local install 0.39.9                       # local binary + records the pin in pbc.json
+pbc pocketbase deploy --pb-version 0.39.9  # or set it per deploy
 ```
 
 ### Keep `pbc` itself current
@@ -687,37 +734,40 @@ pbc cloud pb deploy --pb-version 0.39.9  # or set it per deploy
 prints a single line on stderr while one is available:
 
 ```
-Update available: pbc 0.2.3 → 0.2.4. Run `pbc upgrade`.
+Update available: pbc 0.2.3 → 0.2.4. Run `pbc self upgrade`.
 ```
 
 The command it suggests matches how this copy was installed.
 
 The answer is cached, so the line normally appears **before** the command — it
 costs a file read, which is what lets a command that never returns
-(`pbc cloud logs --follow`) show it at all. On the once-a-day refresh there is
+(`pbc logs --follow`) show it at all. On the once-a-day refresh there is
 nothing to say yet, so the check runs **after** the command instead and the line
 appears at the end. Either way it never delays the work, and never appears
 twice.
 
 The check is skipped under `--json`, when `CI` is set, and when output is
 redirected — so it never lands in a pipe or a log. `PBC_NO_UPDATE_CHECK=1` turns
-it off entirely, and `pbc upgrade --check` asks on demand.
+it off entirely, and `pbc self upgrade --check` asks on demand.
 
 ## What you can do
 
 Run `pbc --help`, or `pbc <command> --help` for details on any command.
 
-- **Local** — `init`, `install`, `versions`, `which`: manage a pinned PocketBase
-  binary and scaffold projects. `upgrade` updates `pbc` itself.
-- **Instance** (`pbc use <url>`) — `collections`, `records`, `rules`, `auth`,
-  `settings` (incl. `mail`/`s3`/`backup`), `cron`, `logs`: operate any
-  PocketBase instance.
-- **Cloud** (`pbc cloud ...`) — `login`, `whoami`, `init`, `link`/`unlink`,
-  `environments`, `project`, `pb`, `backend`, `frontend`, `env`, `logs`, `org`,
-  `compute ls`, `data export`, `upgrade`, custom domains: manage your PocketBase
-  Cloud account and deployments. (`data import` is not implemented — the
-  platform's import needs a target collection and a field mapping, so use the
-  portal's import dialog.)
+- **Local** — `local init`, `local install`, `local versions`, `local which`:
+  manage a pinned PocketBase binary and scaffold projects. `self upgrade`
+  updates `pbc` itself.
+- **Instance** (`pbc admin use <url>`) — `admin collections`, `admin records`,
+  `admin rules`, `admin auth`, `admin settings` (incl. `mail`/`s3`/`backup`),
+  `admin cron`, `admin requests`: operate any PocketBase instance.
+- **Cloud** — `login`, `logout`, `whoami`, `pocketbase`, `frontend`, `backend`,
+  `deploy`, `init`, `project`, `env`, `environments`,
+  `compute`/`server`/`locations`, `logs`, `ci init`, custom domains: manage your
+  PocketBase Cloud account and deployments. `plan` changes your plan. `logs`
+  streams a deployed resource's logs (the instance's own request log is
+  `admin requests`); `ci init` writes a GitHub Actions workflow. Data
+  import/export is on the portal UI — use `admin settings backup` for data from
+  the CLI.
 
 ## Supported platforms
 

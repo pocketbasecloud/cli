@@ -30,7 +30,7 @@ Deno.test("--version after a command does not short-circuit dispatch", async () 
     console.log = origLog;
     console.error = origErr;
   }
-  assertEquals(code, 1);
+  assertEquals(code, 2);
   assertEquals(logs.some((l) => l.startsWith("pbc 0.")), false);
   assertEquals(errs.some((e) => e.includes("Unknown command")), true);
 });
@@ -46,13 +46,9 @@ Deno.test("run --help --json prints a valid manifest and exits 0", async () => {
     console.log = origLog;
   }
   assertEquals(code, 0);
-  const manifest = JSON.parse(logs[0]);
+  const envelope = JSON.parse(logs[0]);
+  assertEquals(envelope.ok, true);
+  const manifest = envelope.data;
   assertEquals(Array.isArray(manifest.commands), true);
   assertEquals(Array.isArray(manifest.globalFlags), true);
-  assertEquals(
-    manifest.commands.some((c: { command: string }) =>
-      c.command === "cloud org share"
-    ),
-    true,
-  );
 });

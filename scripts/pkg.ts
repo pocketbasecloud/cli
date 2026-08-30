@@ -6,7 +6,6 @@ import {
   TARGETS,
 } from "./targets.ts";
 
-/** The shim both command names point at. */
 export const SHIM_FILE = `${CLI_NAME}.js`;
 
 export function buildPlatformPackageJson(
@@ -28,8 +27,6 @@ export function buildPlatformPackageJson(
 export function buildMainPackageJson(version: string): Record<string, unknown> {
   const optionalDependencies: Record<string, string> = {};
   for (const t of TARGETS) {
-    // Exact pin — a caret range would let npm pair a new shim with an older
-    // binary after a partial publish.
     optionalDependencies[`@pocketbasecloud/cli-${t.key}`] = version;
   }
   return {
@@ -37,9 +34,6 @@ export function buildMainPackageJson(version: string): Record<string, unknown> {
     version,
     description: "CLI for PocketBase Cloud and local PocketBase development.",
     license: "MIT",
-    // Two names, one shim: `pbc` is the CLI's name, and `pb` is what it was
-    // called before 0.6.0. npm links both, so an existing `pb ...` script or
-    // CI step keeps working after an upgrade.
     bin: {
       [CLI_NAME]: `bin/${SHIM_FILE}`,
       [LEGACY_CLI_NAME]: `bin/${SHIM_FILE}`,

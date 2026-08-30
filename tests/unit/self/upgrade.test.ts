@@ -16,15 +16,11 @@ import { buildZip } from "../../mocks/zip.mock.ts";
 const enc = new TextEncoder();
 const BODY = enc.encode("#!/fake/pb binary\n");
 
-/** A version guaranteed newer than whatever VERSION currently is. */
 function newer(): string {
   const [maj, min, patch] = VERSION.split("-")[0].split(".").map(Number);
   return `${maj}.${min}.${patch + 1}`;
 }
-/** Older than any plausible release, so downgrade tests survive a version bump. */
 const OLDER = "0.0.1";
-
-// --- detectInstall ---------------------------------------------------------
 
 Deno.test("detectInstall recognises a standalone binary", () => {
   assertEquals(detectInstall("/usr/local/bin/pb"), {
@@ -69,8 +65,6 @@ Deno.test("manualCommand names the tool that owns the install", () => {
   assertStringIncludes(manualCommand("source"), "deno install");
 });
 
-// --- harness ---------------------------------------------------------------
-
 type Harness = {
   deps: SelfDeps;
   files: Map<string, Uint8Array>;
@@ -83,7 +77,6 @@ function harness(opts: {
   execPath?: string;
   host?: string;
   archive?: Uint8Array;
-  /** Digest published for the asset; defaults to the archive's real one. */
   digest?: string;
   manifestStatus?: number;
   assetStatus?: number;
@@ -107,7 +100,6 @@ function harness(opts: {
         }
         const digest = opts.digest ??
           (opts.archive ? await sha256Hex(opts.archive) : "0".repeat(64));
-        // Every platform's asset is listed, as in a real release.
         const lines = [
           `${digest}  pb_${release}_linux_x64.tar.gz`,
           `${digest}  pb_${release}_linux_arm64.tar.gz`,
@@ -160,8 +152,6 @@ function harness(opts: {
   return { deps, files, ops, urls };
 }
 
-// --- planUpgrade -----------------------------------------------------------
-
 Deno.test("planUpgrade reports up-to-date when the release matches", async () => {
   const { plan } = await planUpgrade(harness({ release: VERSION }).deps);
   assertEquals(plan.action, "up-to-date");
@@ -213,7 +203,6 @@ Deno.test("planUpgrade treats an explicit older version as a deliberate downgrad
   });
   assertEquals(plan.action, "upgrade");
   assertEquals(plan.target, OLDER);
-  // The user asked to move, but nothing newer than VERSION exists.
   assertEquals(plan.updateAvailable, false);
 });
 
@@ -241,8 +230,6 @@ Deno.test("planUpgrade still defers under --force when npm owns the install", as
   );
   assertEquals(plan.action, "manual");
 });
-
-// --- replaceBinary ---------------------------------------------------------
 
 Deno.test("replaceBinary writes a temp file, chmods it, then renames into place", async () => {
   const h = harness();
@@ -284,7 +271,7 @@ Deno.test("replaceBinary explains an unwritable install directory", async () => 
     CliError,
     "No permission to write to /usr/local/bin",
   );
-  assertStringIncludes(e.message, "sudo pbc upgrade");
+  assertStringIncludes(e.message, "sudo pbc self upgrade");
 });
 
 Deno.test("replaceBinary cleans up the temp file when the rename fails", async () => {
@@ -308,8 +295,6 @@ Deno.test("replaceBinary rethrows a non-permission failure unchanged", async () 
     "disk full",
   );
 });
-
-// --- applyUpgrade ----------------------------------------------------------
 
 Deno.test("applyUpgrade downloads, verifies, extracts, and installs a tar.gz", async () => {
   const archive = await buildTarGz([{ name: "pb", body: BODY }]);

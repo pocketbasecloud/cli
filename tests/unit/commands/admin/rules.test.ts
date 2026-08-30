@@ -21,11 +21,13 @@ Deno.test("rules set updates only provided rules and clears on 'null'", async ()
   const client = createMockAdminClient();
   await client.createCollection({ name: "posts" });
   const cmds = makeRulesCommands(deps(client));
-  const code = await cmds["rules set"]({
-    args: ["posts"],
-    flags: { json: true, yes: true, noInput: true, interactive: false },
-    raw: { "list-rule": "@request.auth.id != ''", "delete-rule": "null" },
-  });
+  const code = await cmds["admin rules set"].run(
+    { listRule: "@request.auth.id != ''", deleteRule: "null" },
+    {
+      args: ["posts"],
+      flags: { json: true, yes: true, noInput: true, interactive: false },
+    },
+  );
   assertEquals(code, 0);
   const [, data] = client.calls.updateCollection[0];
   assertEquals(data.listRule, "@request.auth.id != ''");

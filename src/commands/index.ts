@@ -1,15 +1,16 @@
-import type { Handler } from "../router.ts";
+import type { CommandRegistry } from "../command.ts";
+import { applyLegacyAliases } from "../legacy.ts";
 import { makeAuthCommands } from "./auth.ts";
 import { type CloudCmdDeps, makeProjectCommands } from "./project.ts";
 import { makePbCommands } from "./pb.ts";
+import { makeResourceCommands } from "./resource.ts";
+import { ALL_KINDS } from "../kinds.ts";
 import { makeFrontendCommands } from "./frontend.ts";
 import { makeBackendCommands } from "./backend.ts";
 import { makeDeployCommands } from "./deploy.ts";
 import { makeEnvCommands } from "./env.ts";
 import { makeEnvironmentsCommands } from "./environments.ts";
-import { makeDataCommands } from "./data.ts";
 import { makeLogsCommands } from "./logs.ts";
-import { makeOrgCommands } from "./org.ts";
 import { makeServerCommands } from "./server.ts";
 import { makeLocationCommands } from "./locations.ts";
 import { makeUpgradeCommands } from "./upgrade.ts";
@@ -48,7 +49,10 @@ export function buildCloudDeps(): CloudCmdDeps {
     requireAuth: async () => {
       const config = await loadConfig();
       const auth = resolveCloudAuth(config);
-      if (!auth) throw new CliError("Not logged in. Run `pbc cloud login`.", 4);
+      if (!auth) throw new CliError(
+        "Not logged in. Run `pbc login`.",
+        { code: "NOT_AUTHENTICATED" },
+      );
       return { client: new PocketBaseCloudClient(auth), config, auth };
     },
     loadConfig,
@@ -63,11 +67,17 @@ export function buildAdminDeps(): AdminCmdDeps {
       const config = await loadConfig();
       const name = activeProfileName(config);
       if (!name || !config.profiles[name]) {
-        throw new CliError("No instance selected. Run `pbc use <url>`.", 2);
+        throw new CliError(
+          "No instance selected. Run `pbc admin use <url>`.",
+          { code: "USAGE" },
+        );
       }
       const profile = config.profiles[name];
       if (!profile.superuserToken) {
-        throw new CliError("Not logged in. Run `pbc login`.", 4);
+        throw new CliError(
+          "Not logged in. Run `pbc admin login`.",
+          { code: "NOT_AUTHENTICATED" },
+        );
       }
       return {
         client: new PocketBaseAdminClient(profile.url, profile.superuserToken),
@@ -112,51 +122,54 @@ export function buildSelfDeps(): SelfDeps {
   };
 }
 
-export function registerCommands(registry: Record<string, Handler>): void {
+export function registerCommands(registry: CommandRegistry): void {
   const cloud = buildCloudDeps();
   const admin = buildAdminDeps();
   const pb = makePbCommands(cloud);
   const frontend = makeFrontendCommands(cloud);
   const backend = makeBackendCommands(cloud);
-  Object.assign(
-    registry,
-    makeAuthCommands({
+
+  const declared: CommandRegistry = {
+    ...makeAuthCommands({
       loadConfig,
       saveConfig,
       makeClient: (a) => new PocketBaseCloudClient(a),
       login: (o) => browserLogin(o),
       portalUrl: portalUrl(),
     }),
-    makeProjectCommands(cloud),
-    pb,
-    frontend,
-    backend,
-    // Dispatches to the three above rather than deploying anything itself, so
-    // `pbc cloud deploy` and `pbc cloud <kind> deploy` can never drift apart.
-    makeDeployCommands(cloud, {
-      pocketbases: pb["cloud pb deploy"],
-      frontends: frontend["cloud frontend deploy"],
-      backends: backend["cloud backend deploy"],
+    ...Object.assign(
+      {},
+      ...ALL_KINDS.map((spec) => makeResourceCommands(cloud, spec)),
+    ),
+    ...pb,
+    ...frontend,
+    ...backend,
+    ...makeDeployCommands(cloud, {
+      pocketbases: pb["pocketbase deploy"],
+      frontends: frontend["frontend deploy"],
+      backends: backend["backend deploy"],
     }),
-    makeEnvCommands(cloud),
-    makeEnvironmentsCommands(cloud),
-    makeDataCommands(cloud),
-    makeLogsCommands(cloud),
-    makeOrgCommands(cloud),
-    makeServerCommands(cloud),
-    makeLocationCommands(cloud),
-    makeUpgradeCommands(cloud, PORTAL_BASE),
-    makeCloudInitCommands({ cwd: cloud.cwd }),
-    makeCiCommands({ cwd: cloud.cwd }),
-    makeLocalCommands(buildLocalDeps()),
-    makeSelfCommands(buildSelfDeps()),
-    makeInstanceAuthCommands(admin),
-    makeCollectionsCommands(admin),
-    makeRecordsCommands(admin),
-    makeRulesCommands(admin),
-    makeAuthConfigCommands(admin),
-    makeSettingsCommands(admin),
-    makeCronCommands(admin),
-    makeInstanceLogsCommands(admin),
-  );
+    ...makeProjectCommands(cloud),
+    ...makeServerCommands(cloud),
+    ...makeLocationCommands(cloud),
+    ...makeEnvCommands(cloud),
+    ...makeEnvironmentsCommands(cloud),
+    ...makeLogsCommands(cloud),
+    ...makeCloudInitCommands({ cwd: cloud.cwd }),
+    ...makeCiCommands({ cwd: cloud.cwd }),
+    ...makeUpgradeCommands(cloud, PORTAL_BASE),
+    ...makeInstanceAuthCommands(admin),
+    ...makeLocalCommands(buildLocalDeps()),
+    ...makeSelfCommands(buildSelfDeps()),
+    ...makeCollectionsCommands(admin),
+    ...makeRecordsCommands(admin),
+    ...makeRulesCommands(admin),
+    ...makeAuthConfigCommands(admin),
+    ...makeSettingsCommands(admin),
+    ...makeCronCommands(admin),
+    ...makeInstanceLogsCommands(admin),
+  };
+
+  Object.assign(registry, declared);
+  applyLegacyAliases(registry);
 }

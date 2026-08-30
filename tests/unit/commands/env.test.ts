@@ -38,17 +38,19 @@ Deno.test("env import posts bulk-set with parsed vars", async () => {
     cwd: () => "/tmp",
     envStatePath: tempStatePath(),
   });
-  const code = await cmds["cloud env import"]({
-    args: [join(dir, ".env")],
-    flags: {
-      json: true,
-      yes: true,
-      noInput: true,
-      interactive: false,
-      project: p.id,
+  const code = await cmds["env import"].run(
+    { target: "backend", name: "api" },
+    {
+      args: [join(dir, ".env")],
+      flags: {
+        json: true,
+        yes: true,
+        noInput: true,
+        interactive: false,
+        project: p.id,
+      },
     },
-    raw: { target: "backend", name: "api" },
-  });
+  );
   assertEquals(code, 0);
   assertEquals(client.calls.ext[0][0], "/api/env/bulk-set");
   const body = client.calls.ext[0][1] as {
@@ -59,7 +61,6 @@ Deno.test("env import posts bulk-set with parsed vars", async () => {
   assertEquals(body.target_id, be.id);
   assertEquals(body.type, "backend");
   assertEquals(body.variables, { A: "1", B: "2" });
-  // Merging is the default — a cloud-only key survives an import.
   assertEquals((body as unknown as { prune: boolean }).prune, false);
 });
 
@@ -98,24 +99,25 @@ Deno.test("env import --delete-missing asks the platform to prune", async () => 
       cwd: () => "/tmp",
       envStatePath: tempStatePath(),
     });
-    const code = await cmds["cloud env import"]({
-      args: [join(dir, ".env")],
-      flags: {
-        json: true,
-        // --yes stands in for the confirmation this destructive form asks for.
-        yes: true,
-        noInput: true,
-        interactive: false,
-        project: p.id,
+    const code = await cmds["env import"].run(
+      { target: "backend", name: "api", deleteMissing: true },
+      {
+        args: [join(dir, ".env")],
+        flags: {
+          json: true,
+          yes: true,
+          noInput: true,
+          interactive: false,
+          project: p.id,
+        },
       },
-      raw: { target: "backend", name: "api", "delete-missing": true },
-    });
+    );
     assertEquals(code, 0);
     assertEquals(
       (client.calls.ext[0][1] as { prune: boolean }).prune,
       true,
     );
-    assertEquals(JSON.parse(logs[0]), { imported: 1, removed: ["OLD"] });
+    assertEquals(JSON.parse(logs[0]).data, { imported: 1, removed: ["OLD"] });
   } finally {
     console.log = origLog;
   }
@@ -173,23 +175,18 @@ Deno.test("env set --env writes to that environment's backend", async () => {
     interactive: false,
     project: p.id,
   };
-  await cmds["cloud env set"]({
-    args: ["A=1"],
-    flags,
-    raw: { target: "backend", env: "staging" },
-  });
-  // set/list/delete are service-key guarded on backend-extension, so the CLI
-  // reaches them through PocketBase, which holds that key.
+  await cmds["env set"].run(
+    { target: "backend", env: "staging" },
+    { args: ["A=1"], flags },
+  );
   assertEquals(
     (client.calls.pbApi[0][1] as { target_id: string }).target_id,
     staging.id,
   );
-  // With no --env, the file's default environment.
-  await cmds["cloud env set"]({
-    args: ["A=1"],
-    flags,
-    raw: { target: "backend" },
-  });
+  await cmds["env set"].run(
+    { target: "backend" },
+    { args: ["A=1"], flags },
+  );
   assertEquals(
     (client.calls.pbApi[1][1] as { target_id: string }).target_id,
     prod.id,
@@ -237,7 +234,6 @@ Deno.test("env ls emits a flat [{key}] array under --json", async () => {
       cwd: () => "/tmp",
       envStatePath: tempStatePath(),
     });
-    // Override pbApi to answer /api/env/list with the real envelope shape.
     client.pbApi = (path: string, body: unknown) => {
       (client.calls.pbApi as [string, unknown][]).push([path, body]);
       return Promise.resolve(
@@ -250,41 +246,43 @@ Deno.test("env ls emits a flat [{key}] array under --json", async () => {
         ),
       );
     };
-    const code = await cmds["cloud env ls"]({
-      args: [],
-      flags: {
-        json: true,
-        yes: false,
-        noInput: true,
-        interactive: false,
-        project: p.id,
+    const code = await cmds["env ls"].run(
+      { target: "backend", name: "api" },
+      {
+        args: [],
+        flags: {
+          json: true,
+          yes: false,
+          noInput: true,
+          interactive: false,
+          project: p.id,
+        },
       },
-      raw: { target: "backend", name: "api" },
-    });
+    );
     assertEquals(code, 0);
     assertEquals(client.calls.pbApi[0][0], "/api/env/list");
     assertEquals(
       (client.calls.pbApi[0][1] as { target_id: string }).target_id,
       be.id,
     );
-    assertEquals(JSON.parse(logs[0]), [{ key: "A" }, { key: "B" }]);
+    assertEquals(JSON.parse(logs[0]).data, [{ key: "A" }, { key: "B" }]);
   } finally {
     console.log = origLog;
   }
 });
 
-Deno.test("env ls announces the project resolved from config.currentProject", async () => {
+Deno.test("env ls resolves a named backend across projects, no project step", async () => {
   const client = createMockCloudClient();
-  const p = await client.createProject("app");
-  await client.createResource("backends", { name: "api", project: p.id });
+  await client.createProject("app");
+  const other = await client.createProject("other");
+  await client.createResource("backends", { name: "api", project: other.id });
   const config: Config = {
     ...defaultConfig(),
     cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
-    currentProject: p.id,
   };
-  const logs: string[] = [];
-  const origLog = console.log;
-  console.log = (s: string) => logs.push(s);
+  const errs: string[] = [];
+  const origErr = console.error;
+  console.error = (s: string) => errs.push(s);
   try {
     const cmds = makeEnvCommands({
       requireAuth: () =>
@@ -294,16 +292,17 @@ Deno.test("env ls announces the project resolved from config.currentProject", as
       cwd: () => "/tmp",
       envStatePath: tempStatePath(),
     });
-    const code = await cmds["cloud env ls"]({
-      args: [],
-      flags: { json: false, yes: false, noInput: true, interactive: false },
-      raw: { target: "backend", name: "api" },
-    });
+    const code = await cmds["env ls"].run(
+      { target: "backend", name: "api" },
+      {
+        args: [],
+        flags: { json: false, yes: false, noInput: true, interactive: false },
+      },
+    );
     assertEquals(code, 0);
-    assertEquals(logs[0].includes(`Project: ${p.name}`), true);
-    assertEquals(logs[0].includes("pbc cloud project use"), true);
+    assertEquals(errs.some((l) => l.startsWith("Project:")), false);
   } finally {
-    console.log = origLog;
+    console.error = origErr;
   }
 });
 
@@ -315,9 +314,9 @@ Deno.test("env ls does not announce the project when --project names it", async 
     ...defaultConfig(),
     cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
   };
-  const logs: string[] = [];
-  const origLog = console.log;
-  console.log = (s: string) => logs.push(s);
+  const errs: string[] = [];
+  const origErr = console.error;
+  console.error = (s: string) => errs.push(s);
   try {
     const cmds = makeEnvCommands({
       requireAuth: () =>
@@ -327,19 +326,21 @@ Deno.test("env ls does not announce the project when --project names it", async 
       cwd: () => "/tmp",
       envStatePath: tempStatePath(),
     });
-    await cmds["cloud env ls"]({
-      args: [],
-      flags: {
-        json: false,
-        yes: false,
-        noInput: true,
-        interactive: false,
-        project: p.id,
+    await cmds["env ls"].run(
+      { target: "backend", name: "api" },
+      {
+        args: [],
+        flags: {
+          json: false,
+          yes: false,
+          noInput: true,
+          interactive: false,
+          project: p.id,
+        },
       },
-      raw: { target: "backend", name: "api" },
-    });
-    assertEquals(logs.some((l) => l.startsWith("Project:")), false);
+    );
+    assertEquals(errs.some((l) => l.startsWith("Project:")), false);
   } finally {
-    console.log = origLog;
+    console.error = origErr;
   }
 });

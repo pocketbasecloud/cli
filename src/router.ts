@@ -1,219 +1,149 @@
-import { parseArgs } from "@std/cli/parse-args";
-import { CliError } from "./errors.ts";
-import type { CommandSpec } from "./usage.ts";
-import { fillMissingFromSpec, type PromptIO } from "./ui/prompt.ts";
+import { CliError, type ErrorCode } from "./errors.ts";
+import type {
+  ArgSpec,
+  Command,
+  CommandRegistry,
+  Need,
+} from "./command.ts";
+import { canonicalKeys, kebabCase } from "./command.ts";
+import { parseGlobalFlags } from "./globals.ts";
+import type { ParseError } from "./parse.ts";
+import { nearestCommand, parseCommand, resolveCommand } from "./parse.ts";
+import { fillMissing, type PromptIO } from "./ui/prompt.ts";
+import { type CommandTarget, targetsOf } from "./targets.ts";
+import { emit, emitError } from "./envelope.ts";
+export { nearestCommand };
 
-export type GlobalFlags = {
-  json: boolean;
-  yes: boolean;
-  noInput: boolean;
-  interactive: boolean;
-  help?: boolean;
-  project?: string;
-  profile?: string;
+const PARSE_ERROR_CODE: Record<ParseError["kind"], ErrorCode> = {
+  "unknown-flag": "UNKNOWN_FLAG",
+  "arity": "USAGE",
+  "choices": "INVALID_VALUE",
+  "required": "MISSING_ARG",
+  "conflict": "USAGE",
+  "passthrough": "USAGE",
 };
-export type CmdCtx = {
-  args: string[];
-  flags: GlobalFlags;
-  raw: Record<string, unknown>;
-};
-export type Handler = (ctx: CmdCtx) => Promise<number>;
 
-export function parseGlobal(argv: string[]): { path: string[]; ctx: CmdCtx } {
-  const parsed = parseArgs(argv, {
-    boolean: [
-      "json",
-      "yes",
-      "no-input",
-      "interactive",
-      "follow",
-      "none",
-      "remove",
-      "delete-missing",
-      "help",
-      "all",
-      "pre",
-      "force",
-      "check",
-      "skip-build",
-      "skip-env",
-      "force-env",
-    ],
-    string: [
-      "project",
-      "profile",
-      "branch",
-      "dir",
-      "os",
-      "arch",
-      "org",
-      "name",
-      "id",
-      "target",
-      "location",
-      "compute",
-      // Superseded by --compute; still parsed so pinned scripts keep working.
-      "server",
-      "admin-email",
-      "admin-password",
-      "pb-version",
-      "runtime",
-      "start",
-      "zip",
-      // Retired with the uid-based frontend address, but still declared as a
-      // string flag: dropping it would make `--subdomain mysite` parse as a
-      // boolean plus a stray positional, which reads as a different command.
-      // Parsed and ignored.
-      "subdomain",
-      "lines",
-      "env",
-      "env-file",
-      "out",
-      "url",
-      "email",
-      "password",
-      "filter",
-      "sort",
-      "page",
-      "per-page",
-      "data",
-      "set",
-      "list-rule",
-      "view-rule",
-      "create-rule",
-      "update-rule",
-      "delete-rule",
-    ],
-    alias: { y: "yes", f: "follow", h: "help", i: "interactive" },
-    "--": false,
-  });
-  const path = parsed._.map(String);
-  const flags: GlobalFlags = {
-    json: parsed.json === true,
-    yes: parsed.yes === true,
-    noInput: parsed["no-input"] === true,
-    interactive: parsed.interactive === true,
-    help: parsed.help === true,
-    project: parsed.project as string | undefined,
-    profile: parsed.profile as string | undefined,
-  };
+export type ManifestFlag = {
+  name: string;
+  type: string;
+  required: boolean;
+  choices?: readonly string[];
+  description?: string;
+  renamedTo?: string;
+  retired?: { since: string; note: string };
+};
+
+export type ManifestEntry = {
+  usage: string;
+  summary: string;
+  details?: string;
+  args: ArgSpec[];
+  flags: ManifestFlag[];
+  targets: readonly CommandTarget[];
+  needs?: readonly Need[];
+};
+
+export function manifestEntry(command: Command): ManifestEntry {
   return {
-    path,
-    ctx: { args: path, flags, raw: parsed as Record<string, unknown> },
+    usage: command.usage,
+    summary: command.summary,
+    details: command.details,
+    args: command.args,
+    targets: targetsOf(command),
+    ...(command.needs && command.needs.length > 0
+      ? { needs: command.needs }
+      : {}),
+    flags: Object.entries(command.flags).map(([key, f]) => ({
+      name: kebabCase(key),
+      type: f.type,
+      required: f.required === true,
+      choices: f.choices,
+      description: f.description,
+      ...(f.renamedTo ? { renamedTo: kebabCase(f.renamedTo) } : {}),
+      ...(f.retired ? { retired: f.retired } : {}),
+    })),
   };
 }
 
 export async function dispatch(
-  registry: Record<string, Handler>,
+  registry: CommandRegistry,
   argv: string[],
-  commands?: Record<string, CommandSpec>,
   io?: PromptIO,
 ): Promise<number> {
-  const { path, ctx } = parseGlobal(argv);
-  for (let n = path.length; n >= 1; n--) {
-    const key = path.slice(0, n).join(" ");
-    const handler = registry[key];
-    if (handler) {
-      ctx.args = path.slice(n);
-      const spec = commands?.[key];
-      if (ctx.flags.help) {
-        if (ctx.flags.json) {
-          const fallback: CommandSpec = {
-            usage: `Usage: pbc ${key}`,
-            summary: "",
-            args: [],
-            flags: [],
-          };
-          console.log(
-            JSON.stringify({ command: key, ...(spec ?? fallback) }, null, 2),
-          );
-        } else if (spec) {
-          console.log(
-            [spec.usage, spec.summary, spec.details].filter(Boolean).join(
-              "\n\n",
-            ),
-          );
-        } else {
-          console.log(`Usage: pbc ${key}`);
-        }
-        return 0;
-      }
-      try {
-        if (ctx.flags.interactive) {
-          if (ctx.flags.noInput) {
-            throw new CliError(
-              "--interactive cannot be combined with --no-input.",
-              2,
-            );
-          }
-          if (spec) {
-            await fillMissingFromSpec(spec, ctx, { noInput: false, io });
-          }
-        }
-        return await handler(ctx);
-      } catch (e) {
-        if (e instanceof CliError) {
-          console.error(
-            ctx.flags.json
-              ? JSON.stringify({ error: e.message })
-              : `Error: ${e.message}`,
-          );
-          return e.exitCode;
-        }
-        console.error(
-          `Unexpected error: ${e instanceof Error ? e.message : String(e)}`,
+  const { path, command, rest, args } = resolveCommand(argv, registry);
+  if (command) {
+    const canonical = command.path.join(" ");
+    const typed = path.join(" ");
+    if (typed !== canonical) {
+      console.error(`\`pbc ${typed}\` is deprecated — use \`pbc ${canonical}\`.`);
+    }
+  }
+  if (!command) {
+    const globals = parseGlobalFlags(rest);
+    const suggestion = nearestCommand(path.join(" "), canonicalKeys(registry));
+    const err = new CliError(
+      `Unknown command: ${path.join(" ") || "(none)"}.` +
+        (suggestion ? ` Did you mean \`pbc ${suggestion}\`?` : "") +
+        " Try `pbc --help`.",
+      { code: "USAGE", hint: suggestion ? `pbc ${suggestion}` : "pbc --help" },
+    );
+    console.error(`Error: ${err.message}`);
+    emitError(globals.json, err);
+    return err.exitCode;
+  }
+  const globals = parseGlobalFlags(rest);
+  if (globals.help) {
+    emit(
+      globals.json,
+      manifestEntry(command),
+      () =>
+        [command.usage, command.summary, command.details].filter(Boolean)
+          .join("\n\n"),
+    );
+    return 0;
+  }
+  const outcome = parseCommand(command, rest, args, {
+    interactive: globals.interactive,
+  });
+  if (!outcome.ok) {
+    for (const e of outcome.errors) console.error(`Error: ${e.message}`);
+    if (outcome.errors.some((e) => e.kind === "unknown-flag")) {
+      console.error(`       pbc ${command.path.join(" ")} --help lists every flag.`);
+    }
+    const first = outcome.errors[0];
+    const err = new CliError(first.message, {
+      code: PARSE_ERROR_CODE[first.kind],
+      hint: `pbc ${command.path.join(" ")} --help`,
+    });
+    emitError(globals.json, err);
+    return err.exitCode;
+  }
+  try {
+    if (globals.interactive) {
+      if (globals.noInput) {
+        throw new CliError(
+          "--interactive cannot be combined with --no-input.",
+          { code: "USAGE" },
         );
-        return 1;
       }
+      await fillMissing(command, outcome, { noInput: false, io });
     }
-  }
-  const attempted = path.join(" ");
-  const suggestion = nearestCommand(attempted, Object.keys(registry));
-  console.error(
-    `Unknown command: ${attempted || "(none)"}.` +
-      (suggestion ? ` Did you mean \`pbc ${suggestion}\`?` : "") +
-      " Try `pbc --help`.",
-  );
-  return 1;
-}
-
-/** Levenshtein distance, capped work — command lists are short. */
-function editDistance(a: string, b: string): number {
-  const m = a.length, n = b.length;
-  let prev = Array.from({ length: n + 1 }, (_, j) => j);
-  for (let i = 1; i <= m; i++) {
-    const curr = [i];
-    for (let j = 1; j <= n; j++) {
-      curr[j] = a[i - 1] === b[j - 1]
-        ? prev[j - 1]
-        : 1 + Math.min(prev[j - 1], prev[j], curr[j - 1]);
+    return await command.run(outcome.input, {
+      args: outcome.args,
+      flags: globals,
+    });
+  } catch (e) {
+    if (e instanceof CliError) {
+      console.error(`Error: ${e.message}`);
+      emitError(globals.json, e);
+      return e.exitCode;
     }
-    prev = curr;
+    const err = new CliError(
+      e instanceof Error ? e.message : String(e),
+      { code: "INTERNAL" },
+    );
+    console.error(`Unexpected error: ${err.message}`);
+    emitError(globals.json, err);
+    return err.exitCode;
   }
-  return prev[n];
-}
-
-/**
- * The registered command closest to what was typed, or null when nothing is
- * close enough to be worth suggesting. Agents and people reach for synonyms
- * (`list`/`delete`/`remove`) and typos; the registry keys are the ground truth
- * to steer them back to, and the threshold scales with length so a short word
- * needs a near-exact match while a long path tolerates a couple of slips.
- */
-export function nearestCommand(
-  attempted: string,
-  keys: string[],
-): string | null {
-  if (!attempted) return null;
-  let best: string | null = null;
-  let bestDist = Infinity;
-  for (const key of keys) {
-    const d = editDistance(attempted, key);
-    if (d < bestDist) {
-      bestDist = d;
-      best = key;
-    }
-  }
-  const threshold = Math.max(2, Math.floor(attempted.length / 3));
-  return best !== null && bestDist <= threshold ? best : null;
 }

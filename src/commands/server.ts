@@ -1,27 +1,13 @@
-import type { CmdCtx, Handler } from "../router.ts";
+import { defineCommand, type Command } from "../command.ts";
 import type { CloudCmdDeps } from "./project.ts";
 import { printResult } from "../ui/output.ts";
 import { computeLabel } from "../ui/compute.ts";
 
-/**
- * Compute is hidden infrastructure — the CLI never creates or deletes any.
- * Listing it exists because `cloud pb deploy --compute <id>` needs an id, and
- * without this the only place to find one was the portal.
- *
- * Only the account's own dedicated compute is listed; the shared platform pool
- * is auto-selected by capacity and is not something to name.
- *
- * `cloud server ls` is kept as an alias: the platform's records are called
- * servers, and that was this command's name before the user-facing vocabulary
- * settled on "compute".
- */
 export function makeServerCommands(
   deps: CloudCmdDeps,
-): Record<string, Handler> {
-  const ls: Handler = async (ctx: CmdCtx) => {
+): Record<string, Command> {
+  const ls: Command["run"] = async (_input, ctx) => {
     const { client } = await deps.requireAuth();
-    // Oldest-first, which is the order every compute picker numbers by — so
-    // "Compute 2" here is "Compute 2" in the portal and in a deploy's menu.
     const computes = await client.listServers();
     printResult(computes, [
       { header: "ID", get: (s) => s.id },
@@ -38,5 +24,28 @@ export function makeServerCommands(
     ], ctx.flags.json);
     return 0;
   };
-  return { "cloud compute ls": ls, "cloud server ls": ls };
+  return {
+    "compute ls": defineCommand({
+      path: ["compute", "ls"],
+      usage: "pbc compute ls",
+      summary: "List the compute your account can deploy to.",
+      details:
+        "Compute is provisioned by the platform, not the CLI. This lists your\n" +
+        "account's own dedicated compute — the ids `--compute <id>` accepts on a\n" +
+        "deploy. The shared pool is not listed: on every plan except Pro the\n" +
+        "platform picks from it by capacity and the flag is unnecessary.\n\n" +
+        "`pbc server ls` is the same command under its former name.",
+      args: [],
+      flags: {},
+      run: ls,
+    }),
+    "server ls": defineCommand({
+      path: ["server", "ls"],
+      usage: "pbc server ls",
+      summary: "List the compute your account can deploy to (alias of compute ls).",
+      args: [],
+      flags: {},
+      run: ls,
+    }),
+  };
 }

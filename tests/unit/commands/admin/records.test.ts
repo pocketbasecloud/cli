@@ -20,10 +20,9 @@ function deps(client = createMockAdminClient()): AdminCmdDeps {
 Deno.test("records create parses JSON data and posts", async () => {
   const client = createMockAdminClient();
   const cmds = makeRecordsCommands(deps(client));
-  const code = await cmds["records create"]({
+  const code = await cmds["admin records create"].run({}, {
     args: ["posts", '{"title":"hi"}'],
     flags: { json: true, yes: true, noInput: true, interactive: false },
-    raw: {},
   });
   assertEquals(code, 0);
   assertEquals(client.calls.createRecord[0][0], "posts");
@@ -33,10 +32,9 @@ Deno.test("records create parses JSON data and posts", async () => {
 Deno.test("records rm requires collection and id", async () => {
   const client = createMockAdminClient();
   const cmds = makeRecordsCommands(deps(client));
-  const code = await cmds["records rm"]({
+  const code = await cmds["admin records rm"].run({}, {
     args: ["posts", "rec1"],
     flags: { json: true, yes: true, noInput: true, interactive: false },
-    raw: {},
   });
   assertEquals(code, 0);
   assertEquals(client.calls.deleteRecord[0], ["posts", "rec1"]);

@@ -21,12 +21,9 @@ function seed(files: Record<string, string>): string {
 
 const flags = { json: true, yes: true, noInput: true, interactive: false };
 
-/** A stand-in `git`: answers a fixed script instead of touching a real repo. */
 type GitScript = {
   root?: string | null;
-  /** What `origin/HEAD` resolves to — the repo's default branch. */
   defaultBranch?: string | null;
-  /** What is checked out right now. */
   branch?: string | null;
   tracked?: string[];
   ignored?: string[];
@@ -68,10 +65,9 @@ function run(
   git: GitRunner,
   raw: Record<string, unknown> = {},
 ) {
-  return makeCiCommands({ cwd: () => cwd, git })["cloud ci init"]({
+  return makeCiCommands({ cwd: () => cwd, git })["ci init"].run(raw, {
     args,
     flags,
-    raw,
   });
 }
 
@@ -81,8 +77,6 @@ function captureLog() {
   console.log = (...args: unknown[]) => lines.push(args.map(String).join(" "));
   return { lines, restore: () => console.log = original };
 }
-
-// --- renderWorkflow: pure, no disk or git -----------------------------------
 
 Deno.test("renderWorkflow at the repo root omits working-directory and paths", () => {
   const yaml = renderWorkflow({
@@ -188,9 +182,7 @@ Deno.test("renderWorkflow pins the action to the given version", () => {
   assertStringIncludes(yaml, "pocketbasecloud/cli/action@v9.9.9");
 });
 
-// --- the handler: disk + git ------------------------------------------------
-
-Deno.test("cloud ci init refuses when there is no pbc.json", async () => {
+Deno.test("ci init refuses when there is no pbc.json", async () => {
   const cwd = Deno.makeTempDirSync();
   await assertRejects(
     () => run(cwd, [], fakeGit({ root: cwd })),
@@ -198,7 +190,7 @@ Deno.test("cloud ci init refuses when there is no pbc.json", async () => {
   );
 });
 
-Deno.test("cloud ci init writes the workflow and pins the running CLI's version", async () => {
+Deno.test("ci init writes the workflow and pins the running CLI's version", async () => {
   const cwd = seed({
     "pbc.json": JSON.stringify({
       projectId: "p1",
@@ -215,7 +207,7 @@ Deno.test("cloud ci init writes the workflow and pins the running CLI's version"
   assertStringIncludes(written, "kind: frontend");
 });
 
-Deno.test("cloud ci init falls back to main with no current branch", async () => {
+Deno.test("ci init falls back to main with no current branch", async () => {
   const cwd = seed({
     "pbc.json": JSON.stringify({ projectId: "p1", kind: "backends" }),
   });
@@ -227,7 +219,7 @@ Deno.test("cloud ci init falls back to main with no current branch", async () =>
   assertStringIncludes(written, "branches: [main]");
 });
 
-Deno.test("cloud ci init refuses an unknown kind argument", async () => {
+Deno.test("ci init refuses an unknown kind argument", async () => {
   const cwd = seed({ "pbc.json": JSON.stringify({ projectId: "p1" }) });
   await assertRejects(
     () => run(cwd, ["nonsense"], fakeGit({ root: cwd })),
@@ -235,7 +227,7 @@ Deno.test("cloud ci init refuses an unknown kind argument", async () => {
   );
 });
 
-Deno.test("cloud ci init errors when the directory is bound to no kind at all", async () => {
+Deno.test("ci init errors when the directory is bound to no kind at all", async () => {
   const cwd = seed({ "pbc.json": JSON.stringify({ projectId: "p1" }) });
   await assertRejects(
     () => run(cwd, [], fakeGit({ root: cwd })),
@@ -243,7 +235,7 @@ Deno.test("cloud ci init errors when the directory is bound to no kind at all", 
   );
 });
 
-Deno.test("cloud ci init refuses outside a git repository", async () => {
+Deno.test("ci init refuses outside a git repository", async () => {
   const cwd = seed({
     "pbc.json": JSON.stringify({ projectId: "p1", kind: "backends" }),
   });
@@ -253,7 +245,7 @@ Deno.test("cloud ci init refuses outside a git repository", async () => {
   );
 });
 
-Deno.test("cloud ci init leaves an existing workflow alone without --force", async () => {
+Deno.test("ci init leaves an existing workflow alone without --force", async () => {
   const cwd = seed({
     "pbc.json": JSON.stringify({ projectId: "p1", kind: "backends" }),
     ".github/workflows/deploy.yml": "# hand-written\n",
@@ -270,10 +262,10 @@ Deno.test("cloud ci init leaves an existing workflow alone without --force", asy
     join(cwd, ".github", "workflows", "deploy.yml"),
   );
   assertEquals(stillThere, "# hand-written\n");
-  assertEquals(JSON.parse(lines[0]).written, false);
+  assertEquals(JSON.parse(lines[0]).data.written, false);
 });
 
-Deno.test("cloud ci init --force overwrites an existing workflow", async () => {
+Deno.test("ci init --force overwrites an existing workflow", async () => {
   const cwd = seed({
     "pbc.json": JSON.stringify({ projectId: "p1", kind: "backends" }),
     ".github/workflows/deploy.yml": "# hand-written\n",
@@ -288,7 +280,7 @@ Deno.test("cloud ci init --force overwrites an existing workflow", async () => {
   assertStringIncludes(now, "pocketbasecloud/cli/action");
 });
 
-Deno.test("cloud ci init warns when pbc.json is not tracked by git", async () => {
+Deno.test("ci init warns when pbc.json is not tracked by git", async () => {
   const cwd = seed({
     "pbc.json": JSON.stringify({ projectId: "p1", kind: "backends" }),
   });
@@ -298,10 +290,9 @@ Deno.test("cloud ci init warns when pbc.json is not tracked by git", async () =>
     fakeGit({ root: cwd, branch: "main", tracked: [] }),
   );
   assertEquals(code, 0);
-  // captured via --json, asserted in the next test; here just confirm no crash.
 });
 
-Deno.test("cloud ci init's --json warnings carry the untracked-pbc.json case", async () => {
+Deno.test("ci init's --json warnings carry the untracked-pbc.json case", async () => {
   const cwd = seed({
     "pbc.json": JSON.stringify({ projectId: "p1", kind: "backends" }),
   });
@@ -317,14 +308,14 @@ Deno.test("cloud ci init's --json warnings carry the untracked-pbc.json case", a
     restore();
   }
   assertEquals(code, 0);
-  const out = JSON.parse(lines[0]);
+  const out = JSON.parse(lines[0]).data;
   assertEquals(
     out.warnings.some((w: string) => w.includes("not tracked by git")),
     true,
   );
 });
 
-Deno.test("cloud ci init warns when the configured env file is git-ignored", async () => {
+Deno.test("ci init warns when the configured env file is git-ignored", async () => {
   const cwd = seed({
     "pbc.json": JSON.stringify({
       projectId: "p1",
@@ -349,14 +340,14 @@ Deno.test("cloud ci init warns when the configured env file is git-ignored", asy
     restore();
   }
   assertEquals(code, 0);
-  const out = JSON.parse(lines[0]);
+  const out = JSON.parse(lines[0]).data;
   assertEquals(
     out.warnings.some((w: string) => w.includes("Env file not found")),
     true,
   );
 });
 
-Deno.test("cloud ci init warns when the configured env file is untracked", async () => {
+Deno.test("ci init warns when the configured env file is untracked", async () => {
   const cwd = seed({
     "pbc.json": JSON.stringify({
       projectId: "p1",
@@ -380,14 +371,14 @@ Deno.test("cloud ci init warns when the configured env file is untracked", async
     restore();
   }
   assertEquals(code, 0);
-  const out = JSON.parse(lines[0]);
+  const out = JSON.parse(lines[0]).data;
   assertEquals(
     out.warnings.some((w: string) => w.includes("Env file not found")),
     true,
   );
 });
 
-Deno.test("cloud ci init is quiet when the configured env file is tracked", async () => {
+Deno.test("ci init is quiet when the configured env file is tracked", async () => {
   const cwd = seed({
     "pbc.json": JSON.stringify({
       projectId: "p1",
@@ -411,14 +402,14 @@ Deno.test("cloud ci init is quiet when the configured env file is tracked", asyn
     restore();
   }
   assertEquals(code, 0);
-  const out = JSON.parse(lines[0]);
+  const out = JSON.parse(lines[0]).data;
   assertEquals(
     out.warnings.some((w: string) => w.includes("Env file not found")),
     false,
   );
 });
 
-Deno.test("cloud ci init warns that PocketBase deploys carry admin credentials", async () => {
+Deno.test("ci init warns that PocketBase deploys carry admin credentials", async () => {
   const cwd = seed({
     "pbc.json": JSON.stringify({ projectId: "p1", kind: "pocketbases" }),
   });
@@ -434,14 +425,14 @@ Deno.test("cloud ci init warns that PocketBase deploys carry admin credentials",
     restore();
   }
   assertEquals(code, 0);
-  const out = JSON.parse(lines[0]);
+  const out = JSON.parse(lines[0]).data;
   assertEquals(
     out.warnings.some((w: string) => w.includes("admin credentials")),
     true,
   );
 });
 
-Deno.test("cloud ci init respects an explicit --out path", async () => {
+Deno.test("ci init respects an explicit --out path", async () => {
   const cwd = seed({
     "pbc.json": JSON.stringify({ projectId: "p1", kind: "backends" }),
   });
@@ -456,7 +447,7 @@ Deno.test("cloud ci init respects an explicit --out path", async () => {
   assertStringIncludes(written, "pocketbasecloud/cli/action");
 });
 
-Deno.test("cloud ci init respects an explicit --branch", async () => {
+Deno.test("ci init respects an explicit --branch", async () => {
   const cwd = seed({
     "pbc.json": JSON.stringify({ projectId: "p1", kind: "backends" }),
   });
@@ -473,7 +464,7 @@ Deno.test("cloud ci init respects an explicit --branch", async () => {
   assertStringIncludes(written, "branches: [release]");
 });
 
-Deno.test("cloud ci init leaves the file's own default environment implicit", async () => {
+Deno.test("ci init leaves the file's own default environment implicit", async () => {
   const cwd = seed({
     "pbc.json": JSON.stringify({
       projectId: "p1",
@@ -487,13 +478,10 @@ Deno.test("cloud ci init leaves the file's own default environment implicit", as
   const written = await Deno.readTextFile(
     join(cwd, ".github", "workflows", "deploy.yml"),
   );
-  // resolveEnvironmentName treats the file's own default as non-explicit —
-  // the workflow leaves --env unset so the CLI's own default resolution
-  // keeps following it.
   assertEquals(written.includes("env:"), false);
 });
 
-Deno.test("cloud ci init writes an explicit environment when --env is passed", async () => {
+Deno.test("ci init writes an explicit environment when --env is passed", async () => {
   const cwd = seed({
     "pbc.json": JSON.stringify({
       projectId: "p1",
@@ -517,7 +505,7 @@ Deno.test("cloud ci init writes an explicit environment when --env is passed", a
   assertStringIncludes(written, "env: staging");
 });
 
-Deno.test("cloud ci init accepts the pb/frontend/backend kind aliases", async () => {
+Deno.test("ci init accepts the pb/frontend/backend kind aliases", async () => {
   const cwd = seed({ "pbc.json": JSON.stringify({ projectId: "p1" }) });
   const code = await run(cwd, ["pb"], fakeGit({ root: cwd, branch: "main" }));
   assertEquals(code, 0);
@@ -525,11 +513,8 @@ Deno.test("cloud ci init accepts the pb/frontend/backend kind aliases", async ()
     join(cwd, ".github", "workflows", "deploy.yml"),
   );
   assertStringIncludes(written, "kind: pb");
-  // pbc.json itself is untouched by ci init — only the workflow file is written.
   assertEquals((await readOwnLinkFile(cwd)).kind, undefined);
 });
-
-// --- regressions -----------------------------------------------------------
 
 Deno.test("renderWorkflow's paths filter names the workflow's real path", () => {
   const yaml = renderWorkflow({
@@ -539,15 +524,13 @@ Deno.test("renderWorkflow's paths filter names the workflow's real path", () => 
     version: "0.5.0",
     workflowPath: ".github/workflows/custom-name.yml",
   });
-  // Deriving this from the directory meant a --out-renamed workflow never
-  // re-triggered on edits to itself.
   assertStringIncludes(
     yaml,
     'paths: ["web/**", ".github/workflows/custom-name.yml"]',
   );
 });
 
-Deno.test("cloud ci init asks git about THIS directory's pbc.json, not the root's", async () => {
+Deno.test("ci init asks git about THIS directory's pbc.json, not the root's", async () => {
   const root = seed({
     "web/pbc.json": JSON.stringify({ projectId: "p1", kind: "frontends" }),
   });
@@ -562,7 +545,6 @@ Deno.test("cloud ci init asks git about THIS directory's pbc.json, not the root'
     }
     if (args[0] === "ls-files") {
       asked.push(args[args.length - 1]);
-      // web/pbc.json IS committed.
       return Promise.resolve({ code: 0, stdout: "" });
     }
     return Promise.resolve({ code: 1, stdout: "" });
@@ -570,27 +552,24 @@ Deno.test("cloud ci init asks git about THIS directory's pbc.json, not the root'
   const { lines, restore } = captureLog();
   let code: number;
   try {
-    code = await makeCiCommands({ cwd: () => cwd, git })["cloud ci init"]({
-      args: [],
-      flags,
-      raw: {},
-    });
+    code = await makeCiCommands({ cwd: () => cwd, git })["ci init"].run(
+      {},
+      { args: [], flags },
+    );
   } finally {
     restore();
   }
   assertEquals(code, 0);
-  // The pathspec must point at web/pbc.json — a bare "pbc.json" would resolve
-  // against the repo root and warn about a file that was never the subject.
   assertEquals(asked.length, 1);
   assertStringIncludes(asked[0], join("web", "pbc.json"));
-  const out = JSON.parse(lines[0]);
+  const out = JSON.parse(lines[0]).data;
   assertEquals(
     out.warnings.some((w: string) => w.includes("not tracked by git")),
     false,
   );
 });
 
-Deno.test("cloud ci init honours an absolute --out instead of nesting it under cwd", async () => {
+Deno.test("ci init honours an absolute --out instead of nesting it under cwd", async () => {
   const cwd = seed({
     "pbc.json": JSON.stringify({ projectId: "p1", kind: "backends" }),
   });
@@ -602,14 +581,13 @@ Deno.test("cloud ci init honours an absolute --out instead of nesting it under c
     { out: target },
   );
   assertEquals(code, 0);
-  // Written where asked, not at <cwd>/<abs path>.
   assertStringIncludes(
     await Deno.readTextFile(target),
     "pocketbasecloud/cli/action",
   );
 });
 
-Deno.test("cloud ci init ignores an ambient PBC_ENV when generating the workflow", async () => {
+Deno.test("ci init ignores an ambient PBC_ENV when generating the workflow", async () => {
   const cwd = seed({
     "pbc.json": JSON.stringify({
       projectId: "p1",
@@ -629,7 +607,6 @@ Deno.test("cloud ci init ignores an ambient PBC_ENV when generating the workflow
     const written = await Deno.readTextFile(
       join(cwd, ".github", "workflows", "deploy.yml"),
     );
-    // A shell variable must not get committed into CI config — only --env does.
     assertEquals(written.includes("env: staging"), false);
   } finally {
     if (previous === undefined) Deno.env.delete("PBC_ENV");
@@ -637,7 +614,7 @@ Deno.test("cloud ci init ignores an ambient PBC_ENV when generating the workflow
   }
 });
 
-Deno.test("cloud ci init's generated header does not promise a prompt", () => {
+Deno.test("ci init's generated header does not promise a prompt", () => {
   const yaml = renderWorkflow({
     kind: "backends",
     workingDirectory: ".",
@@ -645,12 +622,11 @@ Deno.test("cloud ci init's generated header does not promise a prompt", () => {
     version: "0.5.0",
     workflowPath: ".github/workflows/deploy.yml",
   });
-  // It refuses and points at --force; it never asks.
   assertEquals(yaml.includes("asks"), false);
   assertStringIncludes(yaml, "--force");
 });
 
-Deno.test("cloud ci init wires the checked-out branch, not origin/HEAD", async () => {
+Deno.test("ci init wires the checked-out branch, not origin/HEAD", async () => {
   const cwd = seed({
     "pbc.json": JSON.stringify({ projectId: "p1", kind: "backends" }),
   });
@@ -666,7 +642,7 @@ Deno.test("cloud ci init wires the checked-out branch, not origin/HEAD", async (
   assertStringIncludes(written, "branches: [my-feature]");
 });
 
-Deno.test("cloud ci init lets --branch override the checked-out branch", async () => {
+Deno.test("ci init lets --branch override the checked-out branch", async () => {
   const cwd = seed({
     "pbc.json": JSON.stringify({ projectId: "p1", kind: "backends" }),
   });
@@ -683,7 +659,7 @@ Deno.test("cloud ci init lets --branch override the checked-out branch", async (
   assertStringIncludes(written, "branches: [release]");
 });
 
-Deno.test("cloud ci init falls back to origin/HEAD when HEAD is detached", async () => {
+Deno.test("ci init falls back to origin/HEAD when HEAD is detached", async () => {
   const cwd = seed({
     "pbc.json": JSON.stringify({ projectId: "p1", kind: "backends" }),
   });
@@ -703,14 +679,14 @@ Deno.test("cloud ci init falls back to origin/HEAD when HEAD is detached", async
     join(cwd, ".github", "workflows", "deploy.yml"),
   );
   assertStringIncludes(written, "branches: [main]");
-  const out = JSON.parse(lines[0]);
+  const out = JSON.parse(lines[0]).data;
   assertEquals(
     out.warnings.some((w: string) => w.includes("--branch")),
     true,
   );
 });
 
-Deno.test("cloud ci init writes a unique workflow file for a nested directory", async () => {
+Deno.test("ci init writes a unique workflow file for a nested directory", async () => {
   const root = seed({
     "apps/web/pbc.json": JSON.stringify({ projectId: "p1", kind: "frontends" }),
   });
@@ -723,13 +699,6 @@ Deno.test("cloud ci init writes a unique workflow file for a nested directory", 
   assertStringIncludes(written, "working-directory: apps/web");
   assertStringIncludes(written, "group: deploy-apps-web-production");
 });
-
-// --- YAML quoting -----------------------------------------------------------
-//
-// Every value below reaches the file as a YAML scalar. A branch name is free
-// text (`--branch` is unvalidated, and git itself allows `,`), so a bare
-// interpolation lets the value re-read as something else — silently, in the
-// comma case, which yields a valid workflow that simply never fires.
 
 Deno.test("renderWorkflow quotes a branch a bare YAML sequence would split", () => {
   const yaml = renderWorkflow({
@@ -795,7 +764,7 @@ Deno.test("--force over a workflow reading PB_TOKEN says the secret name moved",
     restore();
   }
   assertEquals(code, 0);
-  const out = JSON.parse(lines[0]);
+  const out = JSON.parse(lines[0]).data;
   assertEquals(out.secretName, "PBC_TOKEN");
   assertEquals(
     out.warnings.some((w: string) => w.includes("secrets.PB_TOKEN")),
@@ -815,7 +784,7 @@ Deno.test("no such warning when the workflow being replaced never named it", asy
     restore();
   }
   assertEquals(
-    JSON.parse(lines[0]).warnings.some((w: string) =>
+    JSON.parse(lines[0]).data.warnings.some((w: string) =>
       w.includes("secrets.PB_TOKEN")
     ),
     false,

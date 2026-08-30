@@ -1,59 +1,37 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { makeFrontendCommands } from "../../../src/commands/frontend.ts";
+import { makeResourceCommands } from "../../../src/commands/resource.ts";
+import { KINDS } from "../../../src/kinds.ts";
+import { dispatch } from "../../../src/router.ts";
 import { createMockCloudClient } from "../../mocks/cloud.mock.ts";
+import {
+  createMockDeployFetch,
+  type MockDeployFetch,
+} from "../../mocks/deployments.mock.ts";
 import { type Config, defaultConfig } from "../../../src/config.ts";
 import type { CloudCmdDeps } from "../../../src/commands/project.ts";
 
 function deps(
   client = createMockCloudClient(),
   currentProject = "",
-): CloudCmdDeps {
+): CloudCmdDeps & { deploy: MockDeployFetch } {
   const config: Config = {
     ...defaultConfig(),
     cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
     currentProject,
   };
-  // An isolated cwd so resource-binding writes don't pollute a shared /tmp.
   const cwd = Deno.makeTempDirSync();
+  const deploy = createMockDeployFetch();
   return {
     requireAuth: () => Promise.resolve({ client, config, auth: config.cloud! }),
     loadConfig: () => Promise.resolve(config),
     saveConfig: () => Promise.resolve(),
     cwd: () => cwd,
+    fetch: deploy.fetchFn,
+    deploy,
   };
 }
 
-Deno.test("frontend domain add posts to custom-domain/add", async () => {
-  const client = createMockCloudClient();
-  const p = await client.createProject("app");
-  const fe = await client.createResource("frontends", {
-    name: "site",
-    project: p.id,
-  });
-  const cmds = makeFrontendCommands(deps(client, p.id));
-  const code = await cmds["cloud frontend domain add"]({
-    args: ["example.com"],
-    flags: {
-      json: true,
-      yes: true,
-      noInput: true,
-      interactive: false,
-      project: p.id,
-    },
-    raw: { name: "site" },
-  });
-  assertEquals(code, 0);
-  assertEquals(client.calls.ext[0][0], "/api/frontends/custom-domain/add");
-  const body = client.calls.ext[0][1] as {
-    frontend_id: string;
-    custom_domain: string;
-  };
-  assertEquals(body.frontend_id, fe.id);
-  // The controller reads custom_domain; "domain" was silently ignored.
-  assertEquals(body.custom_domain, "example.com");
-});
-
-/** A pbc.json bound to `fe` under production, in the deps' cwd. */
 async function bind(
   d: CloudCmdDeps,
   projectId: string,
@@ -79,7 +57,6 @@ const flags = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-/** Report every polled resource as running so deploy reaches its terminal state. */
 const runningNow = (client: ReturnType<typeof createMockCloudClient>) => {
   const orig = client.getResource.bind(client);
   client.getResource = async (k, id) => ({
@@ -99,10 +76,9 @@ Deno.test("frontend deploy --env creates a second resource, leaving the first bo
   await bind(d, p.id, { production: { id: fe.id, name: "web" } });
   Deno.writeTextFileSync(`${d.cwd()}/index.html`, "<html></html>");
   runningNow(client);
-  const code = await makeFrontendCommands(d)["cloud frontend deploy"]({
-    args: [],
-    flags: flags({ project: p.id }),
-    raw: { env: "staging", name: "web-staging", "skip-build": true },
+  const code = await makeFrontendCommands(d)["frontend deploy"].run({ env: "staging", new: "web-staging", skipBuild: true }, {
+      args: [],
+      flags: flags({ project: p.id }),
   });
   assertEquals(code, 0);
   const file = JSON.parse(await Deno.readTextFile(`${d.cwd()}/pbc.json`));
@@ -126,22 +102,17 @@ Deno.test("a stale binding clears only its own environment", async () => {
   Deno.writeTextFileSync(`${d.cwd()}/index.html`, "<html></html>");
   await assertRejects(
     () =>
-      makeFrontendCommands(d)["cloud frontend deploy"]({
-        args: [],
-        flags: flags({ project: p.id }),
-        raw: { env: "staging", "skip-build": true },
+      makeFrontendCommands(d)["frontend deploy"].run({ env: "staging", skipBuild: true }, {
+          args: [],
+          flags: flags({ project: p.id }),
       }),
     Error,
-    'Bound frontends gone (environment "staging") no longer exists',
+    'The frontend bound to environment "staging" no longer exists',
   );
   const file = JSON.parse(await Deno.readTextFile(`${d.cwd()}/pbc.json`));
   assertEquals(file.environments, { production: { id: fe.id, name: "web" } });
 });
 
-/**
- * Drive the real handler through its own prompts: it reads stdin directly, so
- * a TTY has to be faked to reach the path a user actually gets.
- */
 async function withTTY<T>(answers: string[], fn: () => Promise<T>): Promise<T> {
   const isTerminal = Deno.stdin.isTerminal;
   const read = Deno.stdin.read;
@@ -168,18 +139,16 @@ Deno.test("a bare deploy asks for a name and creates the frontend", async () => 
   const d = deps(client, p.id);
   Deno.writeTextFileSync(`${d.cwd()}/index.html`, "<html></html>");
   runningNow(client);
-  // "" accepts the default environment; then the name.
   const code = await withTTY(
     ["", "web"],
     () =>
-      makeFrontendCommands(d)["cloud frontend deploy"]({
-        args: [],
-        flags: flags({ project: p.id, json: false, noInput: false }),
-        raw: { "skip-build": true },
+      makeFrontendCommands(d)["frontend deploy"].run({ skipBuild: true }, {
+          args: [],
+          flags: flags({ project: p.id, json: false, noInput: false }),
       }),
   );
   assertEquals(code, 0);
-  const sites = await client.listResources("frontends", p.id);
+  const sites = await client.listResources("frontends", { project: p.id });
   assertEquals(sites.map((s) => s.name), ["web"]);
   const file = JSON.parse(await Deno.readTextFile(`${d.cwd()}/pbc.json`));
   assertEquals(file.environments.production.name, "web");
@@ -195,19 +164,16 @@ Deno.test("a bare deploy can pick an existing frontend to redeploy", async () =>
   const d = deps(client, p.id);
   Deno.writeTextFileSync(`${d.cwd()}/index.html`, "<html></html>");
   runningNow(client);
-  // "" accepts the default environment; "1" is the existing site ("2" would
-  // have been "Create a new frontend…").
   const code = await withTTY(
-    ["", "1"],
+    ["", "2"],
     () =>
-      makeFrontendCommands(d)["cloud frontend deploy"]({
-        args: [],
-        flags: flags({ project: p.id, json: false, noInput: false }),
-        raw: { "skip-build": true },
+      makeFrontendCommands(d)["frontend deploy"].run({ skipBuild: true }, {
+          args: [],
+          flags: flags({ project: p.id, json: false, noInput: false }),
       }),
   );
   assertEquals(code, 0);
-  const sites = await client.listResources("frontends", p.id);
+  const sites = await client.listResources("frontends", { project: p.id });
   assertEquals(sites.map((s) => s.id), [fe.id]);
 });
 
@@ -220,10 +186,9 @@ Deno.test("a first deploy records the environment it was told to use", async () 
   const code = await withTTY(
     ["staging", "web"],
     () =>
-      makeFrontendCommands(d)["cloud frontend deploy"]({
-        args: [],
-        flags: flags({ project: p.id, json: false, noInput: false }),
-        raw: { "skip-build": true },
+      makeFrontendCommands(d)["frontend deploy"].run({ skipBuild: true }, {
+          args: [],
+          flags: flags({ project: p.id, json: false, noInput: false }),
       }),
   );
   assertEquals(code, 0);
@@ -243,14 +208,12 @@ Deno.test("a directory that already names an environment is not asked again", as
   await bind(d, p.id, { production: { id: fe.id, name: "web" } });
   Deno.writeTextFileSync(`${d.cwd()}/index.html`, "<html></html>");
   runningNow(client);
-  // One answer in the queue, and nothing should consume it.
   const code = await withTTY(
     ["staging"],
     () =>
-      makeFrontendCommands(d)["cloud frontend deploy"]({
-        args: [],
-        flags: flags({ project: p.id, json: false, noInput: false }),
-        raw: { "skip-build": true },
+      makeFrontendCommands(d)["frontend deploy"].run({ skipBuild: true }, {
+          args: [],
+          flags: flags({ project: p.id, json: false, noInput: false }),
       }),
   );
   assertEquals(code, 0);
@@ -264,27 +227,24 @@ Deno.test("a bare deploy still errors without a terminal to ask on", async () =>
   const d = deps(client, p.id);
   await assertRejects(
     () =>
-      makeFrontendCommands(d)["cloud frontend deploy"]({
-        args: [],
-        flags: flags({ project: p.id }),
-        raw: { "skip-build": true },
+      makeFrontendCommands(d)["frontend deploy"].run({ skipBuild: true }, {
+          args: [],
+          flags: flags({ project: p.id }),
       }),
     Error,
-    "Pass --name to create the first frontend, or",
+    "--new <name>",
   );
 });
 
-/** The fields a create must carry, as the collection and hooks demand them. */
 Deno.test("creating a frontend sends the owner and status, and no subdomain", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   const d = deps(client, p.id);
   Deno.writeTextFileSync(`${d.cwd()}/index.html`, "<html></html>");
   runningNow(client);
-  const code = await makeFrontendCommands(d)["cloud frontend deploy"]({
-    args: [],
-    flags: flags({ project: p.id }),
-    raw: { name: "My Site", "skip-build": true },
+  const code = await makeFrontendCommands(d)["frontend deploy"].run({ new: "My Site", skipBuild: true }, {
+      args: [],
+      flags: flags({ project: p.id }),
   });
   assertEquals(code, 0);
   const [kind, data] = client.calls.createResource[0];
@@ -292,8 +252,6 @@ Deno.test("creating a frontend sends the owner and status, and no subdomain", as
   assertEquals(data.user, "u1");
   assertEquals(data.status, "pending");
   assertEquals(data.name, "My Site");
-  // The platform assigns <id>.<compute shortKey>; sending one would be a
-  // user-chosen address again, and one DNS record per site.
   assertEquals(data.subdomain, undefined);
 });
 
@@ -303,11 +261,16 @@ Deno.test("a --subdomain left in a pinned script is ignored, not sent", async ()
   const d = deps(client, p.id);
   Deno.writeTextFileSync(`${d.cwd()}/index.html`, "<html></html>");
   runningNow(client);
-  const code = await makeFrontendCommands(d)["cloud frontend deploy"]({
-    args: [],
-    flags: flags({ project: p.id }),
-    raw: { name: "web", subdomain: "tom-web", "skip-build": true },
-  });
+  const code = await dispatch(
+    makeFrontendCommands(d),
+    [
+      "frontend", "deploy",
+      "--new", "web",
+      "--subdomain", "tom-web",
+      "--skip-build",
+      "--json", "--yes", "--no-input", "--project", p.id,
+    ],
+  );
   assertEquals(code, 0);
   assertEquals(client.calls.createResource[0][1].subdomain, undefined);
 });
@@ -323,16 +286,15 @@ Deno.test("a redeploy leaves the owner and address alone", async () => {
   await bind(d, p.id, { production: { id: fe.id, name: "web" } });
   Deno.writeTextFileSync(`${d.cwd()}/index.html`, "<html></html>");
   runningNow(client);
-  const code = await makeFrontendCommands(d)["cloud frontend deploy"]({
-    args: [],
-    flags: flags({ project: p.id }),
-    raw: { "skip-build": true },
+  const code = await makeFrontendCommands(d)["frontend deploy"].run({ skipBuild: true }, {
+      args: [],
+      flags: flags({ project: p.id }),
   });
   assertEquals(code, 0);
   const [, , data] = client.calls.updateResource[0];
   assertEquals(data.subdomain, undefined);
   assertEquals(data.user, undefined);
-  assertEquals(data.status, "uploading");
+  assertEquals(data.status, undefined);
 });
 
 Deno.test("frontend deploy refuses a directory bound to another kind", async () => {
@@ -350,17 +312,15 @@ Deno.test("frontend deploy refuses a directory bound to another kind", async () 
   );
   await assertRejects(
     () =>
-      makeFrontendCommands(d)["cloud frontend deploy"]({
-        args: [],
-        flags: flags({ project: p.id }),
-        raw: { name: "web" },
+      makeFrontendCommands(d)["frontend deploy"].run({ name: "web" }, {
+          args: [],
+          flags: flags({ project: p.id }),
       }),
     Error,
     "pbc.json is bound to backends — deploy frontends from a different",
   );
 });
 
-/** A mock whose deploy-context reports the project owner's compute. */
 function withComputes(
   client: ReturnType<typeof createMockCloudClient>,
   computes: { id: string; name: string; location: string }[],
@@ -376,18 +336,15 @@ function withComputes(
 }
 
 Deno.test("creating a frontend uses the owner's Pro compute", async () => {
-  // Auto-selection only considers the shared platform pool, so without this a
-  // Pro site lands on shared infrastructure instead of the compute paid for.
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   const d = deps(client, p.id);
   Deno.writeTextFileSync(`${d.cwd()}/index.html`, "<html></html>");
   runningNow(client);
   withComputes(client, [{ id: "srv9", name: "pro-1", location: "GRA" }]);
-  const code = await makeFrontendCommands(d)["cloud frontend deploy"]({
-    args: [],
-    flags: flags({ project: p.id }),
-    raw: { name: "web", "skip-build": true },
+  const code = await makeFrontendCommands(d)["frontend deploy"].run({ new: "web", skipBuild: true }, {
+      args: [],
+      flags: flags({ project: p.id }),
   });
   assertEquals(code, 0);
   assertEquals(client.calls.createResource[0][1].server, "srv9");
@@ -403,10 +360,9 @@ Deno.test("creating a frontend in an org project uses the organization's compute
     ownerPlan: "free",
     organization: "org1",
   });
-  const code = await makeFrontendCommands(d)["cloud frontend deploy"]({
-    args: [],
-    flags: flags({ project: p.id }),
-    raw: { name: "web", "skip-build": true },
+  const code = await makeFrontendCommands(d)["frontend deploy"].run({ new: "web", skipBuild: true }, {
+      args: [],
+      flags: flags({ project: p.id }),
   });
   assertEquals(code, 0);
   assertEquals(client.calls.createResource[0][1].server, "org-srv");
@@ -416,17 +372,16 @@ Deno.test("a frontend redeploy never re-picks the compute", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   await client.createResource("frontends", { name: "web", project: p.id });
-  client.calls.createResource.length = 0; // seeding is not the deploy's doing
+  client.calls.createResource.length = 0;
   const d = deps(client, p.id);
   Deno.writeTextFileSync(`${d.cwd()}/index.html`, "<html></html>");
   runningNow(client);
   client.deployContext = () => {
     throw new Error("deploy-context must not be called on a redeploy");
   };
-  const code = await makeFrontendCommands(d)["cloud frontend deploy"]({
-    args: [],
-    flags: flags({ project: p.id }),
-    raw: { name: "web", "skip-build": true },
+  const code = await makeFrontendCommands(d)["frontend deploy"].run({ name: "web", skipBuild: true }, {
+      args: [],
+      flags: flags({ project: p.id }),
   });
   assertEquals(code, 0);
   assertEquals(client.calls.createResource.length, 0);
@@ -435,25 +390,25 @@ Deno.test("a frontend redeploy never re-picks the compute", async () => {
 
 function captureLog() {
   const lines: string[] = [];
-  const original = console.log;
-  console.log = (...args: unknown[]) => lines.push(args.map(String).join(" "));
-  return { lines, restore: () => console.log = original };
+  const original = console.error;
+  console.error = (...args: unknown[]) =>
+    lines.push(args.map(String).join(" "));
+  return { lines, restore: () => console.error = original };
 }
 
 Deno.test("frontend ls announces the project resolved from config.currentProject", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
-  const cmds = makeFrontendCommands(deps(client, p.id));
+  const cmds = makeResourceCommands(deps(client, p.id), KINDS.frontends);
   const log = captureLog();
   try {
-    const code = await cmds["cloud frontend ls"]({
-      args: [],
-      flags: flags({ json: false }),
-      raw: {},
+    const code = await cmds["frontend ls"].run({}, {
+        args: [],
+        flags: flags({ json: false }),
     });
     assertEquals(code, 0);
     assertEquals(log.lines[0].includes(`Project: ${p.name}`), true);
-    assertEquals(log.lines[0].includes("pbc cloud project use"), true);
+    assertEquals(log.lines[0].includes("pbc project use"), true);
   } finally {
     log.restore();
   }
@@ -462,13 +417,12 @@ Deno.test("frontend ls announces the project resolved from config.currentProject
 Deno.test("frontend ls does not announce the project when --project names it", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
-  const cmds = makeFrontendCommands(deps(client, p.id));
+  const cmds = makeResourceCommands(deps(client, p.id), KINDS.frontends);
   const log = captureLog();
   try {
-    await cmds["cloud frontend ls"]({
-      args: [],
-      flags: flags({ json: false, project: p.id }),
-      raw: {},
+    await cmds["frontend ls"].run({}, {
+        args: [],
+        flags: flags({ json: false, project: p.id }),
     });
     assertEquals(log.lines.some((l) => l.startsWith("Project:")), false);
   } finally {

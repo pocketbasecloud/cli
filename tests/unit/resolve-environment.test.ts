@@ -97,8 +97,6 @@ Deno.test("assertConfigured rejects an explicit name the file lacks", () => {
 });
 
 Deno.test("assertConfigured is silent when the file configures no environments", () => {
-  // A repo-wide PBC_ENV must not break a directory that was never linked;
-  // --name/--id still decide there, exactly as before environments existed.
   const choice = resolveEnvironmentName(null, { flag: "staging", env: {} });
   assertConfigured(choice, null);
 });
@@ -114,8 +112,6 @@ Deno.test("entryFor ignores a file bound to a different kind", () => {
 });
 
 Deno.test("resolveEnvironmentName reads PBC_ENV from the process when unspecified", () => {
-  // The commands call it without an env map, so the process variable must reach
-  // it — the path CI relies on.
   Deno.env.set("PBC_ENV", "staging");
   try {
     assertEquals(resolveEnvironmentName(TWO).name, "staging");
@@ -165,7 +161,6 @@ Deno.test("chooseEnvironment takes an empty answer as the default", async () => 
 });
 
 Deno.test("chooseEnvironment does not ask when the file already answers", async () => {
-  // Configured environments...
   assertEquals(
     await chooseEnvironment(
       { name: "production", explicit: false, configured: true },
@@ -174,7 +169,6 @@ Deno.test("chooseEnvironment does not ask when the file already answers", async 
     ),
     { name: "production", explicit: false, configured: true },
   );
-  // ...or just a recorded default, as `init` writes.
   assertEquals(
     (await chooseEnvironment(NONE, { defaultEnvironment: "qa" }, {
       noInput: false,
@@ -219,7 +213,6 @@ Deno.test("a pre-0.6.0 PB_ENV still selects the environment", () => {
     resolveEnvironmentName(TWO, { env: { PB_ENV: "staging" } }).name,
     "staging",
   );
-  // Both set: the current spelling wins.
   assertEquals(
     resolveEnvironmentName(TWO, {
       env: { PB_ENV: "staging", PBC_ENV: "production" },

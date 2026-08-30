@@ -1,9 +1,9 @@
 import { assertEquals } from "@std/assert";
 import { createMockCloudClient } from "../mocks/cloud.mock.ts";
 import { mapPbError, PocketBaseCloudClient } from "../../src/clients/cloud.ts";
+import { EXIT_CODES } from "../../src/errors.ts";
 import { ClientResponseError } from "pocketbase";
 
-/** What PocketBase actually returns when a create fails validation. */
 function pbError(
   status: number,
   message: string,
@@ -33,7 +33,7 @@ Deno.test("mapPbError spells out which fields the platform rejected", () => {
     subdomain: "validation_required",
     user: "validation_required",
   });
-  assertEquals(e.exitCode, 1);
+  assertEquals(e.exitCode, EXIT_CODES.PLATFORM);
 });
 
 Deno.test("mapPbError leaves a detail-free error as it was", () => {
@@ -42,11 +42,6 @@ Deno.test("mapPbError leaves a detail-free error as it was", () => {
   assertEquals(e.fields, undefined);
 });
 
-/**
- * Capture what the client would put on the wire. Both hosts are required —
- * a stub that named only the backend used to have its token sent to the real
- * backend-extension by the `ext()` fallback.
- */
 async function capture(
   auth: { backendUrl: string; extUrl: string },
   call: (c: PocketBaseCloudClient) => Promise<Response>,
@@ -88,8 +83,6 @@ Deno.test("ext calls backend-extension, pbApi calls PocketBase", async () => {
 });
 
 Deno.test("both hosts get a Bearer-prefixed token", async () => {
-  // backend-extension reads the second whitespace-separated part of the
-  // header, so a bare token reads as no token at all.
   const e = await capture(HOSTS, (c) => c.ext("/api/logs/stream", {}));
   assertEquals(e.headers.get("authorization"), "Bearer tok");
   const p = await capture(HOSTS, (c) => c.pbApi("/api/hooks", {}));
@@ -111,8 +104,22 @@ Deno.test("a GET carries its query and no body", async () => {
 });
 
 Deno.test("mapPbError keeps the auth and permission shortcuts", () => {
-  assertEquals(mapPbError(pbError(401, "x")).exitCode, 4);
-  assertEquals(mapPbError(pbError(403, "x")).exitCode, 3);
+  assertEquals(mapPbError(pbError(401, "x")).exitCode, EXIT_CODES.AUTH);
+  assertEquals(mapPbError(pbError(403, "x")).exitCode, EXIT_CODES.FORBIDDEN);
+});
+
+Deno.test("mapPbError classifies 404, 409 and 413 through the exit-code table", () => {
+  const notFound = mapPbError(pbError(404, "No such record."));
+  assertEquals(notFound.code, "NOT_FOUND");
+  assertEquals(notFound.exitCode, EXIT_CODES.NOT_FOUND);
+
+  const conflict = mapPbError(pbError(409, "Already deleted."));
+  assertEquals(conflict.code, "CONFLICT");
+  assertEquals(conflict.exitCode, EXIT_CODES.CONFLICT);
+
+  const tooLarge = mapPbError(pbError(413, "x"));
+  assertEquals(tooLarge.code, "INVALID_VALUE");
+  assertEquals(tooLarge.exitCode, EXIT_CODES.USAGE);
 });
 
 Deno.test("mock createResource records the call and returns a resource", async () => {
@@ -129,11 +136,6 @@ Deno.test("mock createResource records the call and returns a resource", async (
   }]);
 });
 
-/**
- * Record every request the PocketBase SDK makes, answering each with a
- * caller-supplied body. Enough to assert what a client method puts on the wire
- * without a live backend.
- */
 async function recordSdk(
   call: (c: PocketBaseCloudClient) => Promise<unknown>,
   reply: (url: string) => unknown = () => ({ items: [], totalItems: 0 }),
@@ -173,8 +175,6 @@ async function recordSdk(
 }
 
 Deno.test("createProject sets the owner, without which the project is invisible", async () => {
-  // projects.user is optional in the schema and no hook fills it in for a
-  // personal project, but every list/view/update rule keys off it.
   const seen = await recordSdk((c) => c.createProject("app"));
   assertEquals(seen.length, 1);
   assertEquals(seen[0].method, "POST");
@@ -198,8 +198,6 @@ Deno.test("deleteProject refuses while resources are still live", async () => {
         totalItems: 0,
       },
   );
-  // Teardown decrements the slot counter but never cascades, so a project
-  // deleted with resources attached would strand running containers.
   assertEquals(
     thrown?.message,
     "Project still has 1 backends. Delete them first.",
@@ -207,7 +205,9 @@ Deno.test("deleteProject refuses while resources are still live", async () => {
 });
 
 Deno.test("listResources and listProjects hide tombstones", async () => {
-  const res = await recordSdk((c) => c.listResources("backends", "p1"));
+  const res = await recordSdk((c) =>
+    c.listResources("backends", { project: "p1" })
+  );
   assertEquals(
     decodeURIComponent(new URL(res[0].url).searchParams.get("filter")!),
     'project = "p1" && status != "deleted"',
@@ -219,17 +219,56 @@ Deno.test("listResources and listProjects hide tombstones", async () => {
   );
 });
 
+Deno.test("listResources with no project lists across the account, newest first", async () => {
+  const res = await recordSdk((c) => c.listResources("pocketbases"));
+  const url = new URL(res[0].url);
+  assertEquals(
+    decodeURIComponent(url.searchParams.get("filter")!),
+    'status != "deleted"',
+  );
+  assertEquals(url.searchParams.get("sort"), "-updated");
+});
+
+Deno.test("listResources returns the record's updated timestamp", async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = () =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({
+          items: [{
+            id: "pb1",
+            name: "db1",
+            status: "running",
+            project: "p1",
+            createdBy: "u1",
+            created: "2026-08-01 10:00:00.000Z",
+            updated: "2026-08-20 12:00:00.000Z",
+          }],
+          totalItems: 1,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+  try {
+    const c = new PocketBaseCloudClient({
+      backendUrl: "https://pb.example",
+      extUrl: "https://ext.example",
+      userToken: "tok",
+      userId: "u1",
+    });
+    const [pb] = await c.listResources("pocketbases");
+    assertEquals(pb.updated, "2026-08-20 12:00:00.000Z");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
 Deno.test("addMember sends the email the lookup hook reads", async () => {
-  // org_members has no `email` column: the before-create hook takes it from
-  // the body to find the user, and rejects the create when it is absent.
   const seen = await recordSdk((c) => c.addMember("org1", "dev@e.com"));
   assertEquals(seen[0].body, { organization: "org1", email: "dev@e.com" });
 });
 
 Deno.test("mapPbError surfaces the platform's own reason for a 403", () => {
-  // The platform's 403s name the actual fix — a slot limit, a plan
-  // requirement. Replacing them with a guess about org rights sends the user
-  // to the wrong screen entirely.
   const e = mapPbError(
     pbError(
       403,
@@ -240,7 +279,7 @@ Deno.test("mapPbError surfaces the platform's own reason for a 403", () => {
     e.message,
     "No available PocketBase slots — buy more from the Plan page.",
   );
-  assertEquals(e.exitCode, 3);
+  assertEquals(e.exitCode, EXIT_CODES.FORBIDDEN);
 });
 
 Deno.test("mapPbError falls back to the org-rights hint on a bare 403", () => {
@@ -249,14 +288,10 @@ Deno.test("mapPbError falls back to the org-rights hint on a bare 403", () => {
     e.message,
     "Permission denied. This action may require organization owner rights.",
   );
-  assertEquals(e.exitCode, 3);
+  assertEquals(e.exitCode, EXIT_CODES.FORBIDDEN);
 });
 
 Deno.test("mapPbError surfaces a paused instance on a deploy", () => {
-  // `pbc cloud pb deploy` writes `status = "uploading"` through the SDK, and the
-  // platform's before-update hook refuses it with a sentence naming both ways
-  // out. Falling back to the generic org-rights hint here would send a free
-  // user who needs to upgrade looking for a permissions problem instead.
   const e = mapPbError(
     pbError(
       403,
@@ -265,7 +300,7 @@ Deno.test("mapPbError surfaces a paused instance on a deploy", () => {
         "automatically.",
     ),
   );
-  assertEquals(e.exitCode, 3);
+  assertEquals(e.exitCode, EXIT_CODES.FORBIDDEN);
   assertEquals(e.message.includes("paused"), true);
   assertEquals(e.message.includes("organization owner rights"), false);
 });

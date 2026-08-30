@@ -1,8 +1,7 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import {
   backendExtUrl,
   backendUrl,
-  clearEnvironments,
   configPath,
   defaultConfig,
   envVar,
@@ -40,9 +39,6 @@ Deno.test("resolveCloudAuth takes the token from the env over the file", () => {
 });
 
 Deno.test("resolveCloudAuth stamps the production hosts", () => {
-  // The hosts come from env-aware functions (Deno.env), not the env parameter —
-  // a caller cannot spoof the host through the parameter alone. PBC_TOKEN already
-  // trusts the process environment, so the security posture is unchanged.
   const auth = resolveCloudAuth(defaultConfig(), { PBC_TOKEN: "envtok" });
   assertEquals(auth?.backendUrl, backendUrl());
   assertEquals(auth?.extUrl, backendExtUrl());
@@ -59,7 +55,6 @@ Deno.test("resolveCloudAuth falls back to file", () => {
     },
   };
   assertEquals(resolveCloudAuth(c, {}), {
-    // Stamped over whatever an older config wrote to disk.
     backendUrl: backendUrl(),
     extUrl: backendExtUrl(),
     userToken: "ft",
@@ -183,7 +178,6 @@ Deno.test("upsertEnvironment adds a second environment beside the first", async 
       production: { id: "fe1", name: "web" },
       staging: { id: "fe2", name: "web-staging" },
     });
-    // The first environment recorded stays the default.
     assertEquals(link?.defaultEnvironment, "production");
   } finally {
     await Deno.remove(dir, { recursive: true });
@@ -233,8 +227,6 @@ Deno.test("upsertEnvironment preserves unrelated fields and the env's build bloc
 });
 
 Deno.test("upsertEnvironment merges an entry's build over the env's own, key by key", async () => {
-  // Deploy records one field (envFile) and knows nothing of the others — a
-  // wholesale replace would silently drop the environment's exclude list.
   const dir = await Deno.makeTempDir();
   try {
     await withFile(dir, {
@@ -265,8 +257,6 @@ Deno.test("upsertEnvironment merges an entry's build over the env's own, key by 
 });
 
 Deno.test("upsertEnvironment repoints projectId at the resource's project", async () => {
-  // Otherwise `pbc cloud link --project other …` would leave the file naming a
-  // project the bound resource does not live in.
   const dir = await Deno.makeTempDir();
   try {
     await withFile(dir, {
@@ -384,8 +374,6 @@ Deno.test("removeEnvironmentFor only detaches the environment holding that id", 
       defaultEnvironment: "production",
       environments: { production: { id: "fe1", name: "web" } },
     });
-    // `rm --name something-else` resolved a resource this environment does not
-    // track, so the binding must survive.
     assertEquals(await removeEnvironmentFor(dir, "production", "other"), {
       removed: false,
     });
@@ -402,36 +390,30 @@ Deno.test("removeEnvironmentFor only detaches the environment holding that id", 
   }
 });
 
-Deno.test("clearEnvironments drops them all but keeps projectId and build", async () => {
-  const dir = await Deno.makeTempDir();
+Deno.test("removeEnvironment does not walk up to a parent pbc.json", async () => {
+  const parent = await Deno.makeTempDir();
   try {
-    await withFile(dir, {
+    const child = join(parent, "frontend");
+    await Deno.mkdir(child);
+    const parentFile = JSON.stringify({
       projectId: "p1",
-      kind: "pocketbases",
-      build: { command: "x" },
+      kind: "frontends",
       defaultEnvironment: "production",
-      environments: {
-        production: { id: "pb1", name: "main" },
-        staging: { id: "pb2", name: "main-staging" },
-      },
+      environments: { production: { id: "fe1", name: "web" } },
     });
-    assertEquals(await clearEnvironments(dir), ["production", "staging"]);
-    assertEquals(await readLinkFile(dir), {
-      projectId: "p1",
-      build: { command: "x" },
-    });
+    await Deno.writeTextFile(join(parent, "pbc.json"), parentFile);
+    assertEquals(await removeEnvironment(child, "production"), { removed: false });
+    assertEquals(await Deno.readTextFile(join(parent, "pbc.json")), parentFile);
+    await assertRejects(() => Deno.readTextFile(join(child, "pbc.json")));
   } finally {
-    await Deno.remove(dir, { recursive: true });
+    await Deno.remove(parent, { recursive: true });
   }
 });
-
-// --- the 0.6.0 rename, and what still answers to the old names --------------
 
 Deno.test("envVar prefers the PBC_ name and falls back to the PB_ one", () => {
   assertEquals(envVar("TOKEN", { PBC_TOKEN: "new", PB_TOKEN: "old" }), "new");
   assertEquals(envVar("TOKEN", { PB_TOKEN: "old" }), "old");
   assertEquals(envVar("TOKEN", {}), undefined);
-  // Empty is how a CI job has always said "no token", on either spelling.
   assertEquals(envVar("TOKEN", { PBC_TOKEN: "", PB_TOKEN: "old" }), "old");
   assertEquals(envVar("TOKEN", { PBC_TOKEN: "", PB_TOKEN: "" }), undefined);
 });
@@ -441,7 +423,6 @@ Deno.test("a pre-0.6.0 PB_TOKEN still authenticates", () => {
     resolveCloudAuth(defaultConfig(), { PB_TOKEN: "old" })?.userToken,
     "old",
   );
-  // And the new name wins when a shell carries both.
   assertEquals(
     resolveCloudAuth(defaultConfig(), { PB_TOKEN: "old", PBC_TOKEN: "new" })
       ?.userToken,
@@ -450,8 +431,6 @@ Deno.test("a pre-0.6.0 PB_TOKEN still authenticates", () => {
 });
 
 Deno.test("envVarName reports the spelling that is actually set", () => {
-  // A warning that says "unset PBC_TOKEN" to someone exporting PB_TOKEN sends
-  // them looking for a variable that is not there.
   assertEquals(envVarName("TOKEN", { PB_TOKEN: "old" }), "PB_TOKEN");
   assertEquals(
     envVarName("TOKEN", { PB_TOKEN: "old", PBC_TOKEN: "new" }),
@@ -486,8 +465,6 @@ Deno.test("loadConfig reads the pre-0.6.0 config, and saveConfig moves it", asyn
     const loaded = await loadConfig();
     assertEquals(loaded.currentProject, "p-old");
 
-    // The first save writes the new location; the old file is left where it is
-    // so a `pb` binary from before the rename keeps its own login.
     await saveConfig({ ...loaded, currentProject: "p-new" });
     assertEquals(
       JSON.parse(await Deno.readTextFile(join(home, "pbc", "config.json")))
@@ -499,7 +476,6 @@ Deno.test("loadConfig reads the pre-0.6.0 config, and saveConfig moves it", asyn
         .currentProject,
       "p-old",
     );
-    // And from then on the new file is the one that answers.
     assertEquals((await loadConfig()).currentProject, "p-new");
   } finally {
     if (xdg === undefined) Deno.env.delete("XDG_CONFIG_HOME");
@@ -530,8 +506,6 @@ Deno.test("a directory holding pb.json is read, and written back in place", asyn
       entry: { id: "fe2", name: "web-staging" },
     });
 
-    // The binding lands in the file the repository already commits — a second
-    // one would be invisible to every `pb` still in use.
     const written = JSON.parse(await Deno.readTextFile(join(dir, "pb.json")));
     assertEquals(Object.keys(written.environments), ["production", "staging"]);
     assertEquals(await exists(join(dir, "pbc.json")), false);

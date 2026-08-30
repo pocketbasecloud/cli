@@ -1,38 +1,14 @@
-// Single source of truth for the platform matrix. The shim's PACKAGE_FOR_HOST,
-// the six package.json files, the release archives, install.sh, and the
-// self-upgrade command all derive from TARGETS via the pure functions below.
-//
-// This module is build tooling that `src/self/` also imports at runtime — the
-// alternative is a second copy of the matrix that drifts from this one, which
-// is the exact failure the file exists to prevent. Keep it free of side
-// effects and of imports outside this directory.
-
 export type Target = {
-  /** npm package suffix and directory name, e.g. "darwin-arm64". */
   key: string;
-  /** Value of process.platform this package serves. */
   os: string;
-  /** Value(s) of process.arch this package may serve. */
   cpu: string[];
-  /** --target passed to `deno compile`. */
   denoTarget: string;
-  /** Binary filename inside the package. */
   binName: string;
 };
 
-/**
- * The command users type. The CLI was called `pb` until 0.6.0 and that name is
- * still installed alongside this one — `install.sh` links it and the npm
- * package declares both — so nothing that already runs `pb` breaks.
- *
- * This is *not* the name of the file inside a release archive: see
- * {@link Target.binName} and {@link assetName}, which are frozen at `pb`.
- */
 export const CLI_NAME = "pbc";
-/** The pre-0.6.0 name, kept installed as an alias. */
 export const LEGACY_CLI_NAME = "pb";
 
-/** The five targets Deno 2.5.6 can `compile --target`. */
 export const DENO_TARGETS = [
   "x86_64-unknown-linux-gnu",
   "aarch64-unknown-linux-gnu",
@@ -41,15 +17,6 @@ export const DENO_TARGETS = [
   "aarch64-apple-darwin",
 ] as const;
 
-/**
- * `binName` is `pb`, not `pbc`, and stays that way: every copy of the CLI
- * already in the wild extracts that exact entry out of the archive it
- * downloads (`applyUpgrade` → `extractEntry`/`extractFromTarGz`). Renaming the
- * entry would leave `pb upgrade` on every installed version 404-ing forever.
- * The name a user types is decided at install time — `install.sh` writes this
- * file out as `pbc` and links `pb` beside it — not by what it is called inside
- * the tarball.
- */
 export const TARGETS: Target[] = [
   {
     key: "darwin-arm64",
@@ -79,7 +46,6 @@ export const TARGETS: Target[] = [
     denoTarget: "x86_64-unknown-linux-gnu",
     binName: "pb",
   },
-  // Deno has no aarch64-pc-windows-msvc; arm64 Windows runs this under emulation.
   {
     key: "win32-x64",
     os: "win32",
@@ -89,12 +55,6 @@ export const TARGETS: Target[] = [
   },
 ];
 
-/**
- * Expands each target's `cpu` array into one host entry per architecture,
- * mapping `${process.platform}-${process.arch}` to the package `key` that
- * serves it. win32-x64's ["x64","arm64"] produces both win32-x64 and
- * win32-arm64 pointing at win32-x64 — the emulation fallback.
- */
 export function hostMap(targets: Target[]): Record<string, string> {
   const map: Record<string, string> = {};
   for (const t of targets) {
@@ -105,18 +65,11 @@ export function hostMap(targets: Target[]): Record<string, string> {
   return map;
 }
 
-/**
- * Release-archive filename, e.g. `pb_0.1.0_darwin_arm64.tar.gz`. Frozen at the
- * `pb_` prefix for the same reason as `binName`: `pb upgrade` on an already
- * installed copy resolves the asset it downloads by this exact name.
- */
 export function assetName(target: Target, version: string): string {
   const ext = target.os === "win32" ? "zip" : "tar.gz";
   return `pb_${version}_${target.os}_${target.cpu[0]}.${ext}`;
 }
 
-// Deno names the host differently from Node, and TARGETS is written in Node's
-// vocabulary because that is what the npm packages must declare.
 const OS_FROM_DENO: Record<string, string> = {
   darwin: "darwin",
   linux: "linux",
@@ -127,11 +80,6 @@ const ARCH_FROM_DENO: Record<string, string> = {
   x86_64: "x64",
 };
 
-/**
- * This machine as a `${process.platform}-${process.arch}` key — the same shape
- * `hostMap` is keyed by. Unknown values pass through untranslated so the caller
- * reports the real host rather than a silently wrong one.
- */
 export function hostKey(
   denoOs: string = Deno.build.os,
   denoArch: string = Deno.build.arch,
@@ -141,11 +89,6 @@ export function hostKey(
   }`;
 }
 
-/**
- * The target serving a host key, or null when nothing does. Goes through
- * `hostMap`, so win32-arm64 resolves to the win32-x64 target it emulates —
- * the host key and the target key are not always equal.
- */
 export function targetForHost(
   key: string,
   targets: Target[] = TARGETS,

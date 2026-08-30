@@ -24,13 +24,11 @@ Deno.test({
 Deno.test({
   name: "e2e: be deploy — full suite",
   fn: async (t) => {
-    // Plan-gate: return early if not Pro (ignore is static in Deno).
     if (!await isPro()) {
       console.log("Skipping backend e2e tests — not a Pro account.");
       return;
     }
 
-    // Create test project
     const proj = await pb(
       ["cloud", "project", "create", testName("be-project"), "--json"],
       { env: ENV },
@@ -61,8 +59,6 @@ Deno.test({
     });
 
     await t.step("missing --runtime fails with clear error", async () => {
-      // Scaffold a directory without any runtime framework signals so the
-      // CLI doesn't infer one from the project files.
       const dir = scaffold({ "main.ts": "// no deno.json so runtime is not inferred" });
       const r = await pb([
         "cloud", "backend", "deploy", "--compute", COMPUTE,
@@ -83,7 +79,6 @@ Deno.test({
       assertStringIncludes(r.stderr, "start");
     });
 
-    // Cleanup
     if (projectId) {
       await pb(
         ["cloud", "project", "rm", projectId, "--yes"],

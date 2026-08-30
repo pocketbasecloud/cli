@@ -1,25 +1,12 @@
-import type { CmdCtx, Handler } from "../router.ts";
-import type { BuildConfig, CloudAuth, Config } from "../config.ts";
-import {
-  clearEnvironments,
-  readOwnLinkFile,
-  removeEnvironment,
-  upsertEnvironment,
-} from "../config.ts";
-import {
-  chooseEnvironment,
-  resolveEnvironmentName,
-} from "../resolve/environment.ts";
-import { reportRemoval } from "./environments.ts";
+import { defineCommand, type Command } from "../command.ts";
+import type { CloudAuth, Config } from "../config.ts";
 import type { ICloudClient } from "../clients/cloud.ts";
 import { CliError } from "../errors.ts";
+import { emit } from "../envelope.ts";
 import { printResult } from "../ui/output.ts";
 import { confirm } from "../ui/prompt.ts";
 import type { PromptIO } from "../ui/prompt.ts";
 import { resolveProject } from "../resolve/project.ts";
-import { kindLabel, resolveLinkTarget } from "../resolve/link.ts";
-import { mergeEnvBuild } from "../build/config.ts";
-import { envFileEntry, resolveEnvFile } from "./deploy-helper.ts";
 
 export type CloudCmdDeps = {
   requireAuth: () => Promise<
@@ -28,234 +15,119 @@ export type CloudCmdDeps = {
   loadConfig: () => Promise<Config>;
   saveConfig: (c: Config) => Promise<void>;
   cwd: () => string;
-  /** Prompt transport; unset in production so prompts use real stdin. */
   io?: PromptIO;
-  /**
-   * Network transport, used to resolve the newest PocketBase release when a
-   * deploy has no version pinned. Optional so tests can stay offline; unset in
-   * production, where it falls back to the global `fetch`.
-   */
   fetch?: typeof fetch;
-  /** Env reader, so a GITHUB_TOKEN can lift the releases-API rate limit. */
   env?: (k: string) => string | undefined;
-  /**
-   * Where the env-push digests live (see `env-state.ts`). Optional so a test
-   * keeps its own beside its temp directory; unset in production, where it
-   * falls back to the file beside the config.
-   */
   envStatePath?: () => string;
 };
 
 export function makeProjectCommands(
   deps: CloudCmdDeps,
-): Record<string, Handler> {
-  const ls: Handler = async (ctx: CmdCtx) => {
-    const { client, config } = await deps.requireAuth();
-    const orgFilter = ctx.raw.org as string | undefined;
-    const projects = await client.listProjects(orgFilter);
-    printResult(projects, [
-      { header: "ID", get: (p) => p.id },
-      { header: "NAME", get: (p) => p.name },
-      { header: "ORG", get: (p) => p.organization || "-" },
-      {
-        header: "CURRENT",
-        get: (p) => (p.id === config.currentProject ? "*" : ""),
-      },
-    ], ctx.flags.json);
-    return 0;
-  };
-
-  const create: Handler = async (ctx: CmdCtx) => {
-    const name = ctx.args[0];
-    if (!name) throw new CliError("Usage: pbc cloud project create <name>", 2);
-    const { client } = await deps.requireAuth();
-    const p = await client.createProject(name);
-    console.log(
-      ctx.flags.json
-        ? JSON.stringify(p)
-        : `Created project ${p.name} (${p.id}).`,
-    );
-    return 0;
-  };
-
-  const use: Handler = async (ctx: CmdCtx) => {
-    const token = ctx.args[0];
-    if (!token) throw new CliError("Usage: pbc cloud project use <name|id>", 2);
-    const { client } = await deps.requireAuth();
-    const p = await resolveProject({
-      client,
-      config: await deps.loadConfig(),
-      cwd: deps.cwd(),
-      flagProject: token,
-      noInput: true,
-    });
-    const config = await deps.loadConfig();
-    config.currentProject = p.id;
-    await deps.saveConfig(config);
-    console.log(
-      ctx.flags.json
-        ? JSON.stringify({ currentProject: p.id })
-        : `Now using ${p.name}.`,
-    );
-    return 0;
-  };
-
-  const rm: Handler = async (ctx: CmdCtx) => {
-    const token = ctx.args[0];
-    if (!token) throw new CliError("Usage: pbc cloud project rm <name|id>", 2);
-    const { client, config } = await deps.requireAuth();
-    const p = await resolveProject({
-      client,
-      config,
-      cwd: deps.cwd(),
-      flagProject: token,
-      noInput: true,
-    });
-    if (
-      !await confirm(`Delete project ${p.name}?`, {
-        noInput: ctx.flags.noInput || ctx.flags.json,
-        yes: ctx.flags.yes,
-      })
-    ) {
-      console.log("Aborted.");
-      return 0;
-    }
-    await client.deleteProject(p.id);
-    console.log(
-      ctx.flags.json ? JSON.stringify({ ok: true }) : `Deleted ${p.name}.`,
-    );
-    return 0;
-  };
-
-  const link: Handler = async (ctx: CmdCtx) => {
-    const { client, config } = await deps.requireAuth();
-    const cwd = deps.cwd();
-    const p = await resolveProject({
-      client,
-      config,
-      cwd,
-      flagProject: ctx.flags.project,
-      noInput: ctx.flags.noInput,
-      log: ctx.flags.json ? undefined : (m) => console.log(m),
-    });
-    const { kind, resource } = await resolveLinkTarget({
-      client,
-      projectId: p.id,
-      kindToken: ctx.args[0],
-      nameToken: ctx.args[1],
-      noInput: ctx.flags.noInput,
-      io: deps.io,
-    });
-    // The file's own environments decide the target, never a parent's: link
-    // writes here, so it must read from here.
-    const own = await readOwnLinkFile(cwd);
-    if (own.kind && own.kind !== kind) {
-      throw new CliError(
-        `pbc.json is bound to ${own.kind} — link ${kind} from a different ` +
-          `directory.`,
-        2,
-      );
-    }
-    // link writes the first entry too, so it asks the same question deploy does.
-    const environment = (await chooseEnvironment(
-      resolveEnvironmentName(own, { flag: ctx.raw.env as string | undefined }),
-      own,
-      { noInput: ctx.flags.noInput || ctx.flags.json, io: deps.io },
-    )).name;
-
-    // Frontends have no cloud env store; ask nothing there. An environment
-    // that already has an answer (from an earlier link or deploy) has
-    // nothing left to record, so resolveEnvFile is skipped entirely rather
-    // than let it re-read a file link never pushes — a file already recorded
-    // need not still exist on disk for a plain re-link to succeed.
-    let build: { build?: BuildConfig } = {};
-    if (
-      kind !== "frontends" &&
-      mergeEnvBuild(own, environment).envFile === undefined
-    ) {
-      const decision = await resolveEnvFile({
-        cwd,
-        build: {},
-        environment,
-        flag: ctx.raw["env-file"] as string | undefined,
-        skip: ctx.raw["skip-env"] === true,
-        noInput: ctx.flags.noInput || ctx.flags.json,
-        io: deps.io,
-      });
-      build = await envFileEntry(cwd, environment, decision, (m) => {
-        if (!ctx.flags.json) console.log(m);
-      });
-    }
-
-    await upsertEnvironment(cwd, {
-      projectId: p.id,
-      kind,
-      environment,
-      entry: { id: resource.id, name: resource.name, ...build },
-    });
-    console.log(
-      ctx.flags.json
-        ? JSON.stringify({
-          linked: { kind, id: resource.id, name: resource.name, environment },
-        })
-        : `Linked ./ to ${kindLabel(kind)} "${resource.name}" ` +
-          `(environment: ${environment}).`,
-    );
-    return 0;
-  };
-
-  const unlink: Handler = async (ctx: CmdCtx) => {
-    const cwd = deps.cwd();
-    const own = await readOwnLinkFile(cwd);
-    const bound = Object.keys(own.environments ?? {});
-    if (bound.length === 0) {
-      console.log(
-        ctx.flags.json
-          ? JSON.stringify({ unlinked: [] })
-          : "Nothing linked here.",
-      );
-      return 0;
-    }
-    if (ctx.raw.all === true) {
-      const removed = await clearEnvironments(cwd);
-      console.log(
-        ctx.flags.json
-          ? JSON.stringify({ unlinked: removed })
-          : `Unlinked ./ from ${removed.length} environment(s): ${
-            removed.join(", ")
-          }.`,
-      );
-      return 0;
-    }
-    const environment = resolveEnvironmentName(own, {
-      flag: ctx.raw.env as string | undefined,
-    }).name;
-    const entry = own.environments?.[environment];
-    if (!entry) {
-      throw new CliError(
-        `Unknown environment "${environment}". Configured: ${
-          bound.join(", ")
-        }.`,
-        2,
-      );
-    }
-    const removal = await removeEnvironment(cwd, environment);
-    console.log(
-      ctx.flags.json
-        ? JSON.stringify({ unlinked: [environment] })
-        : `Unlinked ./ from ${kindLabel(own.kind!)} "${entry.name}" ` +
-          `(environment: ${environment}).`,
-    );
-    if (!ctx.flags.json) reportRemoval(removal, environment, console.log);
-    return 0;
-  };
-
+): Record<string, Command> {
   return {
-    "cloud project ls": ls,
-    "cloud project create": create,
-    "cloud project use": use,
-    "cloud project rm": rm,
-    "cloud link": link,
-    "cloud unlink": unlink,
+    "project ls": defineCommand({
+      path: ["project", "ls"],
+      usage: "pbc project ls",
+      summary: "List projects.",
+      args: [],
+      flags: {},
+      run: async (_input, ctx) => {
+        const { client, config } = await deps.requireAuth();
+        const projects = await client.listProjects();
+        printResult(projects, [
+          { header: "ID", get: (p) => p.id },
+          { header: "NAME", get: (p) => p.name },
+          { header: "ORG", get: (p) => p.organization || "-" },
+          {
+            header: "CURRENT",
+            get: (p) => (p.id === config.currentProject ? "*" : ""),
+          },
+        ], ctx.flags.json);
+        return 0;
+      },
+    }),
+
+    "project create": defineCommand({
+      path: ["project", "create"],
+      usage: "pbc project create <name>",
+      summary: "Create a project.",
+      args: [{ name: "name", required: true }],
+      flags: {},
+      run: async (_input, ctx) => {
+        const name = ctx.args[0];
+        if (!name) throw new CliError(
+          "Usage: pbc project create <name>",
+          { code: "USAGE" },
+        );
+        const { client } = await deps.requireAuth();
+        const p = await client.createProject(name);
+        emit(ctx.flags.json, p, `Created project ${p.name} (${p.id}).`);
+        return 0;
+      },
+    }),
+
+    "project use": defineCommand({
+      path: ["project", "use"],
+      usage: "pbc project use <name|id>",
+      summary: "Set the current project.",
+      args: [{ name: "name|id", required: true }],
+      flags: {},
+      run: async (_input, ctx) => {
+        const token = ctx.args[0];
+        if (!token) throw new CliError(
+          "Usage: pbc project use <name|id>",
+          { code: "USAGE" },
+        );
+        const { client } = await deps.requireAuth();
+        const p = await resolveProject({
+          client,
+          config: await deps.loadConfig(),
+          cwd: deps.cwd(),
+          flagProject: token,
+          noInput: true,
+        });
+        const config = await deps.loadConfig();
+        config.currentProject = p.id;
+        await deps.saveConfig(config);
+        emit(ctx.flags.json, { currentProject: p.id }, `Now using ${p.name}.`);
+        return 0;
+      },
+    }),
+
+    "project rm": defineCommand({
+      path: ["project", "rm"],
+      usage: "pbc project rm <name|id> [--yes]",
+      summary: "Delete a project.",
+      args: [{ name: "name|id", required: true }],
+      flags: {},
+      run: async (_input, ctx) => {
+        const token = ctx.args[0];
+        if (!token) throw new CliError(
+          "Usage: pbc project rm <name|id>",
+          { code: "USAGE" },
+        );
+        const { client, config } = await deps.requireAuth();
+        const p = await resolveProject({
+          client,
+          config,
+          cwd: deps.cwd(),
+          flagProject: token,
+          noInput: true,
+        });
+        if (
+          !await confirm(`Delete project ${p.name}?`, {
+            noInput: ctx.flags.noInput || ctx.flags.json,
+            yes: ctx.flags.yes,
+          })
+        ) {
+          console.error("Aborted.");
+          return 0;
+        }
+        await client.deleteProject(p.id);
+        emit(ctx.flags.json, { ok: true }, `Deleted ${p.name}.`);
+        return 0;
+      },
+    }),
+
   };
 }

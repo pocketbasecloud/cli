@@ -34,12 +34,10 @@ Deno.test("win32-x64 is the only two-arch entry and pb.exe the only non-pb bin",
 
 Deno.test("hostMap has one entry per (os, cpu) and maps win32-arm64 to win32-x64", () => {
   const m = hostMap(TARGETS);
-  // 4 single-arch + 2 win32 arches = 6 host entries.
   assertEquals(Object.keys(m).length, 6);
   assertEquals(m["darwin-arm64"], "darwin-arm64");
   assertEquals(m["linux-x64"], "linux-x64");
   assertEquals(m["win32-x64"], "win32-x64");
-  // The case a naive `${platform}-${arch}` concat gets wrong:
   assertEquals(m["win32-arm64"], "win32-x64");
 });
 

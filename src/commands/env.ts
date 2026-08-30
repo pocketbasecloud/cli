@@ -1,25 +1,24 @@
-import type { CmdCtx, Handler } from "../router.ts";
+import {
+  bool,
+  type CmdCtx,
+  type Command,
+  defineCommand,
+  str,
+} from "../command.ts";
 import type { CloudCmdDeps } from "./project.ts";
-import type { ResourceKind } from "../clients/types.ts";
 import { CliError, httpError } from "../errors.ts";
-import { resolveProject } from "../resolve/project.ts";
+import { emit } from "../envelope.ts";
+import { type KindSpec, kindByAlias, kindsWith } from "../kinds.ts";
+import { resolveResourceTarget } from "../resolve/target.ts";
 import {
   envDigest,
   envStateKey,
   forgetEnvDigest,
   recordEnvDigest,
 } from "../env-state.ts";
-import { resolveExisting, resolveTarget } from "./deploy-helper.ts";
 import { printResult } from "../ui/output.ts";
 import { confirm } from "../ui/prompt.ts";
 
-/**
- * Pull the variable names out of the /api/env/list envelope. The route wraps
- * them as `details.variables` — an object keyed by name — and the values are
- * ciphertext the CLI has no key for, so only the names are worth surfacing. An
- * older/flatter `{ variables }` shape is tolerated so the CLI need not move in
- * lockstep with the platform.
- */
 export function envKeysOf(body: unknown): string[] {
   const b = (body ?? {}) as {
     details?: { variables?: Record<string, unknown> };
@@ -29,11 +28,6 @@ export function envKeysOf(body: unknown): string[] {
   return Object.keys(vars).sort();
 }
 
-/**
- * Keys the platform removed because `prune` was set. The route reports them as
- * `details.pruned`; a flatter `{ pruned }` is tolerated for the same reason
- * `envKeysOf` tolerates one, and anything else reads as "nothing removed".
- */
 export function prunedKeysOf(body: unknown): string[] {
   const b = (body ?? {}) as {
     details?: { pruned?: unknown };
@@ -55,173 +49,235 @@ export function parseDotenv(text: string): Record<string, string> {
   return out;
 }
 
-function targetOf(
-  ctx: CmdCtx,
-): { kind: ResourceKind; type: "pocketbase" | "backend" } {
-  const t = (ctx.raw.target as string) ?? "pb";
-  if (t === "backend") return { kind: "backends", type: "backend" };
-  if (t === "pb" || t === "pocketbase") {
-    return { kind: "pocketbases", type: "pocketbase" };
+const ENV_KINDS = kindsWith("env");
+const ENV_NOUNS = ENV_KINDS.map((k) => k.noun);
+
+function targetOf(input: { target?: string }): KindSpec {
+  const spec = kindByAlias(input.target ?? ENV_NOUNS[0]);
+  if (!spec || !spec.env) {
+    throw new CliError(
+      `--target must be ${ENV_NOUNS.join(" or ")}.`,
+      { code: "USAGE" },
+    );
   }
-  throw new CliError("--target must be pb or backend.", 2);
+  return spec;
 }
 
-export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Handler> {
-  /** The resource whose variables a command reads or writes. */
-  async function resolveVarTarget(ctx: CmdCtx) {
+export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Command> {
+  async function resolveVarTarget(
+    ctx: CmdCtx,
+    input: { target?: string; name?: string; id?: string; env?: string },
+    explicit: boolean,
+  ) {
     const { client, config } = await deps.requireAuth();
-    const p = await resolveProject({
+    const spec = targetOf(input);
+    const { resource } = await resolveResourceTarget({
       client,
-      config,
+      spec,
       cwd: deps.cwd(),
-      flagProject: ctx.flags.project,
+      name: input.name,
+      id: input.id,
+      envFlag: input.env,
+      projectFilter: ctx.flags.project,
+      config,
+      explicit,
       noInput: ctx.flags.noInput || ctx.flags.json,
-      log: ctx.flags.json ? undefined : (m) => console.log(m),
+      io: deps.io,
+      log: (m) => console.error(m),
     });
-    const { kind, type } = targetOf(ctx);
-    const target = await resolveTarget(
-      {
-        id: ctx.raw.id as string | undefined,
-        name: ctx.raw.name as string | undefined,
-      },
-      kind,
-      deps.cwd(),
-      { envFlag: ctx.raw.env as string | undefined },
-    );
-    const found = await resolveExisting(
-      await client.listResources(kind, p.id),
-      { id: target.id, name: target.name },
-      {
-        label: type,
-        noInput: ctx.flags.noInput || ctx.flags.json,
-        errorMessage: `Specify a unique --name or --id for the ${type}.`,
-      },
-    );
-    return { client, targetId: found.id, type };
+    return {
+      client,
+      targetId: resource.id,
+      type: spec.apiType as "pocketbase" | "backend",
+    };
   }
 
-  const ls: Handler = async (ctx: CmdCtx) => {
-    const { client, targetId, type } = await resolveVarTarget(ctx);
-    const res = await client.pbApi("/api/env/list", {
-      target_id: targetId,
-      type,
-    });
-    if (!res.ok) throw await httpError(res, "List");
-    // Values come back encrypted, so `ls` reports names only — a table for
-    // humans, a flat [{ key }] array under --json to match every other `ls`.
-    const keys = envKeysOf(await res.json());
-    printResult(
-      keys.map((key) => ({ key })),
-      [{ header: "KEY", get: (r) => r.key }],
-      ctx.flags.json,
-    );
-    return 0;
-  };
-
-  const set: Handler = async (ctx: CmdCtx) => {
-    const kv = ctx.args[0];
-    if (!kv || !kv.includes("=")) {
-      throw new CliError(
-        "Usage: pbc cloud env set KEY=VALUE --target pb|backend --name <n>",
-        2,
-      );
-    }
-    const key = kv.slice(0, kv.indexOf("="));
-    const value = kv.slice(kv.indexOf("=") + 1);
-    const { client, targetId, type } = await resolveVarTarget(ctx);
-    const res = await client.pbApi("/api/env/set", {
-      target_id: targetId,
-      type,
-      key,
-      value,
-    });
-    if (!res.ok) throw await httpError(res, "Set");
-    // The cloud store no longer matches whatever a deploy last pushed, so the
-    // next deploy must not trust its digest and skip.
-    await forgetEnvDigest(envStateKey(type, targetId), deps.envStatePath?.());
-    console.log(ctx.flags.json ? JSON.stringify({ ok: true }) : `Set ${key}.`);
-    return 0;
-  };
-
-  const rm: Handler = async (ctx: CmdCtx) => {
-    const key = ctx.args[0];
-    if (!key) {
-      throw new CliError(
-        "Usage: pbc cloud env rm KEY --target pb|backend --name <n>",
-        2,
-      );
-    }
-    const { client, targetId, type } = await resolveVarTarget(ctx);
-    const res = await client.pbApi("/api/env/delete", {
-      target_id: targetId,
-      type,
-      key,
-    });
-    if (!res.ok) throw await httpError(res, "Delete");
-    await forgetEnvDigest(envStateKey(type, targetId), deps.envStatePath?.());
-    console.log(
-      ctx.flags.json ? JSON.stringify({ ok: true }) : `Removed ${key}.`,
-    );
-    return 0;
-  };
-
-  const importCmd: Handler = async (ctx: CmdCtx) => {
-    const file = ctx.args[0];
-    if (!file) {
-      throw new CliError(
-        "Usage: pbc cloud env import <.env> --target pb|backend --name <n>",
-        2,
-      );
-    }
-    const vars = parseDotenv(await Deno.readTextFile(file));
-    // Merging is the default: a cloud-only key is usually a secret set from the
-    // portal, not a leftover. --delete-missing makes the file the whole truth.
-    const deleteMissing = ctx.raw["delete-missing"] === true;
-    if (deleteMissing) {
-      const ok = await confirm(
-        `Import with --delete-missing will REMOVE cloud variables that ${file} does not list. Continue?`,
-        { noInput: ctx.flags.noInput, yes: ctx.flags.yes },
-      );
-      if (!ok) {
-        console.log("Aborted.");
-        return 0;
-      }
-    }
-    const { client, targetId, type } = await resolveVarTarget(ctx);
-    // The route validates with validateSetEnvRequest: the bulk field is
-    // `variables`, and anything else reads as "neither key+value nor bulk".
-    const res = await client.ext("/api/env/bulk-set", {
-      target_id: targetId,
-      type,
-      variables: vars,
-      prune: deleteMissing,
-    });
-    if (!res.ok) throw await httpError(res, "Import");
-    // An import writes exactly what a deploy's push writes, so it records the
-    // same digest rather than invalidating: importing the file a deploy would
-    // have pushed leaves that deploy nothing to do.
-    await recordEnvDigest(
-      envStateKey(type, targetId),
-      await envDigest(vars, deleteMissing),
-      deps.envStatePath?.(),
-    );
-    const removed = prunedKeysOf(await res.json());
-    const imported = Object.keys(vars).length;
-    if (ctx.flags.json) {
-      console.log(JSON.stringify({ imported, removed }));
-    } else {
-      console.log(`Imported ${imported} vars.`);
-      if (removed.length > 0) {
-        console.log(`Removed ${removed.length}: ${removed.join(", ")}.`);
-      }
-    }
-    return 0;
-  };
+  const targetFlag = str({
+    description: `${ENV_NOUNS.join(" or ")} — which kind's variables.`,
+    choices: ENV_NOUNS,
+    required: true,
+  });
+  const nameFlag = str({
+    description: "Which resource's variables. Asked for when omitted.",
+    required: true,
+  });
+  const idFlag = str({
+    description: "The resource's id, alternative to --name.",
+  });
+  const envFlag = str({
+    description: "Which pbc.json environment to target.",
+  });
 
   return {
-    "cloud env ls": ls,
-    "cloud env set": set,
-    "cloud env rm": rm,
-    "cloud env import": importCmd,
+    "env ls": defineCommand({
+      path: ["env", "ls"],
+      usage: `pbc env ls --target ${ENV_NOUNS.join("|")} --name <n> [--env <name>]`,
+      summary: "List environment variables.",
+      details:
+        "Names only. The platform stores values encrypted and its list endpoint\n" +
+        "never returns plaintext, so there is nothing for the CLI to show —\n" +
+        "read a value from the app itself, or overwrite it with `env set`.\n" +
+        "Without --name/--id, a terminal offers a picker.",
+      args: [],
+      flags: {
+        target: targetFlag,
+        name: nameFlag,
+        id: idFlag,
+        env: envFlag,
+      },
+      run: async (input, ctx) => {
+        const { client, targetId, type } = await resolveVarTarget(ctx, input, false);
+        const res = await client.pbApi("/api/env/list", {
+          target_id: targetId,
+          type,
+        });
+        if (!res.ok) throw await httpError(res, "List");
+        const keys = envKeysOf(await res.json());
+        printResult(
+          keys.map((key) => ({ key })),
+          [{ header: "KEY", get: (r) => r.key }],
+          ctx.flags.json,
+        );
+        return 0;
+      },
+    }),
+
+    "env set": defineCommand({
+      path: ["env", "set"],
+      usage: `pbc env set KEY=VALUE --target ${ENV_NOUNS.join("|")} --name <n> [--env <name>]`,
+      summary: "Set an environment variable.",
+      details: "Without --name/--id, a terminal offers a picker.",
+      args: [{ name: "KEY=VALUE", required: true }],
+      flags: {
+        target: targetFlag,
+        name: nameFlag,
+        id: idFlag,
+        env: envFlag,
+      },
+      run: async (input, ctx) => {
+        const kv = ctx.args[0];
+        if (!kv || !kv.includes("=")) {
+          throw new CliError(
+            `Usage: pbc env set KEY=VALUE --target ${ENV_NOUNS.join("|")} --name <n>`,
+            { code: "USAGE" });
+        }
+        const key = kv.slice(0, kv.indexOf("="));
+        const value = kv.slice(kv.indexOf("=") + 1);
+        const { client, targetId, type } = await resolveVarTarget(ctx, input, true);
+        const res = await client.pbApi("/api/env/set", {
+          target_id: targetId,
+          type,
+          key,
+          value,
+        });
+        if (!res.ok) throw await httpError(res, "Set");
+        await forgetEnvDigest(envStateKey(type, targetId), deps.envStatePath?.());
+        emit(ctx.flags.json, { ok: true }, `Set ${key}.`);
+        return 0;
+      },
+    }),
+
+    "env rm": defineCommand({
+      path: ["env", "rm"],
+      usage: `pbc env rm KEY --target ${ENV_NOUNS.join("|")} --name <n> [--env <name>]`,
+      summary: "Remove an environment variable.",
+      details: "Without --name/--id, a terminal offers a picker.",
+      args: [{ name: "KEY", required: true }],
+      flags: {
+        target: targetFlag,
+        name: nameFlag,
+        id: idFlag,
+        env: envFlag,
+      },
+      run: async (input, ctx) => {
+        const key = ctx.args[0];
+        if (!key) {
+          throw new CliError(
+            `Usage: pbc env rm KEY --target ${ENV_NOUNS.join("|")} --name <n>`,
+            { code: "USAGE" });
+        }
+        const { client, targetId, type } = await resolveVarTarget(ctx, input, true);
+        const res = await client.pbApi("/api/env/delete", {
+          target_id: targetId,
+          type,
+          key,
+        });
+        if (!res.ok) throw await httpError(res, "Delete");
+        await forgetEnvDigest(envStateKey(type, targetId), deps.envStatePath?.());
+        emit(ctx.flags.json, { ok: true }, `Removed ${key}.`);
+        return 0;
+      },
+    }),
+
+    "env import": defineCommand({
+      path: ["env", "import"],
+      usage:
+        `pbc env import <.env> --target ${ENV_NOUNS.join("|")} --name <n> [--delete-missing] [--env <name>]`,
+      summary: "Bulk-import variables from a .env file.",
+      details: `Merges by default: keys in the file are written, keys only in the cloud
+are left alone. Pass --delete-missing to make the file the whole truth — cloud
+variables it does not list are removed from the instance too, which asks for
+confirmation unless --yes is given. --no-input does not waive it: without a way
+to ask, the import stops and names --yes.
+
+Without --name/--id, a terminal offers a picker.`,
+      args: [{ name: ".env", required: true }],
+      flags: {
+        target: targetFlag,
+        name: nameFlag,
+        id: idFlag,
+        deleteMissing: bool({
+          description: "Remove cloud variables the file does not list.",
+        }),
+        env: envFlag,
+      },
+      run: async (input, ctx) => {
+        const file = ctx.args[0];
+        if (!file) {
+          throw new CliError(
+            `Usage: pbc env import <.env> --target ${ENV_NOUNS.join("|")} --name <n>`,
+            { code: "USAGE" });
+        }
+        const vars = parseDotenv(await Deno.readTextFile(file));
+        const deleteMissing = input.deleteMissing === true;
+        if (deleteMissing) {
+          const ok = await confirm(
+            `Import with --delete-missing will REMOVE cloud variables that ${file} does not list. Continue?`,
+            { noInput: ctx.flags.noInput, yes: ctx.flags.yes },
+          );
+          if (!ok) {
+            console.error("Aborted.");
+            return 0;
+          }
+        }
+        const { client, targetId, type } = await resolveVarTarget(ctx, input, true);
+        const res = await client.ext("/api/env/bulk-set", {
+          target_id: targetId,
+          type,
+          variables: vars,
+          prune: deleteMissing,
+        });
+        if (!res.ok) throw await httpError(res, "Import");
+        await recordEnvDigest(
+          envStateKey(type, targetId),
+          await envDigest(vars, deleteMissing),
+          deps.envStatePath?.(),
+        );
+        const removed = prunedKeysOf(await res.json());
+        const imported = Object.keys(vars).length;
+        emit(
+          ctx.flags.json,
+          { imported, removed },
+          () =>
+            [
+              `Imported ${imported} vars.`,
+              ...(removed.length > 0
+                ? [`Removed ${removed.length}: ${removed.join(", ")}.`]
+                : []),
+            ].join("\n"),
+        );
+        return 0;
+      },
+    }),
   };
 }

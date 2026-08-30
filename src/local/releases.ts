@@ -6,13 +6,6 @@ const API_URL = `https://api.github.com/repos/${REPO}/releases?per_page=100`;
 const DOWNLOAD_BASE = `https://github.com/${REPO}/releases/download`;
 const DEFAULT_LIMIT = 20;
 
-/**
- * Offline fallback: the newest release of each maintained line plus recent
- * patches, as observed on 2026-07-23. This is a convenience for listing, not a
- * source of truth, and is not expected to be kept current — which is why
- * anything derived from it is labelled "builtin" and why `latest` refuses to
- * resolve from it.
- */
 export const FALLBACK_VERSIONS: readonly string[] = [
   "0.39.9",
   "0.39.8",
@@ -34,10 +27,6 @@ export function normalizeVersion(v: string): string {
   return v.replace(/^v/, "");
 }
 
-/**
- * Descending semver order. A version with a prerelease suffix sorts below the
- * same version without one.
- */
 export function compareSemverDesc(a: string, b: string): number {
   const parse = (v: string) => {
     const [core, pre] = v.split("-", 2);
@@ -81,7 +70,6 @@ export async function listVersions(
     if (!res.ok) return { versions: [...FALLBACK_VERSIONS], source: "builtin" };
     releases = await res.json() as ApiRelease[];
   } catch {
-    // No network, DNS failure, timeout — anything at all.
     return { versions: [...FALLBACK_VERSIONS], source: "builtin" };
   }
 
@@ -102,9 +90,7 @@ export async function resolveLatest(deps: NetDeps): Promise<string> {
     throw new CliError(
       "Could not reach the GitHub releases API, so `latest` cannot be resolved. " +
         "Pass an explicit version, e.g. `pbc install 0.39.9`, or see " +
-        "`pbc versions` for the built-in list.",
-      1,
-    );
+        "`pbc versions` for the built-in list.");
   }
   return versions[0];
 }

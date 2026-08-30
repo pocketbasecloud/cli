@@ -1,5 +1,7 @@
 import { CliError } from "../errors.ts";
-import type { CommandSpec } from "../usage.ts";
+import type { Command } from "../command.ts";
+import { kebabCase } from "../command.ts";
+import type { ParseOutcome } from "../parse.ts";
 import { pauseProgress } from "./progress.ts";
 
 export type PromptIO = {
@@ -19,7 +21,7 @@ function stdinIO(): PromptIO {
         ? null
         : dec.decode(buf.subarray(0, n)).replace(/\r?\n$/, "");
     },
-    write: (s) => Deno.stdout.writeSync(new TextEncoder().encode(s)),
+    write: (s) => Deno.stderr.writeSync(new TextEncoder().encode(s)),
     isTTY: Deno.stdin.isTerminal(),
   };
 }
@@ -29,33 +31,20 @@ function resolveIO(opts: PromptOpts): PromptIO {
   if (opts.noInput || !io.isTTY) {
     throw new CliError(
       "Input required but running non-interactively (--no-input).",
-      2,
-    );
+      { code: "USAGE" });
   }
   return io;
 }
 
-/**
- * Whether asking a question here would work — the non-throwing half of
- * `resolveIO`, for callers that have a usable fallback when it would not.
- */
 export function canPrompt(opts: PromptOpts): boolean {
   if (opts.noInput) return false;
   return (opts.io ?? stdinIO()).isTTY;
 }
 
-/**
- * Every question goes through here, and every question suspends whatever
- * animation is running first: a spinner redrawing itself over the line the user
- * is typing on is unreadable, and the deploy path asks (which compute? which
- * environment?) from inside work that is already reporting progress.
- */
 function ask<T>(fn: () => Promise<T>): Promise<T> {
   return pauseProgress(fn);
 }
 
-// Async, not a promise-returning sync function: `resolveIO` throws when input
-// is impossible, and callers (and their tests) expect that as a rejection.
 export async function prompt(
   question: string,
   opts: PromptOpts,
@@ -73,14 +62,10 @@ export async function confirm(
   opts: PromptOpts & { yes: boolean },
 ): Promise<boolean> {
   if (opts.yes) return true;
-  // A confirmation has an obvious non-interactive remedy the generic "input
-  // required" message hides: pass --yes. Say so rather than naming --no-input,
-  // which the caller of `rm --json` never set.
   if (!canPrompt(opts)) {
     throw new CliError(
       "This action needs confirmation. Pass --yes to proceed.",
-      2,
-    );
+      { code: "USAGE" });
   }
   const io = resolveIO(opts);
   return await ask(async () => {
@@ -90,57 +75,47 @@ export async function confirm(
   });
 }
 
-/** Prompt repeatedly until a non-empty answer is given (a required value). */
 async function promptRequired(
   question: string,
   opts: PromptOpts,
 ): Promise<string> {
-  // Bounded so a closed stdin (EOF returns "") can never spin forever.
   for (let attempt = 0; attempt < 10; attempt++) {
     const answer = await prompt(question, opts);
     if (answer.length > 0) return answer;
   }
-  throw new CliError("A required value was not provided.", 2);
+  throw new CliError("A required value was not provided.", { code: "USAGE" });
 }
 
-/**
- * Fill required args/flags that were not supplied on the command line by
- * prompting for them, mutating `ctx` in place. Driven entirely by the
- * command's `CommandSpec`: only fields marked `required: true` are prompted,
- * and values already present are left untouched.
- */
-export async function fillMissingFromSpec(
-  spec: CommandSpec,
-  ctx: { args: string[]; raw: Record<string, unknown> },
+export async function fillMissing(
+  command: Command,
+  outcome: Extract<ParseOutcome, { ok: true }>,
   opts: PromptOpts,
 ): Promise<void> {
-  for (let i = 0; i < spec.args.length; i++) {
-    const a = spec.args[i];
+  for (let i = 0; i < command.args.length; i++) {
+    const a = command.args[i];
     if (!a.required) continue;
-    const cur = ctx.args[i];
-    if (cur !== undefined && String(cur).length > 0) continue;
-    ctx.args[i] = await promptRequired(`${a.name}:`, opts);
+    if (outcome.args[i] !== undefined && String(outcome.args[i]).length > 0) continue;
+    outcome.args[i] = await promptRequired(`${a.name}:`, opts);
   }
-  for (const f of spec.flags) {
+  for (const [key, f] of Object.entries(command.flags)) {
     if (!f.required) continue;
-    const cur = ctx.raw[f.name];
+    const name = kebabCase(key);
+    const cur = outcome.input[key];
     if (cur !== undefined && cur !== "" && cur !== null) continue;
-    const q = f.description ? `${f.name} (${f.description}):` : `${f.name}:`;
+    const q = f.description ? `${name} (${f.description}):` : `${name}:`;
     if (f.choices && f.choices.length > 0) {
-      ctx.raw[f.name] = await select(q, f.choices, (c) => c, opts);
+      outcome.input[key] = await select(q, f.choices, (c) => c, opts);
     } else if (f.type === "boolean") {
-      ctx.raw[f.name] = await confirm(q, { ...opts, yes: false });
+      outcome.input[key] = await confirm(q, { ...opts, yes: false });
     } else {
-      ctx.raw[f.name] = await promptRequired(q, opts);
+      outcome.input[key] = await promptRequired(q, opts);
     }
   }
 }
 
 export async function select<T>(
   question: string,
-  items: T[],
-  // The index is passed through for labels that are positional rather than
-  // intrinsic — a compute is named "Compute N" by its place in the list.
+  items: readonly T[],
   label: (t: T, index: number) => string,
   opts: PromptOpts,
 ): Promise<T> {
@@ -153,7 +128,7 @@ export async function select<T>(
   });
   const idx = Number(raw) - 1;
   if (!Number.isInteger(idx) || idx < 0 || idx >= items.length) {
-    throw new CliError(`Invalid selection: ${raw}`, 2);
+    throw new CliError(`Invalid selection: ${raw}`, { code: "USAGE" });
   }
   return items[idx];
 }

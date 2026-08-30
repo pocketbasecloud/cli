@@ -4,7 +4,7 @@ import { createMockCloudClient } from "../../mocks/cloud.mock.ts";
 import { type Config, defaultConfig } from "../../../src/config.ts";
 
 Deno.test("upgrade prints plan and portal link", async () => {
-  const client = createMockCloudClient(); // whoami → plan "pro"
+  const client = createMockCloudClient();
   const config: Config = {
     ...defaultConfig(),
     cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
@@ -21,10 +21,9 @@ Deno.test("upgrade prints plan and portal link", async () => {
     "https://app.pocketbase.cloud",
     (s) => printed += s + "\n",
   );
-  const code = await cmds["cloud upgrade"]({
+  const code = await cmds["plan"].run({}, {
     args: [],
     flags: { json: false, yes: true, noInput: true, interactive: false },
-    raw: {},
   });
   assertEquals(code, 0);
   assertStringIncludes(printed, "pro");

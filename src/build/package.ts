@@ -10,9 +10,7 @@ import {
 import { describeInstall, planInstall } from "./install.ts";
 import { plainProgress, type Progress } from "../ui/progress.ts";
 
-/** Path segments never shipped, whatever the strategy. */
 const DENY_SEGMENTS = [".git", "pb_data", ".DS_Store"];
-/** Filename globs never shipped. Secrets and noise. */
 const DENY_FILES = [".env", ".env.*", "*.log"];
 
 export type Strategy = "static" | "source" | "standalone" | "pbdirs";
@@ -20,17 +18,10 @@ export type Strategy = "static" | "source" | "standalone" | "pbdirs";
 export type PackageResult = {
   bytes: Uint8Array;
   fileName: string;
-  /**
-   * Files in the archive. Only `pbdirs` can legitimately produce zero (a bare
-   * instance), and callers must not upload that archive: an entry-less zip is
-   * 22 bytes of end-of-central-directory, which `unzip` refuses outright.
-   */
   fileCount: number;
-  /** Set by `standalone`, which knows how its bundle must be started. */
   startCommand?: string;
 };
 
-/** Injected so tests can assert on the build without spawning a process. */
 export type CommandRunner = (
   command: string,
   cwd: string,
@@ -43,11 +34,6 @@ export const runShell: CommandRunner = async (command, cwd) => {
   const child = new Deno.Command(exe, {
     args: [flag, command],
     cwd,
-    // The build tool's own chatter must not land on our stdout: under --json a
-    // deploy prints one JSON object there and nothing else, so a caller can
-    // pipe it straight to a parser. Capture stdout and forward it to our
-    // stderr, where the user still sees build progress but a pipe reading
-    // stdout does not. (Deno has no direct "send stdout to stderr" mode.)
     stdout: "piped",
     stderr: "inherit",
   }).spawn();
@@ -80,12 +66,6 @@ function matchesAny(name: string, patterns: RegExp[]): boolean {
   return patterns.some((p) => p.test(name));
 }
 
-/**
- * Walks `root`, returning one entry per file with `prefix`-joined archive
- * names. Symlinked directories are followed once — pnpm's `node_modules` in a
- * Next.js standalone bundle is a symlink farm — with a realpath set guarding
- * against cycles.
- */
 async function collect(
   root: string,
   prefix: string,
@@ -110,7 +90,6 @@ async function collect(
       if (matchesAny(archiveName, opts.extra)) continue;
 
       const abs = join(dir, name);
-      // stat (not lstat) so a symlink is classified by its target.
       const stat = await Deno.stat(abs).catch(() => null);
       if (!stat) continue;
 
@@ -129,11 +108,10 @@ async function collect(
 
 function requireDir(path: string, hint: string): Promise<void> {
   return isDir(path).then((ok) => {
-    if (!ok) throw new CliError(hint, 2);
+    if (!ok) throw new CliError(hint, { code: "USAGE" });
   });
 }
 
-/** Later entries win, insertion order preserved — see the standalone overlay. */
 function merge(groups: ZipEntry[][]): ZipEntry[] {
   const byName = new Map<string, ZipEntry>();
   for (const group of groups) {
@@ -172,8 +150,7 @@ async function packStandalone(
     throw new CliError(
       `No server.js at the root of .next/standalone — the bundle cannot ` +
         `start. Check that next.config.* sets output: "standalone".`,
-      2,
-    );
+        { code: "USAGE" });
   }
   return { entries, startCommand: "node server.js" };
 }
@@ -189,8 +166,6 @@ async function packPbDirs(
     [build.pbMigrations, "pb_migrations", "pbMigrations"],
   ];
   const groups: ZipEntry[][] = [];
-  // Resolved once: it only ever appears in a message, and each call stats the
-  // directory.
   const name = await linkFileName(cwd);
   for (const [src, canonical, field] of pairs) {
     if (!src) continue;
@@ -199,29 +174,19 @@ async function packPbDirs(
       abs,
       `${src} not found in ${cwd} (${name} build.${field}).`,
     );
-    // Staged under the canonical name whatever the source path is called —
-    // that is the layout the agent extracts.
     groups.push(
       await collect(abs, canonical, { keepNodeModules: false, extra }),
     );
   }
-  // No dirs configured: a bare instance, not an error — see packageResource's
-  // pbdirs exemption from the empty-zip check.
   return merge(groups);
 }
 
-/**
- * Runs the build, gathers the right files for the resource kind, and returns
- * the zip. Everything happens before any cloud call, so a failure here never
- * leaves a half-provisioned resource behind.
- */
 export async function packageResource(opts: {
   cwd: string;
   kind: ResourceKind;
   build: BuildConfig;
   skipBuild: boolean;
   log: (msg: string) => void;
-  /** Reports the waits. Defaults to plain lines through `log`. */
   progress?: Progress;
   run?: CommandRunner;
 }): Promise<PackageResult> {
@@ -229,11 +194,6 @@ export async function packageResource(opts: {
   const progress = opts.progress ?? plainProgress(log);
   const strategy = strategyFor(kind, build.runtime);
 
-  // Before the build, not after it: `next build` only writes .next/standalone
-  // when the config asks for it, and finding that out at packaging time means
-  // the whole build was wasted. Skipped when no build runs — there is nothing
-  // left for the config to influence, and editing the project would be pure
-  // side effect.
   if (strategy === "standalone" && build.command && !opts.skipBuild) {
     const note = describeStandaloneResult(await ensureStandaloneOutput(cwd));
     if (note) log(note);
@@ -241,16 +201,10 @@ export async function packageResource(opts: {
 
   if (build.command && !opts.skipBuild) {
     const run = opts.run ?? runShell;
-    // Before the build, because the build is what needs them: a project whose
-    // node_modules is missing (fresh clone, CI runner, a dependency added but
-    // never installed) fails with `sh: next: not found` and no hint that the
-    // fix is an install. `install: ""` in pbc.json opts out.
     const plan = build.install === ""
       ? null
       : await planInstall(cwd, build.install);
     if (plan) {
-      // Not animated: the package manager writes its own progress to the same
-      // terminal, and frames drawn against it would be shredded.
       await progress.step(describeInstall(plan), async (step) => {
         const { code } = await run(plan.command, plan.cwd);
         if (code !== 0) {
@@ -259,9 +213,7 @@ export async function packageResource(opts: {
               `in ${plan.cwd}). Install them yourself and deploy again, or ` +
               `set "install" in the build block of ${await linkFileName(
                 plan.cwd,
-              )} to the right command.`,
-            7,
-          );
+              )} to the right command.`);
         }
         step.done(`Installed dependencies (${plan.command})`);
       }, { animate: false });
@@ -271,9 +223,7 @@ export async function packageResource(opts: {
       const { code } = await run(build.command as string, cwd);
       if (code !== 0) {
         throw new CliError(
-          `Build failed (${build.command} exited ${code}).`,
-          7,
-        );
+          `Build failed (${build.command} exited ${code}).`);
       }
       step.done(`Built (${build.command})`);
     }, { animate: false });
@@ -283,9 +233,6 @@ export async function packageResource(opts: {
     globToRegExp(g, { globstar: true })
   );
 
-  // Reading a Next.js bundle's file tree and deflating it is not instant — a
-  // standalone build runs to tens of thousands of files — and it is entirely
-  // silent, so it animates.
   return await progress.step("Packaging files", async (step) => {
     let entries: ZipEntry[];
     let startCommand: string | undefined;
@@ -310,10 +257,11 @@ export async function packageResource(opts: {
       entries = await collect(abs, "", { keepNodeModules: false, extra });
     }
 
-    // pbdirs is exempt: no pb_public/pb_hooks/pb_migrations configured deploys
-    // a bare PocketBase instance, which the platform accepts with no archive.
     if (entries.length === 0 && strategy !== "pbdirs") {
-      throw new CliError(`Nothing to deploy — the packaged zip is empty.`, 2);
+      throw new CliError(
+        `Nothing to deploy — the packaged zip is empty.`,
+        { code: "USAGE" },
+      );
     }
 
     step.update(`Compressing ${entries.length} file(s)`);

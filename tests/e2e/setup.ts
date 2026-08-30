@@ -1,15 +1,28 @@
 import { assert, assertEquals } from "@std/assert";
 import type { ResourceKind } from "../../src/clients/types.ts";
 
-// ===================================================================
-// Types
-// ===================================================================
+export type PbError = {
+  code: string;
+  message: string;
+  hint: string;
+  docs?: string;
+  retryable: boolean;
+};
+
+export type PbEnvelope = {
+  ok: boolean;
+  schemaVersion: number;
+  data?: Record<string, unknown>;
+  error?: PbError;
+};
 
 export type PbResult = {
   code: number;
   stdout: string;
   stderr: string;
   json?: Record<string, unknown>;
+  envelope?: PbEnvelope;
+  error?: PbError;
 };
 
 export type PbOpts = {
@@ -18,31 +31,18 @@ export type PbOpts = {
   timeout?: number;
 };
 
-// ===================================================================
-// CLI runner
-// ===================================================================
-
-/** Resolved at import time — tests/e2e/ → tests/ → cli root. */
 const CLI_ROOT = new URL("../..", import.meta.url).pathname;
 const MAIN = `${CLI_ROOT}main.ts`;
 
 export async function pb(args: string[], opts: PbOpts = {}): Promise<PbResult> {
   const allArgs = [...args, "--no-input"];
   const parentEnv = Deno.env.toObject();
-  // Apply overrides; an explicit "" unsets the key entirely so the child
-  // process sees no value for it (falsy in resolveCloudAuth).
-  //
-  // Unsetting `PBC_X` unsets `PB_X` with it: since 0.6.0 the CLI falls back to
-  // the old spelling, so leaving it behind would let a developer shell that
-  // still exports `PB_TOKEN` authenticate a test that asked for no token.
   const childEnv = { ...parentEnv, ...opts.env };
   for (const [k, v] of Object.entries(opts.env ?? {})) {
     if (v !== "") continue;
     delete childEnv[k];
     if (k.startsWith("PBC_")) delete childEnv[`PB_${k.slice("PBC_".length)}`];
   }
-  // Run from the target directory (opts.cwd) so deps.cwd() returns the
-  // project dir. main.ts is referenced by absolute path.
   const cmd = new Deno.Command("deno", {
     args: ["run", "-A", MAIN, ...allArgs],
     cwd: opts.cwd ?? CLI_ROOT,
@@ -63,15 +63,17 @@ export async function pb(args: string[], opts: PbOpts = {}): Promise<PbResult> {
   const result: PbResult = { code, stdout: stdoutText, stderr: stderrText };
   if (allArgs.includes("--json") && stdoutText.trim()) {
     try {
-      result.json = JSON.parse(stdoutText.trim().split("\n").pop()!);
-    } catch { /* not JSON — caller inspects stdout */ }
+      const parsed = JSON.parse(stdoutText.trim()) as PbEnvelope;
+      result.envelope = parsed;
+      if (parsed.ok) {
+        result.json = parsed.data;
+      } else {
+        result.error = parsed.error;
+      }
+    } catch { /* not one JSON object — a stream, or not JSON. Caller inspects stdout. */ }
   }
   return result;
 }
-
-// ===================================================================
-// Unique names
-// ===================================================================
 
 let _counter = 0;
 export function testName(base: string): string {
@@ -79,10 +81,6 @@ export function testName(base: string): string {
   const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
   return `e2e-${base}-${ts}-${_counter}`;
 }
-
-// ===================================================================
-// Temp directories
-// ===================================================================
 
 export function scaffold(files: Record<string, string>): string {
   const root = Deno.makeTempDirSync({ prefix: "pb-e2e-" });
@@ -94,19 +92,11 @@ export function scaffold(files: Record<string, string>): string {
   return root;
 }
 
-// ===================================================================
-// Auth
-// ===================================================================
-
 export function requireToken(): string {
   const token = Deno.env.get("PBC_TOKEN");
   if (!token) throw new Error("PBC_TOKEN is not set — cannot run e2e tests");
   return token;
 }
-
-// ===================================================================
-// Cleanup
-// ===================================================================
 
 type CleanupEntry = { kind: ResourceKind; id: string; projectId: string };
 
@@ -133,16 +123,10 @@ export async function runCleanup(): Promise<void> {
   _cleanup.length = 0;
 }
 
-/**
- * Delete any e2e-* resources and projects left over from a crashed run.
- * Runs once at the start of each deploy test file so the suite always
- * begins from a clean slate — no manual cleanup required.
- */
 export async function cleanupOrphans(): Promise<void> {
   const token = Deno.env.get("PBC_TOKEN");
   if (!token) return;
 
-  // Find e2e projects
   const proj = await pb(["cloud", "project", "ls", "--json"], {
     env: { PBC_TOKEN: token },
     timeout: 15_000,
@@ -157,7 +141,6 @@ export async function cleanupOrphans(): Promise<void> {
   );
 
   for (const p of e2eProjects) {
-    // Delete resources inside the project first, then the project
     for (const kind of ["pocketbases", "frontends", "backends"] as const) {
       const cmdKind = kind === "pocketbases" ? "pb" : kind === "backends" ? "backend" : "frontend";
       try {
@@ -177,7 +160,6 @@ export async function cleanupOrphans(): Promise<void> {
         }
       } catch { /* continue */ }
     }
-    // Delete the project itself
     console.error(`  Deleting project ${p.name}…`);
     try {
       await pb(["cloud", "project", "rm", p.id, "--yes"], {
@@ -187,10 +169,6 @@ export async function cleanupOrphans(): Promise<void> {
     } catch { /* already gone */ }
   }
 }
-
-// ===================================================================
-// Assert helpers
-// ===================================================================
 
 export function assertExitOk(r: PbResult): void {
   assertEquals(

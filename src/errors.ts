@@ -1,10 +1,80 @@
-/**
- * PocketBase reports *why* a request failed one field at a time, in
- * `response.data` — the top-level `message` is always something uninformative
- * like "Failed to create record.". Both clients need the same unpacking, so it
- * lives here: `detail` for the human sentence, `fields` for callers that react
- * to a specific code.
- */
+export type ErrorCode =
+  | "USAGE"
+  | "UNKNOWN_FLAG"
+  | "MISSING_ARG"
+  | "NO_TARGET"
+  | "INVALID_VALUE"
+  | "NOT_FOUND"
+  | "NOT_AUTHENTICATED"
+  | "FORBIDDEN"
+  | "PLAN_LIMIT"
+  | "CONFLICT"
+  | "PLATFORM_ERROR"
+  | "NETWORK_ERROR"
+  | "INTERNAL"
+  | "TIMEOUT";
+
+export const EXIT_CODES = {
+  OK: 0,
+  USAGE: 2,
+  NOT_FOUND: 3,
+  AUTH: 4,
+  FORBIDDEN: 5,
+  CONFLICT: 6,
+  PLATFORM: 7,
+  TIMEOUT: 8,
+} as const;
+
+const EXIT_CODE_BY_ERROR_CODE: Record<ErrorCode, number> = {
+  USAGE: EXIT_CODES.USAGE,
+  UNKNOWN_FLAG: EXIT_CODES.USAGE,
+  MISSING_ARG: EXIT_CODES.USAGE,
+  NO_TARGET: EXIT_CODES.USAGE,
+  INVALID_VALUE: EXIT_CODES.USAGE,
+  NOT_FOUND: EXIT_CODES.NOT_FOUND,
+  NOT_AUTHENTICATED: EXIT_CODES.AUTH,
+  FORBIDDEN: EXIT_CODES.FORBIDDEN,
+  PLAN_LIMIT: EXIT_CODES.FORBIDDEN,
+  CONFLICT: EXIT_CODES.CONFLICT,
+  PLATFORM_ERROR: EXIT_CODES.PLATFORM,
+  NETWORK_ERROR: EXIT_CODES.PLATFORM,
+  INTERNAL: EXIT_CODES.PLATFORM,
+  TIMEOUT: EXIT_CODES.TIMEOUT,
+};
+
+const HINT_BY_ERROR_CODE: Record<ErrorCode, string> = {
+  USAGE: "Run the command with --help to see its usage.",
+  UNKNOWN_FLAG: "Run the command with --help to see its accepted flags.",
+  MISSING_ARG: "Run the command with --help to see its required arguments.",
+  NO_TARGET: "Pass --project or --profile, or run `pbc admin use <url>` first.",
+  INVALID_VALUE: "Run the command with --help to see accepted values.",
+  NOT_FOUND: "List what exists with the resource's `ls` command.",
+  NOT_AUTHENTICATED: "pbc login",
+  FORBIDDEN: "This action may need different account permissions.",
+  PLAN_LIMIT: "pbc plan",
+  CONFLICT:
+    "The resource is in a state that blocks this action — check its `info` command.",
+  PLATFORM_ERROR:
+    "Retry, and check https://status.pocketbasecloud.com if it persists.",
+  NETWORK_ERROR: "Check your connection and retry.",
+  INTERNAL: "Retry; if it persists, this is a CLI bug.",
+  TIMEOUT: "Check the resource's `info` command for its current status.",
+};
+
+const RETRYABLE_BY_ERROR_CODE: Partial<Record<ErrorCode, boolean>> = {
+  TIMEOUT: true,
+  NETWORK_ERROR: true,
+  PLATFORM_ERROR: true,
+};
+
+export type CliErrorOptions = {
+  code?: ErrorCode;
+  hint?: string;
+  docs?: string;
+  retryable?: boolean;
+  fields?: Record<string, string>;
+};
+
 export function fieldErrors(
   data: unknown,
 ): { detail: string; fields?: Record<string, string> } {
@@ -21,29 +91,26 @@ export function fieldErrors(
 }
 
 export class CliError extends Error {
-  exitCode: number;
-  /**
-   * PocketBase's per-field validation codes (field -> code), when the platform
-   * sent any. Kept structured so a caller can react to a specific field's
-   * failure rather than pattern-matching the rendered message.
-   */
+  code: ErrorCode;
+  hint: string;
+  docs?: string;
+  retryable: boolean;
   fields?: Record<string, string>;
-  constructor(message: string, exitCode = 1, fields?: Record<string, string>) {
+  constructor(message: string, opts: CliErrorOptions = {}) {
     super(message);
     this.name = "CliError";
-    this.exitCode = exitCode;
-    this.fields = fields;
+    this.code = opts.code ?? "PLATFORM_ERROR";
+    this.hint = opts.hint ?? HINT_BY_ERROR_CODE[this.code];
+    this.docs = opts.docs;
+    this.retryable = opts.retryable ?? (RETRYABLE_BY_ERROR_CODE[this.code] ?? false);
+    this.fields = opts.fields;
+  }
+  get exitCode(): number {
+    return EXIT_CODE_BY_ERROR_CODE[this.code];
   }
 }
 
-/**
- * Wrappers that exist only to say "something failed", which the caller already
- * knows from the status code. Skipped in favour of whatever sits underneath;
- * used as a last resort if nothing else survives.
- */
 const GENERIC_MESSAGES = new Set([
-  // PocketBase's own wrappers: every rejected write carries one of these, with
-  // the actual reason in the per-field map underneath.
   "Failed to create record.",
   "Failed to update record.",
   "Failed to delete record.",
@@ -56,10 +123,8 @@ const GENERIC_MESSAGES = new Set([
   "Failed to list env vars",
 ]);
 
-/** Keys the platform's routes put a reason under, most specific first. */
 const REASON_KEYS = ["details", "error_message", "message", "error"] as const;
 
-/** The reason-bearing strings on one level of an error body. */
 function stringCandidates(obj: Record<string, unknown>): string[] {
   const found: string[] = [];
   for (const key of REASON_KEYS) {
@@ -85,12 +150,9 @@ function reasonFrom(body: unknown): string | undefined {
 
   const candidates: string[] = [];
 
-  // Most specific first: a rejected field beats any sentence above it.
   const fieldDetail = pocketBaseFieldDetail(obj);
   if (fieldDetail) candidates.push(fieldDetail);
 
-  // Then this level, then each layer that re-wrapped it — a nested body's own
-  // message is still a reason when it carries no field errors.
   for (const level of [obj, details, nested]) {
     if (level && typeof level === "object" && !Array.isArray(level)) {
       candidates.push(...stringCandidates(level));
@@ -100,22 +162,6 @@ function reasonFrom(body: unknown): string | undefined {
   return candidates.find((c) => !GENERIC_MESSAGES.has(c)) ?? candidates[0];
 }
 
-/**
- * PocketBase's per-field validation errors, from whichever depth they arrived
- * at.
- *
- * The shape is always `{ data: { <field>: { code, message, params } } }`, but
- * how deeply it is buried depends on how many layers re-wrapped it on the way
- * out. An over-long hook has been seen arriving as `details.data.data.content`
- * — the PocketBase response body nested inside a `details.data` envelope —
- * with nothing but "Failed to create record." above it. Checking one fixed
- * depth is how that reached a user as seven words naming neither the field nor
- * the limit.
- *
- * A container only counts when its `data` actually holds field errors, so the
- * intermediate `{ data, message, status }` envelope is stepped over rather than
- * read as three fields named "data", "message" and "status".
- */
 function pocketBaseFieldDetail(body: Record<string, unknown>): string {
   const details = body.details as Record<string, unknown> | undefined;
   const nested = details?.data as Record<string, unknown> | undefined;
@@ -146,8 +192,6 @@ function pocketBaseFieldDetail(body: Record<string, unknown>): string {
       };
       if (typeof message !== "string" || !message) continue;
 
-      // The limit is read from PocketBase's own `params`, so raising the
-      // field's `max` cannot leave this quoting the old number.
       const max = code === "validation_max_text_constraint"
         ? Number(params?.max)
         : NaN;
@@ -165,19 +209,23 @@ function pocketBaseFieldDetail(body: Record<string, unknown>): string {
   return "";
 }
 
-/**
- * Turns a failed HTTP response into an error that repeats what the platform
- * said.
- *
- * The routes answer with the useful sentence one level down — `details` on
- * PocketBase's custom routes, `error` on backend-extension's — and reporting
- * only the status code, which is what most call sites used to do, throws that
- * away and leaves the user with a bare number to act on. The body is read
- * here, once, so no caller has to remember to.
- *
- * Exit codes follow the CLI's convention: 4 means "log in again", 3 means "you
- * may not do this", 1 is everything else.
- */
+export function codeFromStatus(status: number): ErrorCode | undefined {
+  switch (status) {
+    case 401:
+      return "NOT_AUTHENTICATED";
+    case 403:
+      return "FORBIDDEN";
+    case 404:
+      return "NOT_FOUND";
+    case 409:
+      return "CONFLICT";
+    case 413:
+      return "INVALID_VALUE";
+    default:
+      return status >= 500 ? "PLATFORM_ERROR" : undefined;
+  }
+}
+
 export async function httpError(
   res: Response,
   action: string,
@@ -185,17 +233,17 @@ export async function httpError(
   const body = await res.json().catch(() => null);
   const reason = reasonFrom(body) ??
     (res.status === 401
-      ? "not authenticated — run `pbc cloud login`"
+      ? "not authenticated — run `pbc login`"
       : res.status === 403
       ? "permission denied"
       : undefined);
 
-  const exitCode = res.status === 401 ? 4 : res.status === 403 ? 3 : 1;
+  const code = codeFromStatus(res.status);
 
   return new CliError(
     reason
       ? `${action} failed (${res.status}): ${reason}`
       : `${action} failed (${res.status}).`,
-    exitCode,
+    code ? { code } : {},
   );
 }

@@ -20,10 +20,9 @@ function deps(client = createMockAdminClient()): AdminCmdDeps {
 Deno.test("cron run passes job id", async () => {
   const client = createMockAdminClient();
   const cmds = makeCronCommands(deps(client));
-  const code = await cmds["cron run"]({
+  const code = await cmds["admin cron run"].run({}, {
     args: ["__pbLogsCleanup__"],
     flags: { json: true, yes: true, noInput: true, interactive: false },
-    raw: {},
   });
   assertEquals(code, 0);
   assertEquals(client.calls.runCron[0], ["__pbLogsCleanup__"]);

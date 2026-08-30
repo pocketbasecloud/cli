@@ -7,30 +7,17 @@ import {
   TARGETS,
 } from "../../scripts/targets.ts";
 
-/** Where `pbc`'s own releases live — not the PocketBase repo. */
 const REPO = "pocketbasecloud/cli";
 const RELEASES = `https://github.com/${REPO}/releases`;
 
-/**
- * `pb_<version>_<os>_<arch>.<ext>` — the names `assetName()` produces, read
- * back. The version is the only part that varies per release, which is what
- * makes checksums.txt a version oracle as well as a digest list.
- */
 const ASSET_RE =
   /^pb_(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)_[a-z0-9]+_[a-z0-9]+\.(?:tar\.gz|zip)$/;
 
 export type ReleaseManifest = {
   version: string;
-  /** Asset filename → lowercase SHA-256 hex. */
   checksums: Record<string, string>;
 };
 
-/**
- * `checksums.txt` for a release, or for the latest one when `version` is
- * omitted. `latest/download/<name>` is a plain redirect, so resolving the
- * newest version this way costs no GitHub API quota — unauthenticated callers
- * get 60 requests an hour, and `pbc upgrade` must work on the 61st.
- */
 export function checksumsUrl(version?: string): string {
   return version
     ? `${RELEASES}/download/v${version}/checksums.txt`
@@ -41,12 +28,6 @@ export function assetUrl(version: string, name: string): string {
   return `${RELEASES}/download/v${version}/${name}`;
 }
 
-/**
- * Reads the `<sha256>  <filename>` lines GitHub serves alongside each release.
- * The version comes from the asset names rather than being passed in, so the
- * `latest` redirect resolves to a concrete version in the same request that
- * fetches the digests used to verify the download.
- */
 export function parseChecksums(text: string): ReleaseManifest {
   const checksums: Record<string, string> = {};
   let version = "";
@@ -60,14 +41,11 @@ export function parseChecksums(text: string): ReleaseManifest {
   if (!version) {
     throw new CliError(
       "Could not read a version from the release's checksums.txt. " +
-        `Install manually from ${RELEASES}.`,
-      1,
-    );
+        `Install manually from ${RELEASES}.`);
   }
   return { version, checksums };
 }
 
-/** The release archive this host needs, and the target that serves it. */
 export function hostAsset(
   key: string,
   version: string,
@@ -78,8 +56,7 @@ export function hostAsset(
       `No prebuilt pbc binary for ${key}. ` +
         `Supported: ${Object.keys(hostMap(TARGETS)).join(", ")}. ` +
         "On any other platform, install from source with Deno.",
-      2,
-    );
+        { code: "USAGE" });
   }
   return { target, name: assetName(target, version) };
 }
@@ -95,26 +72,20 @@ export async function fetchManifest(
     throw new CliError(
       `Could not reach GitHub to check for a newer pbc: ${
         e instanceof Error ? e.message : String(e)
-      }`,
-      1,
-    );
+      }`);
   }
   if (res.status === 404) {
-    // Consume the body so the connection is not left dangling.
     await res.body?.cancel();
     throw new CliError(
       version
         ? `pbc ${version} is not a published release. See ${RELEASES}.`
         : `No published pbc release found. See ${RELEASES}.`,
-      2,
-    );
+        { code: "USAGE" });
   }
   if (!res.ok) {
     await res.body?.cancel();
     throw new CliError(
-      `Could not fetch the release manifest (${res.status}). Try again shortly.`,
-      1,
-    );
+      `Could not fetch the release manifest (${res.status}). Try again shortly.`);
   }
   return parseChecksums(await res.text());
 }

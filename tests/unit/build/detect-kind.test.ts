@@ -7,7 +7,6 @@ import {
   kindDisplay,
 } from "../../../src/build/detect-kind.ts";
 
-/** A temp directory seeded with the given relative path → contents. */
 function dir(files: Record<string, string> = {}): string {
   const root = Deno.makeTempDirSync();
   for (const [path, body] of Object.entries(files)) {
@@ -26,16 +25,11 @@ const pkg = (
   },
 ) => JSON.stringify({ name: "x", ...o });
 
-/** The kind alone, for the many cases where the evidence is not the point. */
 async function kindOf(files: Record<string, string>): Promise<
   ResourceKind | null
 > {
   return (await detectKind(dir(files)))?.kind ?? null;
 }
-
-// ===================================================================
-// PocketBase
-// ===================================================================
 
 Deno.test("any one PocketBase directory identifies a PocketBase project", async () => {
   assertEquals(await kindOf({ "pb_hooks/main.pb.js": "//" }), "pocketbases");
@@ -47,8 +41,6 @@ Deno.test("any one PocketBase directory identifies a PocketBase project", async 
 });
 
 Deno.test("PocketBase directories outrank a package.json beside them", async () => {
-  // A PocketBase project routinely carries tooling of its own — a package.json
-  // for the hooks' types, a build script for pb_public.
   const guess = await detectKind(dir({
     "pb_hooks/main.pb.js": "//",
     "package.json": pkg({ scripts: { start: "node server.js" } }),
@@ -56,10 +48,6 @@ Deno.test("PocketBase directories outrank a package.json beside them", async () 
   assertEquals(guess?.kind, "pocketbases");
   assertEquals(guess?.reason, "pb_hooks/");
 });
-
-// ===================================================================
-// Next.js — the one framework that is either kind
-// ===================================================================
 
 Deno.test("a Next.js project is a backend unless its config exports statically", async () => {
   assertEquals(
@@ -86,8 +74,6 @@ Deno.test("a static Next.js export says which line decided it", async () => {
 });
 
 Deno.test("a Next.js config that computes output falls to the backend path", async () => {
-  // Deploying it as a backend is what surfaces the real explanation:
-  // ensureStandaloneOutput refuses a computed output and says what to set.
   assertEquals(
     await kindOf({
       "next.config.js":
@@ -96,10 +82,6 @@ Deno.test("a Next.js config that computes output falls to the backend path", asy
     "backends",
   );
 });
-
-// ===================================================================
-// Frontends
-// ===================================================================
 
 Deno.test("each SPA framework config identifies a frontend", async () => {
   for (
@@ -116,9 +98,6 @@ Deno.test("each SPA framework config identifies a frontend", async () => {
 });
 
 Deno.test("a multi-page generator is not claimed as a frontend by its config", async () => {
-  // Frontend hosting serves one index.html with SPA fallback, so Astro and
-  // Gatsby are not special-cased. Nothing is refused — the generic rules still
-  // answer, and the printed reason shows which one did.
   const guess = await detectKind(dir({
     "astro.config.mjs": "",
     "package.json": pkg({ scripts: { build: "astro build" } }),
@@ -128,9 +107,6 @@ Deno.test("a multi-page generator is not claimed as a frontend by its config", a
 });
 
 Deno.test("a create-react-app project is a frontend despite its start script", async () => {
-  // react-scripts declares `start` (a dev server), which the generic rule
-  // below would read as a backend. The dependency is checked first for exactly
-  // this case.
   assertEquals(
     await kindOf({
       "package.json": pkg({
@@ -165,10 +141,6 @@ Deno.test("a hand-written static site is a frontend wherever its index.html is",
     "frontends",
   );
 });
-
-// ===================================================================
-// Backends
-// ===================================================================
 
 Deno.test("a Deno project is a backend", async () => {
   assertEquals(await kindOf({ "deno.json": "{}", "main.ts": "" }), "backends");
@@ -206,12 +178,7 @@ Deno.test("a Bun server with no start script still detects as a backend", async 
   );
 });
 
-// ===================================================================
-// The pbc.json binding, which outranks every heuristic
-// ===================================================================
-
 Deno.test("a bound directory is never re-guessed from its files", async () => {
-  // The files say backend; the binding says the platform holds a frontend.
   const guess = await detectKind(dir({
     "deno.json": "{}",
     "pbc.json": JSON.stringify({
@@ -225,8 +192,6 @@ Deno.test("a bound directory is never re-guessed from its files", async () => {
 });
 
 Deno.test("a subdirectory of a bound project detects the binding above it", async () => {
-  // resolveTarget walks up for the binding, so detection has to agree — or a
-  // bare deploy in src/ would pick a different kind than the one it targets.
   const root = dir({
     "pbc.json": JSON.stringify({
       projectId: "p1",
@@ -239,8 +204,6 @@ Deno.test("a subdirectory of a bound project detects the binding above it", asyn
 });
 
 Deno.test("a pbc.json holding a kind but no project is still authoritative", async () => {
-  // `pbc cloud init frontend` records the kind before anything is deployed, so
-  // readLinkFile (which requires projectId) returns nothing for it.
   const guess = await detectKind(dir({
     "deno.json": "{}",
     "pbc.json": JSON.stringify({ kind: "frontends" }),
@@ -257,10 +220,6 @@ Deno.test("a pbc.json with no kind does not stop detection", async () => {
     "frontends",
   );
 });
-
-// ===================================================================
-// No answer
-// ===================================================================
 
 Deno.test("an empty directory detects nothing rather than guessing", async () => {
   assertEquals(await detectKind(dir()), null);
@@ -281,13 +240,9 @@ Deno.test("an unreadable package.json is treated as absent", async () => {
   assertEquals(await kindOf({ "package.json": "{ not json" }), null);
 });
 
-// ===================================================================
-// Naming
-// ===================================================================
-
 Deno.test("every kind has a label and the command group that deploys it", () => {
   assertEquals(kindDisplay("pocketbases"), "PocketBase instance");
-  assertEquals(kindCommand("pocketbases"), "pb");
+  assertEquals(kindCommand("pocketbases"), "pocketbase");
   assertEquals(kindDisplay("frontends"), "frontend");
   assertEquals(kindCommand("frontends"), "frontend");
   assertEquals(kindDisplay("backends"), "backend");

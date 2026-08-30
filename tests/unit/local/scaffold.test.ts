@@ -27,7 +27,6 @@ function harness(initial: Record<string, string> = {}) {
     },
     rename: () => Promise.resolve(),
     chmod: () => Promise.resolve(),
-    // Tracks directories too, so a second scaffold run sees them as existing.
     stat: (p) =>
       Promise.resolve(
         texts.has(p)
@@ -69,12 +68,9 @@ Deno.test("scaffoldProject writes a README that explains how to start", async ()
 
   const readme = h.texts.get("/work/README.md")!;
   assertEquals(readme.includes("./pocketbase serve"), true);
-  // The admin UI is the first thing anyone needs after starting.
   assertEquals(readme.includes("http://127.0.0.1:8090/_/"), true);
-  // The npm route is an optional script, not a package to install.
   assertEquals(readme.includes('"start": "./pocketbase serve"'), true);
   assertEquals(readme.includes("npm start"), true);
-  // Points at the directories the scaffold just created.
   assertEquals(readme.includes("pb_hooks"), true);
   assertEquals(readme.includes("pb_migrations"), true);
 });
@@ -90,8 +86,6 @@ Deno.test("the README starts the server from the binary, not a package runner", 
   const h = harness();
   await scaffoldProject(h.deps, "/work");
   const readme = h.texts.get("/work/README.md")!;
-  // npx/npm can deliver the `pbc` CLI, but never the running server — the
-  // server is always the downloaded binary.
   assertEquals(readme.includes("npx pocketbase"), false);
   assertEquals(readme.includes("npm install pocketbase"), false);
 });

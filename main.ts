@@ -1,56 +1,55 @@
-import { dispatch, type Handler, parseGlobal } from "./src/router.ts";
-import { COMMANDS } from "./src/usage.ts";
+import { dispatch } from "./src/router.ts";
+import type { CommandRegistry } from "./src/command.ts";
+import { parseGlobalFlags, splitPathAndFlags } from "./src/globals.ts";
+import { resolveCommand } from "./src/parse.ts";
 import { VERSION } from "./src/version.ts";
+import { CliError } from "./src/errors.ts";
+import { emit, emitError } from "./src/envelope.ts";
 
-// Registry is populated as command modules land. Imported lazily to keep startup light.
-export const registry: Record<string, Handler> = {};
+export const registry: CommandRegistry = {};
 
 export async function run(argv: string[]): Promise<number> {
-  const { path, ctx } = parseGlobal(argv);
+  const { path, rest } = resolveCommand(argv, registry);
+  const globals = parseGlobalFlags(rest);
 
-  // `--version`/`-v` is the CLI's own version only when it stands alone —
-  // otherwise `pbc install 0.39.9 --version` would never reach the command.
-  if (
-    path.length === 0 && (argv.includes("--version") || argv.includes("-v"))
-  ) {
-    console.log(`pbc ${VERSION}`);
+  if (path.length === 0) {
+    const misordered = splitPathAndFlags(argv);
+    if (misordered.path.length > 0) {
+      const err = new CliError(
+        "the command comes before its flags — try " +
+          `\`pbc ${[...misordered.path, ...misordered.flags].join(" ")}\`.`,
+        { code: "USAGE" },
+      );
+      console.error(`Error: ${err.message}`);
+      emitError(globals.json, err);
+      return err.exitCode;
+    }
+  }
+
+  if (path.length === 0 && globals.version) {
+    emit(globals.json, { version: VERSION }, `pbc ${VERSION}`);
     return 0;
   }
 
   const { registerCommands } = await import("./src/commands/index.ts");
   registerCommands(registry);
 
-  // Bare `--help`/`-h`/`help` (no command) shows the full command list.
-  // `<command> --help` is handled per-command inside dispatch.
   if (path.length === 0 || path[0] === "help") {
     const { buildHelpText, buildManifest } = await import("./src/help.ts");
-    console.log(
-      ctx.flags.json
-        ? JSON.stringify(buildManifest(registry), null, 2)
-        : buildHelpText(registry),
-    );
+    emit(globals.json, buildManifest(registry), () => buildHelpText(registry));
     return 0;
   }
 
-  return dispatch(registry, argv, COMMANDS);
+  return dispatch(registry, argv);
 }
 
 if (import.meta.main) {
-  // The update notice is a courtesy and must never delay the work, so it runs
-  // twice with different budgets. The pass before the command reads the cache
-  // and nothing else — free, and the only pass a command that never returns
-  // (`pbc cloud logs --follow`) will ever reach. The pass after is the one
-  // allowed to hit the network and refresh that cache, and it is skipped when
-  // the first already spoke. Imported here so `run()` stays importable without
-  // it.
   const { buildNotifyDeps, notifyUpdate } = await import(
     "./src/self/notify.ts"
   );
   const notifyDeps = buildNotifyDeps();
   const first = await notifyUpdate(Deno.args, notifyDeps, { before: true });
   const code = await run(Deno.args);
-  // "unknown" is the only verdict a second look can improve on, so on all but
-  // the once-a-day refresh this costs nothing at all.
   if (first === "unknown") await notifyUpdate(Deno.args, notifyDeps);
   Deno.exit(code);
 }

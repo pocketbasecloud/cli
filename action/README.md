@@ -22,23 +22,23 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: pocketbasecloud/cli/action@v0.5.0
+      - uses: pocketbasecloud/cli/action@v0.8.0
         with:
           token: ${{ secrets.PBC_TOKEN }}
 ```
 
 Two things to do once, before that works:
 
-1. **Deploy once from your own computer** (`pbc cloud login`, then
-   `pbc cloud frontend deploy` — or `pbc cloud pb deploy` /
-   `pbc cloud backend deploy`). It asks which project and what to call this, and
+1. **Deploy once from your own computer** (`pbc login`, then
+   `pbc frontend deploy` — or `pbc pocketbase deploy` /
+   `pbc backend deploy`). It asks which project and what to call this, and
    writes the answers to `pbc.json`. **Commit that file** — it is what makes the
    `with:` block above need nothing else.
 2. **Add the token.** Portal → **Account** → **CLI access token** → **Copy**,
    then in your repository: **Settings → Secrets and variables → Actions → New
    repository secret**, named `PBC_TOKEN`.
 
-`pbc cloud ci init` writes the workflow file for you, filled in from the
+`pbc ci init` writes the workflow file for you, filled in from the
 directory's `pbc.json`, and prints those two steps with your project's details
 in them.
 
@@ -54,7 +54,7 @@ in them.
 | `name` | — | Resource name. Only needed when `pbc.json` does not name one. |
 | `env` | — | The `pbc.json` environment to deploy. |
 | `compute` | — | Compute id, for Pro accounts with more than one. |
-| `location` | — | Region code for a first deploy. `pbc cloud locations` lists them. |
+| `location` | — | Region code for a first deploy. `pbc locations` lists them. |
 | `skip-build` | `false` | Upload what a previous step already built. |
 | `args` | — | Extra flags, split with shell quoting rules. Unbalanced quotes fail the job rather than deploying on a partial list. |
 
@@ -115,7 +115,7 @@ workflow (both are in the example above):
   `if: github.event.pull_request.head.repo.full_name == github.repository`.
 - **Frontend environment variables are baked in at build time**, so they belong
   in your own build step. PocketBase and backend variables live on the
-  platform — set them once with `pbc cloud env set`.
+  platform — set them once with `pbc env set`.
 - Full guides:
   [Deploying from GitHub Actions](https://pocketbasecloud.com/docs/ci-cd/deploying-from-github-actions)
   and the [CI/CD reference](https://pocketbasecloud.com/docs/ci-cd/reference).

@@ -10,7 +10,6 @@ import {
 } from "../../../src/ui/progress.ts";
 import { type PromptIO, select } from "../../../src/ui/prompt.ts";
 
-/** A clock and a ticker the test drives by hand, so nothing depends on timing. */
 function harness(extra: Record<string, unknown> = {}) {
   const out: string[] = [];
   let ms = 0;
@@ -79,7 +78,7 @@ Deno.test("a plain step reports each change of wording on its own line", async (
   const lines: string[] = [];
   await plainProgress((m) => lines.push(m)).step("Creating api", (step) => {
     step.update("Creating api — creating");
-    step.update("Creating api — creating"); // unchanged: not worth a line
+    step.update("Creating api — creating");
     step.update("Creating api — running");
     step.done("api is running");
     return Promise.resolve();
@@ -108,7 +107,6 @@ Deno.test("an animated step redraws a frame on every tick", () => {
   h.advance(12_000);
   h.tick();
   const drawn = h.text();
-  // Each redraw clears the line it owns first, or the last frame would smear.
   assertStringIncludes(drawn, "\r\x1b[2K");
   assertStringIncludes(drawn, "⠙ Uploading code.zip 12s");
   step.done("Uploaded code.zip");
@@ -131,7 +129,6 @@ Deno.test("a log during an animated step never lands inside the frame", () => {
   h.out.length = 0;
   h.progress.log("Subdomain taken — using web-2.");
   const written = h.text();
-  // Cleared, then the line, then the animation drawn again below it.
   assertEquals(written.startsWith("\r\x1b[2K"), true);
   assertStringIncludes(written, "Subdomain taken — using web-2.\n");
   assertEquals(written.trimEnd().endsWith("⠋ Uploading"), true);
@@ -158,9 +155,6 @@ Deno.test("pauseProgress is a no-op when nothing is animating", async () => {
 });
 
 Deno.test("a prompt asked from inside a step is not drawn over", async () => {
-  // The real case: `deploy` asks which compute to create on from inside the
-  // upload step, because the question only arises once the platform says the
-  // resource does not exist yet.
   const h = harness();
   const step = h.progress.start("Uploading code.zip");
   const io: PromptIO = {
@@ -184,7 +178,6 @@ Deno.test("two animated steps at once do not draw over each other", () => {
   const h = harness();
   const outer = h.progress.start("Deploying");
   const inner = h.progress.start("Uploading");
-  // The outer step stopped animating; the inner one owns the line.
   h.out.length = 0;
   h.tick();
   assertStringIncludes(h.text(), "Uploading");
@@ -232,4 +225,29 @@ Deno.test("--json silences the deploy's progress entirely", async () => {
   progress.log("Packaged 12 files.");
   await progress.step("Uploading", () => Promise.resolve());
   assertEquals(written, []);
+});
+
+Deno.test("the default writer targets stderr, never stdout — --json's one JSON object on stdout must never see a spinner frame", () => {
+  const stdoutChunks: string[] = [];
+  const stderrChunks: string[] = [];
+  const origStdout = Deno.stdout.writeSync;
+  const origStderr = Deno.stderr.writeSync;
+  const dec = new TextDecoder();
+  Deno.stdout.writeSync = (b: Uint8Array) => {
+    stdoutChunks.push(dec.decode(b));
+    return b.byteLength;
+  };
+  Deno.stderr.writeSync = (b: Uint8Array) => {
+    stderrChunks.push(dec.decode(b));
+    return b.byteLength;
+  };
+  try {
+    const progress = createProgress({ animate: false });
+    progress.log("a status line");
+  } finally {
+    Deno.stdout.writeSync = origStdout;
+    Deno.stderr.writeSync = origStderr;
+  }
+  assertEquals(stdoutChunks, []);
+  assertStringIncludes(stderrChunks.join(""), "a status line");
 });

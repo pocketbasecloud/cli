@@ -1,5 +1,3 @@
-// Local release orchestrator. Never publishes — it stages everything and
-// prints the exact commands to run. `--build-only` stops after staging npm/.
 import { dirname, fromFileUrl, join } from "@std/path";
 import { encodeHex } from "@std/encoding/hex";
 import { VERSION } from "../src/version.ts";
@@ -11,7 +9,11 @@ import {
   SHIM_FILE,
 } from "./pkg.ts";
 
-const CLI_DIR = dirname(dirname(fromFileUrl(import.meta.url))); // .../cli
+const RELEASE_NOTES =
+  "unknown flags now exit 2 — set PBC_ALLOW_UNKNOWN_FLAGS=1 for one minor if " +
+  "a pinned script relies on a typo; removed in 0.8.0.";
+
+const CLI_DIR = dirname(dirname(fromFileUrl(import.meta.url)));
 const NPM_DIR = join(CLI_DIR, "npm");
 const DIST_DIR = join(CLI_DIR, "dist");
 
@@ -32,7 +34,6 @@ async function sh(cmd: string[], cwd = CLI_DIR): Promise<void> {
   if (code !== 0) throw new Error(`command failed (${code}): ${cmd.join(" ")}`);
 }
 
-// --- prerequisite checks (skipped for --build-only) -----------------------
 async function ok(cmd: string[]): Promise<boolean> {
   try {
     const { code } = await new Deno.Command(cmd[0], {
@@ -57,7 +58,6 @@ async function checkPrereqs() {
   }
 }
 
-// --- steps ----------------------------------------------------------------
 async function gate() {
   log("1. test / check / lint");
   await sh(["deno", "task", "test"]);
@@ -159,7 +159,6 @@ async function buildArchives() {
     const name = assetName(t, VERSION);
     const binDir = join(NPM_DIR, t.key, "bin");
     if (t.os === "win32") {
-      // `zip -j` flattens paths so the archive holds pb.exe at its root.
       await sh(["zip", "-j", join(DIST_DIR, name), join(binDir, t.binName)]);
     } else {
       await sh(["tar", "-czf", join(DIST_DIR, name), "-C", binDir, t.binName]);
@@ -174,22 +173,18 @@ async function buildArchives() {
 
 function printPublishCommands() {
   log("7. publish commands (run these yourself, in this order)");
-  // Paths are prefixed with `./` so npm treats them as folders — a bare
-  // `npm/<key>` is parsed as a github:owner/repo shorthand and fails.
   for (const t of TARGETS) {
     console.log(`npm publish ./npm/${t.key} --access public`);
   }
   console.log(`npm publish ./npm/cli --access public   # last`);
   console.log(
     `\ngh release create v${VERSION} --repo pocketbasecloud/cli \\\n` +
-      `  --title "pbc v${VERSION}" dist/*`,
+      `  --title "pbc v${VERSION}" \\\n` +
+      `  --notes '${RELEASE_NOTES}' dist/*`,
   );
 }
 
-// --- main -----------------------------------------------------------------
 if (import.meta.main) {
-  // `deno task build` (--build-only) is a fast compile; the test/check/lint
-  // gate is part of the full `release` flow only.
   if (!buildOnly) await gate();
   await compileTargets();
   await stagePackages();

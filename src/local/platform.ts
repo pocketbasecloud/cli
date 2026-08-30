@@ -2,13 +2,8 @@ import { CliError } from "../errors.ts";
 
 const RELEASES_PAGE = "https://github.com/pocketbase/pocketbase/releases";
 
-/** Release asset operating systems. */
 const OSES = ["darwin", "linux", "windows"] as const;
 
-/**
- * Release asset architectures. Deno only ever reports x86_64 or aarch64, so
- * armv7/ppc64le/s390x are reachable only through an explicit --arch.
- */
 const ARCHES = ["amd64", "arm64", "armv7", "ppc64le", "s390x"] as const;
 
 const ARCH_FROM_HOST: Record<string, string> = {
@@ -39,8 +34,7 @@ export function detectPlatform(opts: DetectOpts = {}): Platform {
     throw new CliError(
       `PocketBase has no release build for "${os}". ` +
         `Supported: ${OSES.join(", ")}. See ${RELEASES_PAGE}.`,
-      2,
-    );
+        { code: "USAGE" });
   }
 
   const arch = opts.arch ?? ARCH_FROM_HOST[hostArch];
@@ -48,8 +42,7 @@ export function detectPlatform(opts: DetectOpts = {}): Platform {
     throw new CliError(
       `PocketBase has no release build for "${opts.arch ?? hostArch}". ` +
         `Supported: ${ARCHES.join(", ")}. See ${RELEASES_PAGE}.`,
-      2,
-    );
+        { code: "USAGE" });
   }
 
   return {

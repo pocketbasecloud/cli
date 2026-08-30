@@ -2,7 +2,6 @@ import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
 import { detectPackageManager, inferBuild } from "../../../src/build/detect.ts";
 
-/** A temp directory seeded with the given relative path → contents. */
 function dir(files: Record<string, string> = {}): string {
   const root = Deno.makeTempDirSync();
   for (const [path, body] of Object.entries(files)) {
@@ -110,7 +109,6 @@ Deno.test("backend inference detects nextjs and keeps its build command", async 
   );
   assertEquals(cfg.runtime, "nextjs");
   assertEquals(cfg.command, "npm run build");
-  // The standalone strategy assembles fixed paths, so outputDir is not used.
   assertEquals(cfg.outputDir, undefined);
 });
 
@@ -145,8 +143,6 @@ Deno.test("pocketbase inference yields an empty config when none of the three ex
 });
 
 Deno.test("backend inference reads the project's own start task/script", async () => {
-  // A backend that ships source needs a start command, and the project already
-  // declares one. Not reading it is what makes the first deploy fail.
   assertEquals(
     (await inferBuild(
       dir({

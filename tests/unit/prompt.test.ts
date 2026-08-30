@@ -1,11 +1,12 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import {
   confirm,
-  fillMissingFromSpec,
+  fillMissing,
   type PromptIO,
   select,
 } from "../../src/ui/prompt.ts";
-import type { CommandSpec } from "../../src/usage.ts";
+import { defineCommand, str, type Command } from "../../src/command.ts";
+import type { ParseOutcome } from "../../src/parse.ts";
 
 function fakeIO(inputs: string[]): PromptIO {
   const q = [...inputs];
@@ -66,40 +67,39 @@ Deno.test("select throws under no-input", async () => {
   await assertRejects(() => select("pick", ["a"], (x) => x, { noInput: true }));
 });
 
-const FILL_SPEC: CommandSpec = {
+const FILL_CMD: Command = defineCommand({
+  path: ["thing", "fill"],
   usage: "",
   summary: "",
   args: [{ name: "target", required: true }],
-  flags: [
-    { name: "name", type: "string", required: true },
-    {
-      name: "runtime",
-      type: "string",
-      required: true,
-      choices: ["deno", "bun"],
-    },
-    { name: "note", type: "string", required: false },
-  ],
-};
+  flags: {
+    name: str({ description: "", required: true }),
+    runtime: str({ description: "", required: true, choices: ["deno", "bun"] }),
+    note: str({ description: "", required: false }),
+  },
+  run: () => Promise.resolve(0),
+});
 
-Deno.test("fillMissingFromSpec prompts positional, string, and choice fields", async () => {
-  const ctx = { args: [] as string[], raw: {} as Record<string, unknown> };
-  // order: positional "target", then flag "name" (text), then "runtime" (select)
-  await fillMissingFromSpec(FILL_SPEC, ctx, {
+function okOutcome(args: string[] = []): Extract<ParseOutcome, { ok: true }> {
+  return { ok: true, command: FILL_CMD, input: {}, passthrough: [], args };
+}
+
+Deno.test("fillMissing prompts positional, string, and choice fields", async () => {
+  const outcome = okOutcome();
+  await fillMissing(FILL_CMD, outcome, {
     noInput: false,
     io: fakeIO(["proj", "svc", "1"]),
   });
-  assertEquals(ctx.args[0], "proj");
-  assertEquals(ctx.raw.name, "svc");
-  assertEquals(ctx.raw.runtime, "deno");
-  assertEquals(ctx.raw.note, undefined); // optional, never prompted
+  assertEquals(outcome.args[0], "proj");
+  assertEquals(outcome.input.name, "svc");
+  assertEquals(outcome.input.runtime, "deno");
+  assertEquals(outcome.input.note, undefined);
 });
 
-Deno.test("fillMissingFromSpec leaves already-supplied values untouched", async () => {
-  const ctx = {
-    args: ["given-target"],
-    raw: { name: "given-name", runtime: "bun" } as Record<string, unknown>,
-  };
+Deno.test("fillMissing leaves already-supplied values untouched", async () => {
+  const outcome = okOutcome(["given-target"]);
+  outcome.input.name = "given-name";
+  outcome.input.runtime = "bun";
   const throwIO: PromptIO = {
     read: () => {
       throw new Error("should not read");
@@ -107,8 +107,28 @@ Deno.test("fillMissingFromSpec leaves already-supplied values untouched", async 
     write: () => {},
     isTTY: true,
   };
-  await fillMissingFromSpec(FILL_SPEC, ctx, { noInput: false, io: throwIO });
-  assertEquals(ctx.args[0], "given-target");
-  assertEquals(ctx.raw.name, "given-name");
-  assertEquals(ctx.raw.runtime, "bun");
+  await fillMissing(FILL_CMD, outcome, { noInput: false, io: throwIO });
+  assertEquals(outcome.args[0], "given-target");
+  assertEquals(outcome.input.name, "given-name");
+  assertEquals(outcome.input.runtime, "bun");
+});
+
+Deno.test("the commands that offer a picker still declare their flags required", async () => {
+  const { COMMANDS } = await import("../../src/usage.ts");
+  const expected: Record<string, string[]> = {
+    "env import": ["target", "name"],
+    "env ls": ["target", "name"],
+    "env rm": ["target", "name"],
+    "env set": ["target", "name"],
+    "logs": ["name"],
+    "frontend domain add": ["name"],
+    "frontend domain remove": ["name"],
+    "frontend domain verify": ["name"],
+  };
+  for (const [command, names] of Object.entries(expected)) {
+    const spec = COMMANDS[command];
+    if (!spec) throw new Error(`${command} is not in the manifest`);
+    const required = spec.flags.filter((f) => f.required).map((f) => f.name);
+    assertEquals(required.sort(), [...names].sort(), command);
+  }
 });

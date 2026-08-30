@@ -1,27 +1,32 @@
 import { dirname, join, relative, resolve } from "@std/path";
-import type { CmdCtx, Handler } from "../router.ts";
+import {
+  bool,
+  type Command,
+  defineCommand,
+  str,
+} from "../command.ts";
 import type { ResourceKind } from "../clients/types.ts";
 import { CliError } from "../errors.ts";
+import { emit } from "../envelope.ts";
 import { linkFilePath, readOwnLinkFile } from "../config.ts";
 import { parseKind } from "../resolve/link.ts";
-import { kindCommand, kindDisplay } from "../build/detect-kind.ts";
+import { kindDisplay } from "../build/detect-kind.ts";
 import { resolveEnvironmentName } from "../resolve/environment.ts";
 import { envFileOf, mergeEnvBuild } from "../build/config.ts";
 import { VERSION } from "../version.ts";
 
-/**
- * The repository secret the generated workflow reads. Renamed with everything
- * else in 0.6.0 — a workflow written before that names `PB_TOKEN`, which keeps
- * working, so an overwrite says so rather than silently pointing the job at a
- * secret the repository may not have.
- */
 const SECRET_NAME = "PBC_TOKEN";
 const LEGACY_SECRET_NAME = "PB_TOKEN";
 
-export const CI_INIT_USAGE =
-  "Usage: pbc cloud ci init [pb|frontend|backend] [--out <path>] [--branch <name>] [--force] [--env <name>]";
+const ACTION_KINDS: Record<ResourceKind, string> = {
+  pocketbases: "pb",
+  frontends: "frontend",
+  backends: "backend",
+};
 
-/** Runs one git subprocess and reports its exit code and trimmed stdout. Injected so tests need no real repo. */
+export const CI_INIT_USAGE =
+  "Usage: pbc ci init [pb|frontend|backend] [--out <path>] [--branch <name>] [--force] [--env <name>]";
+
 export type GitRunner = (
   args: string[],
   cwd: string,
@@ -51,7 +56,6 @@ async function currentBranch(
   return r.code === 0 && r.stdout ? r.stdout : null;
 }
 
-/** `origin/HEAD` — used only when HEAD is detached and `--branch` was not passed. */
 async function defaultBranch(
   cwd: string,
   git: GitRunner,
@@ -64,10 +68,6 @@ async function defaultBranch(
   return r.stdout.replace(/^origin\//, "") || null;
 }
 
-/**
- * Unique per directory so `apps/web` and `packages/web` do not share a
- * workflow file or a concurrency group.
- */
 export function workflowSlug(workingDirectory: string): string | undefined {
   if (workingDirectory === "." || workingDirectory === "") return undefined;
   const slug = workingDirectory.split("/").filter((p) => p && p !== ".").join(
@@ -85,22 +85,10 @@ async function isTracked(
   return r.code === 0;
 }
 
-/**
- * Git and GitHub both speak forward slashes; `relative()` on Windows does not.
- * Every path that reaches a workflow file or a printed `git` command goes
- * through here.
- */
 function toPosix(path: string): string {
   return path.split("\\").join("/");
 }
 
-/**
- * A YAML scalar for a value this command did not choose — a branch name, a
- * directory, an environment. Left bare when it reads back as itself, quoted
- * when it would not: `--branch` is unvalidated free text and git itself allows
- * a comma, so `branches: [feat,wip]` is a *valid* workflow listing two branches
- * that do not exist, which installs cleanly and then never fires.
- */
 const YAML_PLAIN = /^[A-Za-z0-9_][A-Za-z0-9 ._/@+-]*$/;
 export function yamlScalar(value: string): string {
   return YAML_PLAIN.test(value) && !value.endsWith(" ")
@@ -110,27 +98,13 @@ export function yamlScalar(value: string): string {
 
 export type WorkflowOptions = {
   kind: ResourceKind;
-  /** Repo-root-relative, forward-slash, "." at the root. */
   workingDirectory: string;
   branch: string;
-  /** Set only when the caller explicitly chose a non-default environment. */
   environment?: string;
-  /** cli/action version to pin, e.g. "0.5.0". Must equal VERSION — see action.test.ts. */
   version: string;
-  /**
-   * The workflow's own repo-root-relative path, for the `paths:` self-trigger.
-   * Passed in rather than derived, so a `--out` name is what actually lands in
-   * the filter — deriving it meant a renamed workflow never re-ran on its own
-   * edits.
-   */
   workflowPath: string;
 };
 
-/**
- * Pure YAML generator: plain data in, a workflow file out. No disk, no git,
- * no Deno.env — everything environment-dependent is resolved by the caller
- * and passed in, which is what makes this testable without a filesystem.
- */
 export function renderWorkflow(opts: WorkflowOptions): string {
   const { kind, workingDirectory, branch, environment, version, workflowPath } =
     opts;
@@ -148,7 +122,7 @@ export function renderWorkflow(opts: WorkflowOptions): string {
 
   const withLines = [
     `          token: \${{ secrets.${SECRET_NAME} }}`,
-    `          kind: ${kindCommand(kind)}`,
+    `          kind: ${ACTION_KINDS[kind]}`,
   ];
   if (!root) {
     withLines.push(
@@ -159,7 +133,7 @@ export function renderWorkflow(opts: WorkflowOptions): string {
     withLines.push(`          env: ${yamlScalar(environment)}`);
   }
 
-  return `# Generated by \`pbc cloud ci init\`. Edit freely — re-running the
+  return `# Generated by \`pbc ci init\`. Edit freely — re-running the
 # command leaves this file alone unless you pass --force.
 # See https://pocketbasecloud.com/docs/ci-cd/reference
 name: ${yamlScalar(jobName)}
@@ -189,7 +163,6 @@ ${withLines.join("\n")}
 `;
 }
 
-/** True when the workflow at `path` reads the pre-0.6.0 secret name. */
 async function namesLegacySecret(path: string): Promise<boolean> {
   try {
     return (await Deno.readTextFile(path)).includes(
@@ -200,215 +173,225 @@ async function namesLegacySecret(path: string): Promise<boolean> {
   }
 }
 
-/**
- * Writes the GitHub Actions workflow that deploys this directory, using the
- * official action. Needs no login — like `cloud init`, it only inspects the
- * directory (and, here, the surrounding git repo) and writes a file.
- */
 export function makeCiCommands(
   deps: {
     cwd: () => string;
     git?: GitRunner;
   },
-): Record<string, Handler> {
+): Record<string, Command> {
   const git = deps.git ?? runGit;
 
-  const ciInit: Handler = async (ctx: CmdCtx) => {
-    const cwd = deps.cwd();
-    const own = await readOwnLinkFile(cwd);
-    if (!own.projectId) {
-      throw new CliError(
-        `No pbc.json here. Deploy once from your computer first — ` +
-          `\`pbc cloud pb deploy\`, \`pbc cloud frontend deploy\`, or ` +
-          `\`pbc cloud backend deploy\` — then run \`pbc cloud ci init\` again.`,
-        2,
-      );
-    }
+  return {
+    "ci init": defineCommand({
+      path: ["ci", "init"],
+      usage:
+        "pbc ci init [pb|frontend|backend] [--out <path>] [--branch <name>] [--force] [--env <name>]",
+      summary: "Write a GitHub Actions workflow that deploys this directory.",
+      details: `Writes .github/workflows/deploy.yml (or deploy-<path>.yml, when this
+directory is not the repo root — nested folders become deploy-apps-web.yml),
+using the official pocketbasecloud/cli/action. Nothing in the cloud is
+touched, and no login is needed — like \`pbc init\`, it only inspects the
+directory and the surrounding git repo.
 
-    const token = ctx.args[0];
-    let kind: ResourceKind | undefined;
-    if (token) {
-      const parsed = parseKind(token);
-      if (!parsed) {
-        throw new CliError(`Unknown kind "${token}". ${CI_INIT_USAGE}`, 2);
-      }
-      kind = parsed;
-    } else {
-      kind = own.kind;
-    }
-    if (!kind) {
-      throw new CliError(
-        `This directory is not bound to a resource, so there is no kind to ` +
-          `write a workflow for. ${CI_INIT_USAGE}`,
-        2,
-      );
-    }
+The kind comes from the argument, or from pbc.json's existing binding. The
+branch defaults to the one currently checked out; --branch overrides it.
+--out picks a different file path. An existing file is left alone unless
+--force is passed.
 
-    const root = await gitRoot(cwd, git);
-    if (!root) {
-      throw new CliError(
-        `Not a git repository. \`pbc cloud ci init\` writes ` +
-          `.github/workflows/, which only makes sense inside one.`,
-        2,
-      );
-    }
+Prints the two remaining one-time steps: copying an access token from the
+portal's Account page, and adding it as a repository secret named PBC_TOKEN.`,
+      args: [{
+        name: "kind",
+        required: false,
+        description: "pb, frontend, or backend; defaults to the bound resource",
+      }],
+      flags: {
+        out: str({
+          description: "Workflow file path. Defaults under .github/workflows/.",
+        }),
+        branch: str({
+          description:
+            "Branch to deploy on push. Defaults to the branch currently checked out.",
+        }),
+        force: bool({ description: "Overwrite an existing workflow file." }),
+        env: str({
+          description:
+            "pbc.json environment to pin in the workflow. Only --env is written; " +
+            "PBC_ENV is ignored, because the answer is committed.",
+        }),
+      },
+      run: async (input, ctx) => {
+        const cwd = deps.cwd();
+        const own = await readOwnLinkFile(cwd);
+        if (!own.projectId) {
+          throw new CliError(
+            `No pbc.json here. Deploy once from your computer first — ` +
+              `\`pbc pocketbase deploy\`, \`pbc frontend deploy\`, or ` +
+              `\`pbc backend deploy\` — then run \`pbc ci init\` again.`,
+              { code: "USAGE" });
+        }
 
-    const relDir = relative(root, cwd);
-    const workingDirectory = relDir === "" ? "." : toPosix(relDir);
-    const slug = workflowSlug(workingDirectory);
-    const defaultOut = join(
-      root,
-      ".github",
-      "workflows",
-      slug ? `deploy-${slug}.yml` : "deploy.yml",
-    );
-    const outFlag = ctx.raw.out as string | undefined;
-    // `resolve`, not `join`: an absolute --out is a path, not a suffix, and
-    // joining one onto cwd silently wrote to <cwd>/abs/path.yml instead.
-    const outPath = outFlag ? resolve(cwd, outFlag) : defaultOut;
-    const workflowPath = toPosix(relative(root, outPath));
+        const token = ctx.args[0];
+        let kind: ResourceKind | undefined;
+        if (token) {
+          const parsed = parseKind(token);
+          if (!parsed) {
+            throw new CliError(
+              `Unknown kind "${token}". ${CI_INIT_USAGE}`,
+              { code: "USAGE" },
+            );
+          }
+          kind = parsed;
+        } else {
+          kind = own.kind;
+        }
+        if (!kind) {
+          throw new CliError(
+            `This directory is not bound to a resource, so there is no kind to ` +
+              `write a workflow for. ${CI_INIT_USAGE}`, { code: "USAGE" });
+        }
 
-    // --branch wins; then HEAD; then origin/HEAD (detached); then "main".
-    const branchFlag = ctx.raw.branch as string | undefined;
-    let branch = branchFlag;
-    let onDetachedHead = false;
-    if (!branch) {
-      branch = (await currentBranch(root, git)) ?? undefined;
-    }
-    if (!branch) {
-      onDetachedHead = true;
-      branch = (await defaultBranch(root, git)) ?? undefined;
-    }
-    if (!branch) {
-      branch = "main";
-    }
+        const root = await gitRoot(cwd, git);
+        if (!root) {
+          throw new CliError(
+            `Not a git repository. \`pbc ci init\` writes ` +
+              `.github/workflows/, which only makes sense inside one.`,
+              { code: "USAGE" });
+        }
 
-    const envFlag = ctx.raw.env as string | undefined;
-    // `env: {}` deliberately blinds this to PBC_ENV. Everywhere else PBC_ENV is
-    // a per-shell convenience, but here the answer is written into a file that
-    // gets committed — so a variable that happened to be exported in the
-    // generating shell would silently pin CI to it forever.
-    const choice = resolveEnvironmentName(own, { flag: envFlag, env: {} });
-    // Only written into the workflow when the caller asked for it explicitly —
-    // otherwise the CLI's own default resolution (unset --env) applies on
-    // every run, and a directory whose default later changes needs no
-    // workflow edit to follow it.
-    const environment = choice.explicit ? choice.name : undefined;
-
-    const version = VERSION;
-    const workflow = renderWorkflow({
-      kind,
-      workingDirectory,
-      branch,
-      environment,
-      version,
-      workflowPath,
-    });
-
-    const warnings: string[] = [];
-    // An absolute path, not the bare name: a bare pathspec resolves against
-    // the repo root, so in a monorepo this asked about <root>/pbc.json and
-    // never about the one actually being deployed.
-    const pbJsonPath = await linkFilePath(cwd);
-    const pbJsonRel = toPosix(relative(root, pbJsonPath));
-    if (!(await isTracked(root, git, pbJsonPath))) {
-      warnings.push(
-        `${pbJsonRel} is not tracked by git — GitHub will not see it. Either ` +
-          `\`git add ${pbJsonRel}\` and commit it, or pass --project ` +
-          `<name|id> on every deploy.`,
-      );
-    }
-    const build = mergeEnvBuild(own, choice.name);
-    const envFile = envFileOf(build);
-    if (envFile) {
-      const envFilePath = join(cwd, envFile);
-      if (!(await isTracked(root, git, envFilePath))) {
-        warnings.push(
-          `The env file this environment pushes ("${envFile}") is ` +
-            `not in git, so CI will not find it and the deploy will fail ` +
-            `with "Env file not found". Use \`pbc cloud env set\` instead — ` +
-            `see the CI/CD guide, Step 6.`,
+        const relDir = relative(root, cwd);
+        const workingDirectory = relDir === "" ? "." : toPosix(relDir);
+        const slug = workflowSlug(workingDirectory);
+        const defaultOut = join(
+          root,
+          ".github",
+          "workflows",
+          slug ? `deploy-${slug}.yml` : "deploy.yml",
         );
-      }
-    }
-    if (!branchFlag && onDetachedHead) {
-      warnings.push(
-        `HEAD is not a branch, so the workflow deploys on pushes to ` +
-          `"${branch}". Pass --branch <name> to pin a different one.`,
-      );
-    }
-    if (kind === "pocketbases") {
-      warnings.push(
-        `The action masks this deploy's admin credentials automatically, ` +
-          `but only for output it produces itself — any step you add that ` +
-          `prints the deploy JSON yourself will not be masked.`,
-      );
-    }
+        const outPath = input.out ? resolve(cwd, input.out) : defaultOut;
+        const workflowPath = toPosix(relative(root, outPath));
 
-    let exists = false;
-    try {
-      await Deno.stat(outPath);
-      exists = true;
-    } catch {
-      // absent — nothing to guard
-    }
-    if (exists && ctx.raw.force !== true) {
-      if (ctx.flags.json) {
-        console.log(JSON.stringify({ path: outPath, written: false }));
-      } else {
-        console.log(`${outPath} already exists.`);
-        console.log(`Pass --force to overwrite it.`);
-      }
-      return 0;
-    }
+        let branch = input.branch;
+        let onDetachedHead = false;
+        if (!branch) {
+          branch = (await currentBranch(root, git)) ?? undefined;
+        }
+        if (!branch) {
+          onDetachedHead = true;
+          branch = (await defaultBranch(root, git)) ?? undefined;
+        }
+        if (!branch) {
+          branch = "main";
+        }
 
-    if (exists && await namesLegacySecret(outPath)) {
-      warnings.push(
-        `the workflow being replaced read \`secrets.${LEGACY_SECRET_NAME}\`; ` +
-          `the new one reads \`secrets.${SECRET_NAME}\`. Add that secret, or ` +
-          `edit the \`token:\` line back to the one you already have.`,
-      );
-    }
+        const choice = resolveEnvironmentName(own, { flag: input.env, env: {} });
+        const environment = choice.explicit ? choice.name : undefined;
 
-    await Deno.mkdir(dirname(outPath), { recursive: true });
-    await Deno.writeTextFile(outPath, workflow);
+        const version = VERSION;
+        const workflow = renderWorkflow({
+          kind,
+          workingDirectory,
+          branch,
+          environment,
+          version,
+          workflowPath,
+        });
 
-    if (ctx.flags.json) {
-      console.log(JSON.stringify({
-        path: outPath,
-        kind,
-        workingDirectory,
-        branch,
-        environment: choice.name,
-        secretName: SECRET_NAME,
-        warnings,
-        written: true,
-      }));
-    } else {
-      console.log(
-        `Wrote ${outPath} — deploys this ${
-          kindDisplay(kind)
-        } on every push to ${branch}.`,
-      );
-      for (const w of warnings) console.log(`Warning: ${w}`);
-      console.log(``);
-      console.log(`Two things left, both one-time:`);
-      console.log(
-        `  1. Copy your token: portal → Account → CLI access token → Copy.`,
-      );
-      console.log(`  2. Add it as a repository secret named ${SECRET_NAME}:`);
-      console.log(
-        `     Settings → Secrets and variables → Actions → New repository secret.`,
-      );
-      console.log(``);
-      console.log(`Then commit both files, from ${root}:`);
-      console.log(
-        `  git add ${workflowPath} ${pbJsonRel}`,
-      );
-      console.log(`  git commit -m "Deploy on push"`);
-    }
-    return 0;
+        const warnings: string[] = [];
+        const pbJsonPath = await linkFilePath(cwd);
+        const pbJsonRel = toPosix(relative(root, pbJsonPath));
+        if (!(await isTracked(root, git, pbJsonPath))) {
+          warnings.push(
+            `${pbJsonRel} is not tracked by git — GitHub will not see it. Either ` +
+              `\`git add ${pbJsonRel}\` and commit it, or pass --project ` +
+              `<name|id> on every deploy.`,
+          );
+        }
+        const build = mergeEnvBuild(own, choice.name);
+        const envFile = envFileOf(build);
+        if (envFile) {
+          const envFilePath = join(cwd, envFile);
+          if (!(await isTracked(root, git, envFilePath))) {
+            warnings.push(
+              `The env file this environment pushes ("${envFile}") is ` +
+                `not in git, so CI will not find it and the deploy will fail ` +
+                `with "Env file not found". Use \`pbc env set\` instead — ` +
+                `see the CI/CD guide, Step 6.`,
+            );
+          }
+        }
+        if (!input.branch && onDetachedHead) {
+          warnings.push(
+            `HEAD is not a branch, so the workflow deploys on pushes to ` +
+              `"${branch}". Pass --branch <name> to pin a different one.`,
+          );
+        }
+        if (kind === "pocketbases") {
+          warnings.push(
+            `The action masks this deploy's admin credentials automatically, ` +
+              `but only for output it produces itself — any step you add that ` +
+              `prints the deploy JSON yourself will not be masked.`,
+          );
+        }
+
+        let exists = false;
+        try {
+          await Deno.stat(outPath);
+          exists = true;
+        } catch {
+          // absent — nothing to guard
+        }
+        if (exists && input.force !== true) {
+          emit(
+            ctx.flags.json,
+            { path: outPath, written: false },
+            `${outPath} already exists.\nPass --force to overwrite it.`,
+          );
+          return 0;
+        }
+
+        if (exists && await namesLegacySecret(outPath)) {
+          warnings.push(
+            `the workflow being replaced read \`secrets.${LEGACY_SECRET_NAME}\`; ` +
+              `the new one reads \`secrets.${SECRET_NAME}\`. Add that secret, or ` +
+              `edit the \`token:\` line back to the one you already have.`,
+          );
+        }
+
+        await Deno.mkdir(dirname(outPath), { recursive: true });
+        await Deno.writeTextFile(outPath, workflow);
+
+        emit(
+          ctx.flags.json,
+          {
+            path: outPath,
+            kind,
+            workingDirectory,
+            branch,
+            environment: choice.name,
+            secretName: SECRET_NAME,
+            warnings,
+            written: true,
+          },
+          () =>
+            [
+              `Wrote ${outPath} — deploys this ${
+                kindDisplay(kind)
+              } on every push to ${branch}.`,
+              ...warnings.map((w) => `Warning: ${w}`),
+              ``,
+              `Two things left, both one-time:`,
+              `  1. Copy your token: portal → Account → CLI access token → Copy.`,
+              `  2. Add it as a repository secret named ${SECRET_NAME}:`,
+              `     Settings → Secrets and variables → Actions → New repository secret.`,
+              ``,
+              `Then commit both files, from ${root}:`,
+              `  git add ${workflowPath} ${pbJsonRel}`,
+              `  git commit -m "Deploy on push"`,
+            ].join("\n"),
+        );
+        return 0;
+      },
+    }),
   };
-
-  return { "cloud ci init": ciInit };
 }

@@ -13,11 +13,6 @@ export type ResolveCtx = {
   flagProject?: string;
   noInput: boolean;
   io?: PromptIO;
-  /**
-   * Called once, only when the project was resolved implicitly (a linked
-   * pbc.json or the globally `use`d project) — an explicit --project needs no
-   * confirmation, and an interactive pick is already visible on screen.
-   */
   log?: (msg: string) => void;
 };
 
@@ -39,17 +34,12 @@ async function byToken(client: ICloudClient, token: string): Promise<Project> {
   if (m === "ambiguous") {
     throw new CliError(
       `Multiple projects named "${token}". Pass the project id instead.`,
-      2,
-    );
+      { code: "USAGE" });
   }
   if (!m) {
-    // The mismatch is usually cross-account — a linked pbc.json or a `project
-    // use` from a previous login, now acted on as someone else — so name that
-    // first. PBC_TOKEN is the silent version of the same mistake: it overrides
-    // the saved login without saying so.
     const hints = [
-      `check the account: \`pbc cloud whoami\` shows who you're logged in as (switch with \`pbc cloud logout && pbc cloud login\`)`,
-      `compare names and ids: \`pbc cloud project ls\``,
+      `check the account: \`pbc whoami\` shows who you're logged in as (switch with \`pbc logout && pbc login\`)`,
+      `compare names and ids: \`pbc project ls\``,
     ];
     const envToken = envVarName("TOKEN");
     if (envToken) {
@@ -61,7 +51,7 @@ async function byToken(client: ICloudClient, token: string): Promise<Project> {
       `No project found matching "${token}".\n${hints
         .map((h) => `- ${h}.`)
         .join("\n")}`,
-      2,
+      { code: "NOT_FOUND", hint: "pbc project ls" },
     );
   }
   return m;
@@ -84,7 +74,7 @@ export async function resolveProject(ctx: ResolveCtx): Promise<Project> {
   if (ctx.config.currentProject) {
     const p = await byToken(ctx.client, ctx.config.currentProject);
     ctx.log?.(
-      `Project: ${p.name} (${p.id}) — set with \`pbc cloud project use\``,
+      `Project: ${p.name} (${p.id}) — set with \`pbc project use\``,
     );
     return p;
   }
@@ -92,19 +82,15 @@ export async function resolveProject(ctx: ResolveCtx): Promise<Project> {
   const projects = await ctx.client.listProjects();
   if (projects.length === 0) {
     throw new CliError(
-      "No projects yet. Create one with `pbc cloud project create`.",
-      2,
+      "No projects yet. Create one with `pbc project create`.",
+      { code: "NO_TARGET", hint: "pbc project create <name>" },
     );
   }
-  // Not just --no-input: a menu on a non-TTY (a pipe, CI) or under --json (its
-  // caller folds that into noInput) would hang or corrupt the output, so give
-  // the actionable usage error rather than letting `select` throw its generic
-  // "input required" one.
   const promptOpts = { noInput: ctx.noInput, io: ctx.io };
   if (!canPrompt(promptOpts)) {
     throw new CliError(
-      "No project selected. Pass --project or run `pbc cloud project use`.",
-      2,
+      "No project selected. Pass --project or run `pbc project use`.",
+      { code: "NO_TARGET", hint: "pbc project use <name|id>" },
     );
   }
   return select(

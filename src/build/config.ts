@@ -3,18 +3,11 @@ import { linkFileName, readOwnLinkFile, upsertBuildConfig } from "../config.ts";
 import type { ResourceKind } from "../clients/types.ts";
 import { describeBuild, inferBuild } from "./detect.ts";
 
-/** Flag values that override the file, in the order the router parses them. */
 export type BuildFlags = {
   runtime?: string;
   envFile?: string;
 };
 
-/**
- * The file's base `build` with one environment's overrides spread over it, key
- * by key. `exclude` is an array, so an environment that sets it replaces the
- * base list rather than appending — appending with no way to subtract is the
- * worse failure mode.
- */
 export function mergeEnvBuild(
   file: Partial<LinkFile>,
   environment?: string,
@@ -25,19 +18,6 @@ export function mergeEnvBuild(
   return { ...file.build, ...override };
 }
 
-/**
- * Resolves the build config for a deploy: flag > environment > base > inference.
- *
- * The `build` blocks are read from the cwd's *own* pbc.json, never a parent's — a
- * parent directory's build command must not silently govern a child's deploy,
- * even though `readLinkFile` walks up to find the project binding.
- *
- * Inference runs only when there is no `build` block at all, base or
- * environment. A partial block is used as written: a user who removed `command`
- * on purpose does not get it back. An inferred block is persisted — to the base,
- * since inference reads the directory, which is the same in every environment —
- * so the next deploy is deterministic and the choice shows up in a diff.
- */
 export async function resolveBuildConfig(opts: {
   cwd: string;
   kind: ResourceKind;
@@ -67,15 +47,6 @@ export async function resolveBuildConfig(opts: {
   };
 }
 
-/**
- * The dotenv file a deploy pushes.
- *
- * Tri-state, and the middle state is the point: `undefined` means nobody has
- * said yet (the deploy asks), `""` means "no env file for this environment"
- * (asked and declined — never ask again), and a path means push that file.
- * There is deliberately no `.env` fallback: pushing a developer's local dotenv
- * to whichever environment happens to be deployed is an instruction nobody gave.
- */
 export function envFileOf(build: BuildConfig): string | undefined {
   return build.envFile;
 }

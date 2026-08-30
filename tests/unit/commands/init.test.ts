@@ -18,10 +18,9 @@ function seed(files: Record<string, string>): string {
 const flags = { json: true, yes: true, noInput: true, interactive: false };
 
 function run(cwd: string, args: string[], raw: Record<string, unknown> = {}) {
-  return makeCloudInitCommands({ cwd: () => cwd })["cloud init"]({
+  return makeCloudInitCommands({ cwd: () => cwd })["init"].run(raw, {
     args,
     flags,
-    raw,
   });
 }
 
@@ -34,42 +33,37 @@ function fakeIO(inputs: string[]): PromptIO {
   };
 }
 
-/** Interactive run: init asks which environment the directory deploys to. */
 function runAsking(cwd: string, answers: string[], args: string[] = []) {
   return makeCloudInitCommands({ cwd: () => cwd, io: fakeIO(answers) })[
-    "cloud init"
-  ]({
-    args,
-    flags: { ...flags, json: false, noInput: false },
-    raw: {},
-  });
+    "init"
+  ].run({}, { args, flags: { ...flags, json: false, noInput: false } });
 }
 
-Deno.test("cloud init records the environment it asked for", async () => {
+Deno.test("init records the environment it asked for", async () => {
   const cwd = seed({ "deno.json": "{}", "main.ts": "x" });
   assertEquals(await runAsking(cwd, ["staging"], ["backend"]), 0);
   assertEquals((await readOwnLinkFile(cwd)).defaultEnvironment, "staging");
 });
 
-Deno.test("cloud init falls back to production on an empty answer", async () => {
+Deno.test("init falls back to production on an empty answer", async () => {
   const cwd = seed({ "deno.json": "{}", "main.ts": "x" });
   assertEquals(await runAsking(cwd, [""], ["backend"]), 0);
   assertEquals((await readOwnLinkFile(cwd)).defaultEnvironment, "production");
 });
 
-Deno.test("cloud init writes the inferred block for an explicit kind", async () => {
+Deno.test("init writes the inferred block for an explicit kind", async () => {
   const cwd = seed({ "deno.json": "{}", "main.ts": "x" });
   assertEquals(await run(cwd, ["backend"]), 0);
   assertEquals((await readOwnLinkFile(cwd)).build?.runtime, "deno");
 });
 
-Deno.test("cloud init accepts the pb and pocketbase aliases", async () => {
+Deno.test("init accepts the pb and pocketbase aliases", async () => {
   const cwd = seed({ "pb_hooks/main.pb.js": "//" });
   assertEquals(await run(cwd, ["pb"]), 0);
   assertEquals((await readOwnLinkFile(cwd)).build?.pbHooks, "pb_hooks");
 });
 
-Deno.test("cloud init takes the kind from the directory's binding", async () => {
+Deno.test("init takes the kind from the directory's binding", async () => {
   const cwd = seed({
     "vite.config.ts": "",
     "pbc.json": JSON.stringify({
@@ -81,11 +75,10 @@ Deno.test("cloud init takes the kind from the directory's binding", async () => 
   assertEquals(await run(cwd, []), 0);
   const own = await readOwnLinkFile(cwd);
   assertEquals(own.build?.outputDir, "dist");
-  // The binding survives the write.
   assertEquals(own.environments?.production.id, "f1");
 });
 
-Deno.test("cloud init errors when there is no kind to infer for", async () => {
+Deno.test("init errors when there is no kind to infer for", async () => {
   await assertRejects(
     () => run(seed({ "deno.json": "{}" }), []),
     CliError,
@@ -93,7 +86,7 @@ Deno.test("cloud init errors when there is no kind to infer for", async () => {
   );
 });
 
-Deno.test("cloud init rejects an unknown kind", async () => {
+Deno.test("init rejects an unknown kind", async () => {
   await assertRejects(
     () => run(seed({}), ["database"]),
     CliError,
@@ -101,7 +94,7 @@ Deno.test("cloud init rejects an unknown kind", async () => {
   );
 });
 
-Deno.test("cloud init leaves an existing block alone unless forced", async () => {
+Deno.test("init leaves an existing block alone unless forced", async () => {
   const cwd = seed({
     "vite.config.ts": "",
     "pbc.json": JSON.stringify({

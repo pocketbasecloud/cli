@@ -1,3 +1,5 @@
+import { emit } from "../envelope.ts";
+
 export type Column<T> = { header: string; get: (row: T) => string };
 
 export function renderTable<T>(rows: T[], cols: Column<T>[]): string {
@@ -21,10 +23,9 @@ export function printResult<T>(
   json: boolean,
   write: (s: string) => void = console.log,
 ): void {
-  write(json ? renderJson(rows) : renderTable(rows, cols));
+  emit(json, rows, () => renderTable(rows, cols), write);
 }
 
-/** One labelled line of a detail view. Rows with no value are dropped. */
 export type Field<T> = { label: string; get: (v: T) => string | undefined };
 
 export function renderDetail<T>(value: T, fields: Field<T>[]): string {
@@ -37,21 +38,15 @@ export function renderDetail<T>(value: T, fields: Field<T>[]): string {
   return rows.map(([l, v]) => `${l.padEnd(width)}  ${v}`).join("\n");
 }
 
-/**
- * The single-record counterpart to `printResult`. Without it an `info` command
- * has no human output at all and falls back to dumping the raw record, which
- * buries the few fields that matter under storage internals.
- */
 export function printDetail<T>(
   value: T,
   fields: Field<T>[],
   json: boolean,
   write: (s: string) => void = console.log,
 ): void {
-  write(json ? renderJson(value) : renderDetail(value, fields));
+  emit(json, value, () => renderDetail(value, fields), write);
 }
 
-/** A plan name for display; unsubscribed accounts carry an empty string. */
 export function describePlan(plan: string | undefined): string {
   return plan && plan.length > 0 ? plan : "none (no active subscription)";
 }

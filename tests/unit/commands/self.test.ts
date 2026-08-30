@@ -2,7 +2,7 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 import { makeSelfCommands } from "../../../src/commands/self.ts";
 import { silentProgress } from "../../../src/ui/progress.ts";
 import type { SelfDeps } from "../../../src/self/upgrade.ts";
-import type { CmdCtx } from "../../../src/router.ts";
+import type { CmdCtx } from "../../../src/command.ts";
 import { VERSION } from "../../../src/version.ts";
 import { sha256Hex } from "../../../src/hash.ts";
 import { buildTarGz } from "../../mocks/tar.mock.ts";
@@ -15,11 +15,7 @@ function newer(): string {
   return `${maj}.${min}.${patch + 1}`;
 }
 
-function ctx(
-  args: string[] = [],
-  raw: Record<string, unknown> = {},
-  json = false,
-): CmdCtx {
+function ctx(args: string[] = [], json = false): CmdCtx {
   return {
     args,
     flags: {
@@ -28,7 +24,6 @@ function ctx(
       noInput: false,
       interactive: false,
     },
-    raw,
   };
 }
 
@@ -83,29 +78,29 @@ function deps(opts: {
 function run(d: SelfDeps) {
   const out: string[] = [];
   const cmd =
-    makeSelfCommands(d, (s) => out.push(s), silentProgress())["upgrade"];
+    makeSelfCommands(d, (s) => out.push(s), silentProgress())["self upgrade"];
   return { cmd, out };
 }
 
 Deno.test("upgrade --check reports the available version without installing", async () => {
   const { cmd, out } = run(deps());
-  assertEquals(await cmd(ctx([], { check: true })), 0);
+  assertEquals(await cmd.run({ check: true }, ctx()), 0);
   const text = out.join("\n");
   assertStringIncludes(text, `Installed: pbc ${VERSION} (standalone)`);
   assertStringIncludes(text, `Latest:    pbc ${newer()}`);
-  assertStringIncludes(text, "Run `pbc upgrade` to update.");
+  assertStringIncludes(text, "Run `pbc self upgrade` to update.");
 });
 
 Deno.test("upgrade --check says so when already current", async () => {
   const { cmd, out } = run(deps({ release: VERSION }));
-  assertEquals(await cmd(ctx([], { check: true })), 0);
+  assertEquals(await cmd.run({ check: true }, ctx()), 0);
   assertStringIncludes(out.join("\n"), "You are up to date.");
 });
 
 Deno.test("upgrade --check --json emits a machine-readable report", async () => {
   const { cmd, out } = run(deps());
-  assertEquals(await cmd(ctx([], { check: true }, true)), 0);
-  const j = JSON.parse(out[0]);
+  assertEquals(await cmd.run({ check: true }, ctx([], true)), 0);
+  const j = JSON.parse(out[0]).data;
   assertEquals(j.current, VERSION);
   assertEquals(j.latest, newer());
   assertEquals(j.updateAvailable, true);
@@ -122,14 +117,13 @@ Deno.test("upgrade --check never installs, even with --force", async () => {
   }) as unknown as typeof fetch;
 
   const { cmd } = run(d);
-  assertEquals(await cmd(ctx([], { check: true, force: true })), 0);
-  // Only the manifest was fetched — no asset download.
+  assertEquals(await cmd.run({ check: true, force: true }, ctx()), 0);
   assertEquals(fetched, 1);
 });
 
 Deno.test("upgrade is a no-op when already on the latest version", async () => {
   const { cmd, out } = run(deps({ release: VERSION }));
-  assertEquals(await cmd(ctx()), 0);
+  assertEquals(await cmd.run({}, ctx()), 0);
   assertStringIncludes(out.join("\n"), "already the latest version");
 });
 
@@ -137,7 +131,7 @@ Deno.test("upgrade exits non-zero and names the command for an npm install", asy
   const { cmd, out } = run(
     deps({ execPath: "/x/node_modules/@pocketbasecloud/cli-linux-x64/bin/pb" }),
   );
-  assertEquals(await cmd(ctx()), 1);
+  assertEquals(await cmd.run({}, ctx()), 1);
   const text = out.join("\n");
   assertStringIncludes(text, "installed with npm");
   assertStringIncludes(text, "npm i -g @pocketbasecloud/cli@latest");
@@ -145,7 +139,7 @@ Deno.test("upgrade exits non-zero and names the command for an npm install", asy
 
 Deno.test("upgrade does not print Deno's path for a source install", async () => {
   const { cmd, out } = run(deps({ execPath: "/home/t/.deno/bin/deno" }));
-  assertEquals(await cmd(ctx()), 1);
+  assertEquals(await cmd.run({}, ctx()), 1);
   const text = out.join("\n");
   assertStringIncludes(text, "runs from source");
   assertEquals(text.includes("/home/t/.deno/bin/deno"), false);
@@ -155,8 +149,8 @@ Deno.test("upgrade --json signals failure for an install it cannot replace", asy
   const { cmd, out } = run(
     deps({ execPath: "/x/node_modules/@pocketbasecloud/cli-linux-x64/bin/pb" }),
   );
-  assertEquals(await cmd(ctx([], {}, true)), 1);
-  const j = JSON.parse(out[0]);
+  assertEquals(await cmd.run({}, ctx([], true)), 1);
+  const j = JSON.parse(out[0]).data;
   assertEquals(j.upgraded, false);
   assertEquals(j.action, "manual");
   assertEquals(j.command, "npm i -g @pocketbasecloud/cli@latest");
@@ -165,7 +159,7 @@ Deno.test("upgrade --json signals failure for an install it cannot replace", asy
 Deno.test("upgrade replaces a standalone binary and reports the move", async () => {
   const archive = await buildTarGz([{ name: "pb", body: BODY }]);
   const { cmd, out } = run(deps({ archive }));
-  assertEquals(await cmd(ctx()), 0);
+  assertEquals(await cmd.run({}, ctx()), 0);
   assertStringIncludes(
     out.join("\n"),
     `Upgraded pbc ${VERSION} → ${newer()} (/usr/local/bin/pb)`,
@@ -175,8 +169,8 @@ Deno.test("upgrade replaces a standalone binary and reports the move", async () 
 Deno.test("upgrade --json reports a completed upgrade", async () => {
   const archive = await buildTarGz([{ name: "pb", body: BODY }]);
   const { cmd, out } = run(deps({ archive }));
-  assertEquals(await cmd(ctx([], {}, true)), 0);
-  const j = JSON.parse(out[0]);
+  assertEquals(await cmd.run({}, ctx([], true)), 0);
+  const j = JSON.parse(out[0]).data;
   assertEquals(j.upgraded, true);
   assertEquals(j.target, newer());
   assertEquals(j.path, "/usr/local/bin/pb");
@@ -185,8 +179,7 @@ Deno.test("upgrade --json reports a completed upgrade", async () => {
 Deno.test("upgrade installs an explicitly requested older version", async () => {
   const archive = await buildTarGz([{ name: "pb", body: BODY }]);
   const { cmd, out } = run(deps({ archive, release: "0.0.1" }));
-  assertEquals(await cmd(ctx(["0.0.1"])), 0);
-  // A rollback is not an upgrade, and the wording should not claim otherwise.
+  assertEquals(await cmd.run({}, ctx(["0.0.1"])), 0);
   assertStringIncludes(out.join("\n"), `Switched pbc ${VERSION} → 0.0.1`);
 });
 
@@ -197,7 +190,7 @@ Deno.test("upgrade does not call a requested rollback an available update", asyn
       execPath: "/x/node_modules/@pocketbasecloud/cli-linux-x64/bin/pb",
     }),
   );
-  assertEquals(await cmd(ctx(["0.0.1"])), 1);
+  assertEquals(await cmd.run({}, ctx(["0.0.1"])), 1);
   const text = out.join("\n");
   assertStringIncludes(text, `pbc 0.0.1 requested; this is pbc ${VERSION}`);
   assertEquals(text.includes("is available"), false);

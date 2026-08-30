@@ -20,10 +20,9 @@ function deps(client = createMockAdminClient()): AdminCmdDeps {
 Deno.test("collections create sends name and type", async () => {
   const client = createMockAdminClient();
   const cmds = makeCollectionsCommands(deps(client));
-  const code = await cmds["collections create"]({
+  const code = await cmds["admin collections create"].run({}, {
     args: ["posts"],
     flags: { json: true, yes: true, noInput: true, interactive: false },
-    raw: {},
   });
   assertEquals(code, 0);
   assertEquals(
@@ -38,10 +37,9 @@ Deno.test("collections export writes JSON to out file", async () => {
   const client = createMockAdminClient();
   await client.createCollection({ name: "posts" });
   const cmds = makeCollectionsCommands(deps(client));
-  const code = await cmds["collections export"]({
+  const code = await cmds["admin collections export"].run({ out }, {
     args: [],
     flags: { json: true, yes: true, noInput: true, interactive: false },
-    raw: { out },
   });
   assertEquals(code, 0);
   const parsed = JSON.parse(await Deno.readTextFile(out));

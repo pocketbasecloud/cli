@@ -8,7 +8,7 @@ import {
   normalizeVersion,
   resolveLatest,
 } from "../../../src/local/releases.ts";
-import { CliError } from "../../../src/errors.ts";
+import { CliError, EXIT_CODES } from "../../../src/errors.ts";
 
 type Release = { tag_name: string; draft: boolean; prerelease: boolean };
 
@@ -16,8 +16,6 @@ function releasesResponse(rels: Release[]): Response {
   return new Response(JSON.stringify(rels), { status: 200 });
 }
 
-// PocketBase maintains two lines at once, so the API's date order interleaves
-// them. This is the real shape observed on 2026-07-23.
 const INTERLEAVED: Release[] = [
   { tag_name: "v0.39.9", draft: false, prerelease: false },
   { tag_name: "v0.22.50", draft: false, prerelease: false },
@@ -161,7 +159,7 @@ Deno.test("resolveLatest refuses to guess from the builtin list", async () => {
     () => resolveLatest({ fetch: fn, env: () => undefined }),
     CliError,
   );
-  assertEquals((e as CliError).exitCode, 1);
+  assertEquals((e as CliError).exitCode, EXIT_CODES.PLATFORM);
   assertEquals((e as Error).message.includes("explicit version"), true);
 });
 

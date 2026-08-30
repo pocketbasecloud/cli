@@ -6,7 +6,6 @@ const enc = (s: string) => new TextEncoder().encode(s);
 const dec = (b: Uint8Array) => new TextDecoder().decode(b);
 
 Deno.test("crc32 matches the known IEEE check value", () => {
-  // The standard "123456789" check vector for CRC-32/ISO-HDLC.
   assertEquals(crc32(enc("123456789")), 0xcbf43926);
   assertEquals(crc32(new Uint8Array(0)), 0);
 });
@@ -26,15 +25,12 @@ Deno.test("writeZip round-trips an empty file", async () => {
 });
 
 Deno.test("writeZip round-trips a body larger than one deflate chunk", async () => {
-  // Highly compressible, so this exercises the deflate path rather than the
-  // stored fallback.
-  const body = enc("abcdefgh".repeat(80_000)); // 640 KB
+  const body = enc("abcdefgh".repeat(80_000));
   const zip = await writeZip([{ name: "big.txt", body }]);
   const out = await extractEntry(zip, "big.txt");
   assertEquals(out.length, body.length);
   assertEquals(out[0], body[0]);
   assertEquals(out[out.length - 1], body[body.length - 1]);
-  // It must actually have compressed, or the fallback is masking a bug.
   assertEquals(zip.length < body.length, true);
 });
 
@@ -42,8 +38,6 @@ Deno.test("writeZip stores incompressible data rather than growing it", async ()
   const body = crypto.getRandomValues(new Uint8Array(4096));
   const zip = await writeZip([{ name: "rand.bin", body }]);
   assertEquals(await extractEntry(zip, "rand.bin"), body);
-  // Stored: the archive is the payload plus headers, not payload + deflate
-  // overhead on top.
   assertEquals(zip.length < body.length + 200, true);
 });
 

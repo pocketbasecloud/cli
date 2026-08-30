@@ -28,7 +28,7 @@ inputs:
       action shipped with; pinning both together is the point of the tag.
     required: false
     # Must equal VERSION in src/version.ts — tests/unit/action.test.ts enforces it.
-    default: "0.6.0"
+    default: "0.8.0"
   project:
     description: "Project name or id. Only needed when pbc.json is not committed."
     required: false
