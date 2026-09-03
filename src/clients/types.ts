@@ -44,6 +44,8 @@ export type DeployContext = {
   organization: string;
   servers: DeployContextServer[];
   locations?: string[];
+  starterLocations?: string[];
+  proLocations?: string[];
 };
 
 export type DeployContextServer = {

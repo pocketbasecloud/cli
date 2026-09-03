@@ -481,6 +481,108 @@ function pushedNames(
   return body.hooks.map((h) => h.filename).sort();
 }
 
+Deno.test("pb runtime surfaces expose only supported fields", () => {
+  const commands = makePbCommands(deps().d);
+  assertEquals(
+    Object.keys(commands["pocketbase config set"].flags),
+    ["name", "dev", "hooksPool", "queryTimeout"],
+  );
+
+  const createFlags = Object.keys(commands["pocketbase create"].flags);
+  for (
+    const field of [
+      "automigrate",
+      "dir",
+      "encryptionEnv",
+      "hooksDir",
+      "hooksWatch",
+      "indexFallback",
+      "migrationsDir",
+      "publicDir",
+    ]
+  ) {
+    assertEquals(createFlags.includes(field), false);
+  }
+  for (const field of ["dev", "hooksPool", "queryTimeout"]) {
+    assertEquals(createFlags.includes(field), true);
+  }
+});
+
+Deno.test("pb config get returns only supported fields", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const resource = await client.createResource("pocketbases", {
+    name: "db1",
+    project: p.id,
+  });
+  resource.runtimeFlags = {
+    automigrate: false,
+    dev: true,
+    hooksPool: 20,
+    publicDir: "site",
+    queryTimeout: 45,
+  };
+  const { d } = deps(client);
+  const log = captureLog();
+  try {
+    await makePbCommands(d)["pocketbase config get"].run({ name: "db1" }, {
+      args: [],
+      flags: flags({ project: p.id }),
+    });
+  } finally {
+    log.restore();
+  }
+  assertEquals(JSON.parse(log.lines.at(-1)!).data, {
+    dev: true,
+    hooksPool: 20,
+    queryTimeout: 45,
+  });
+});
+
+Deno.test("pb config set returns only supported fields and preserves the rest", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const resource = await client.createResource("pocketbases", {
+    name: "db1",
+    project: p.id,
+  });
+  resource.runtimeFlags = {
+    dev: false,
+    hooksPool: 15,
+    publicDir: "site",
+    queryTimeout: 30,
+  };
+  const { d } = deps(client);
+  const log = captureLog();
+  try {
+    await makePbCommands(d)["pocketbase config set"].run({
+      name: "db1",
+      dev: "true",
+    }, {
+      args: [],
+      flags: flags({ project: p.id }),
+    });
+  } finally {
+    log.restore();
+  }
+  const request = client.calls.ext.at(-1)?.[1] as {
+    runtimeFlags: Record<string, boolean | number | string>;
+  };
+  assertEquals(request.runtimeFlags.publicDir, "site");
+  assertEquals(JSON.parse(log.lines.at(-1)!).data, {
+    dev: true,
+    hooksPool: 15,
+    queryTimeout: 30,
+  });
+});
+
+Deno.test("pb create presents backup restore as an advanced option", () => {
+  const command = makePbCommands(deps().d)["pocketbase create"];
+  assertEquals(command.summary, "Create a PocketBase instance.");
+  assertEquals(command.usage.endsWith("[--backup <zip>]"), true);
+  assertEquals(command.details?.includes("Advanced configuration:"), true);
+});
+
 Deno.test("pb create makes a running instance and sends no archive", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
@@ -845,6 +947,56 @@ Deno.test("pb create prints the generated login once, and where it was recorded"
     ),
     true,
   );
+});
+
+Deno.test("pb create with a backup explains that credentials are preserved", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d } = deps(client);
+  runningNow(client);
+  const backup = `${d.cwd()}/backup.zip`;
+  await Deno.writeFile(backup, new Uint8Array([1, 2, 3]));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = () =>
+    Promise.resolve(new Response(null, { status: 200 }));
+  const originalExt = client.ext;
+  client.ext = (path, body) => {
+    if (path === "/api/pocketbases/backup-upload-url") {
+      client.calls.ext.push([path, body]);
+      return Promise.resolve(
+        Response.json({ data: { key: "backup-key", uploadUrl: "https://upload", maxMB: 150 } }),
+      );
+    }
+    return originalExt(path, body);
+  };
+  const log = captureLog();
+  try {
+    const code = await makePbCommands(d)["pocketbase create"].run({
+      name: "restored",
+      backup,
+    }, {
+      args: [],
+      flags: flags({ project: p.id, json: false }),
+    });
+    assertEquals(code, 0);
+  } finally {
+    log.restore();
+    globalThis.fetch = originalFetch;
+  }
+  assertEquals(
+    log.lines.some((line) =>
+      line.includes("Admin login: preserved from backup; credentials are not available")
+    ),
+    true,
+  );
+  assertEquals(
+    log.lines.some((line) =>
+      line.includes('Recorded in pbc.json as environment "production"')
+    ),
+    true,
+  );
+  assertEquals(client.calls.createResource[0][1].adminUsername, undefined);
+  assertEquals(client.calls.createResource[0][1].adminPassword, undefined);
 });
 
 Deno.test("pb create --json prints the instance with its credentials", async () => {

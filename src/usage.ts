@@ -683,9 +683,9 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ]
   },
   "pocketbase create": {
-    "usage": "pbc pocketbase create [<name>] [--backup <zip>] [--env <name>] [--location <loc>] [--compute <id>] [--admin-email <e>] [--admin-password <p>] [--pb-version <v>]",
-    "summary": "Create or restore a PocketBase instance.",
-    "details": "Provisions a running instance with nothing deployed to it — no\npb_public, pb_hooks or pb_migrations — and waits until it answers.\n\nNothing is built, packaged, or uploaded, and no env file is asked about. Use it\nto get a database from a script, from a directory that holds no project, or\nbefore there is anything to deploy.\n\nThe new instance is recorded in this directory's pbc.json, under the environment\nthis command targets, exactly as a deploy would record it — so the next\n`pbc pocketbase deploy` here needs no --name:\n\n  pbc pocketbase create my-app-db\n  pbc pocketbase deploy              # ships this directory to it\n\n--env names the environment (default: production, or the file's own default).\nA directory bound to frontends or backends is refused, and so is an environment\nthat already names an instance: repointing it would leave the old one with\nnothing pointing at it. Pass --env <other>, or run this somewhere else.\n\n`pbc pocketbase deploy` also creates an instance when there is none yet, and\ncreates it bare when the directory holds none of the three directories — so\nthis command is the explicit way to do the same thing when there is nothing to\npackage.\n\nThe name comes from the argument or --name, and is asked for on a terminal\n(defaulting to the directory's name) when neither is given. A name already used\nby an instance in this project is refused rather than duplicated: redeploy that\none with `pbc pocketbase deploy --name <name>` instead.\n\nThe instance gets a superuser account — your account email, and a generated\npassword printed once when it finishes (and readable afterwards with\n`pbc pocketbase info`). Override either with --admin-email/--admin-password.\n\nThe compute is chosen exactly as a deploy chooses it: on Pro, and in a project\nshared with an organization, the owner's compute is used, asked about when\nthere is more than one, and settled outright by --compute. On the free and\nstarter plans the platform picks from its shared pool.",
+    "usage": "pbc pocketbase create [<name>] [--env <name>] [--location <loc>] [--compute <id>] [--admin-email <e>] [--admin-password <p>] [--pb-version <v>] [--backup <zip>]",
+    "summary": "Create a PocketBase instance.",
+    "details": "Provisions a running instance with nothing deployed to it — no\npb_public, pb_hooks or pb_migrations — and waits until it answers.\n\nNothing is built, packaged, or uploaded, and no env file is asked about. Use it\nto get a database from a script, from a directory that holds no project, or\nbefore there is anything to deploy.\n\nThe new instance is recorded in this directory's pbc.json, under the environment\nthis command targets, exactly as a deploy would record it — so the next\n`pbc pocketbase deploy` here needs no --name:\n\n  pbc pocketbase create my-app-db\n  pbc pocketbase deploy              # ships this directory to it\n\n--env names the environment (default: production, or the file's own default).\nA directory bound to frontends or backends is refused, and so is an environment\nthat already names an instance: repointing it would leave the old one with\nnothing pointing at it. Pass --env <other>, or run this somewhere else.\n\n`pbc pocketbase deploy` also creates an instance when there is none yet, and\ncreates it bare when the directory holds none of the three directories — so\nthis command is the explicit way to do the same thing when there is nothing to\npackage.\n\nThe name comes from the argument or --name, and is asked for on a terminal\n(defaulting to the directory's name) when neither is given. A name already used\nby an instance in this project is refused rather than duplicated: redeploy that\none with `pbc pocketbase deploy --name <name>` instead.\n\nThe instance gets a superuser account — your account email, and a generated\npassword printed once when it finishes (and readable afterwards with\n`pbc pocketbase info`). Override either with --admin-email/--admin-password.\n\nThe compute is chosen exactly as a deploy chooses it: on Pro, and in a project\nshared with an organization, the owner's compute is used, asked about when\nthere is more than one, and settled outright by --compute. On the free and\nstarter plans the platform picks from its shared pool.\n\nAdvanced configuration: --dev, --hooks-pool, and --query-timeout adjust the\nruntime. --backup restores a PocketBase backup ZIP during creation. Existing\nsuperusers are preserved, so --backup cannot be combined with the admin flags.",
     "args": [
       {
         "name": "name",
@@ -744,40 +744,10 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "description": "PocketBase release to install. Defaults to pocketbaseVersion in pbc.json."
       },
       {
-        "name": "backup",
-        "type": "path",
-        "required": false,
-        "description": "PocketBase backup ZIP to restore during creation."
-      },
-      {
-        "name": "automigrate",
-        "type": "string",
-        "required": false,
-        "description": "Enable automigrations: true or false."
-      },
-      {
         "name": "dev",
         "type": "string",
         "required": false,
         "description": "Enable PocketBase dev mode: true or false."
-      },
-      {
-        "name": "dir",
-        "type": "string",
-        "required": false,
-        "description": "Data directory relative to the instance root."
-      },
-      {
-        "name": "encryption-env",
-        "type": "string",
-        "required": false,
-        "description": "Environment variable holding the encryption key."
-      },
-      {
-        "name": "hooks-dir",
-        "type": "string",
-        "required": false,
-        "description": "Hooks directory relative to the instance root."
       },
       {
         "name": "hooks-pool",
@@ -786,34 +756,16 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "description": "Hooks runtime pool size, 1-100."
       },
       {
-        "name": "hooks-watch",
-        "type": "string",
-        "required": false,
-        "description": "Watch hooks: true or false."
-      },
-      {
-        "name": "index-fallback",
-        "type": "string",
-        "required": false,
-        "description": "Serve index fallback: true or false."
-      },
-      {
-        "name": "migrations-dir",
-        "type": "string",
-        "required": false,
-        "description": "Migrations directory relative to the instance root."
-      },
-      {
-        "name": "public-dir",
-        "type": "string",
-        "required": false,
-        "description": "Public directory relative to the instance root."
-      },
-      {
         "name": "query-timeout",
         "type": "string",
         "required": false,
         "description": "Query timeout in seconds, 1-3600."
+      },
+      {
+        "name": "backup",
+        "type": "path",
+        "required": false,
+        "description": "PocketBase backup ZIP to restore during creation."
       }
     ]
   },
@@ -969,64 +921,16 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "description": "Which instance. Defaults to the directory binding."
       },
       {
-        "name": "automigrate",
-        "type": "string",
-        "required": false,
-        "description": "true or false."
-      },
-      {
         "name": "dev",
         "type": "string",
         "required": false,
         "description": "true or false."
       },
       {
-        "name": "dir",
-        "type": "string",
-        "required": false,
-        "description": "Relative data directory."
-      },
-      {
-        "name": "encryption-env",
-        "type": "string",
-        "required": false,
-        "description": "Encryption-key environment variable."
-      },
-      {
-        "name": "hooks-dir",
-        "type": "string",
-        "required": false,
-        "description": "Relative hooks directory."
-      },
-      {
         "name": "hooks-pool",
         "type": "string",
         "required": false,
         "description": "Hooks pool size, 1-100."
-      },
-      {
-        "name": "hooks-watch",
-        "type": "string",
-        "required": false,
-        "description": "true or false."
-      },
-      {
-        "name": "index-fallback",
-        "type": "string",
-        "required": false,
-        "description": "true or false."
-      },
-      {
-        "name": "migrations-dir",
-        "type": "string",
-        "required": false,
-        "description": "Relative migrations directory."
-      },
-      {
-        "name": "public-dir",
-        "type": "string",
-        "required": false,
-        "description": "Relative public directory."
       },
       {
         "name": "query-timeout",

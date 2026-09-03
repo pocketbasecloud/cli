@@ -72,6 +72,7 @@ const RUNTIME_DEFAULTS: Record<string, boolean | number | string> = {
   publicDir: "pb_public",
   queryTimeout: 30,
 };
+const EDITABLE_RUNTIME_KEYS = ["dev", "hooksPool", "queryTimeout"] as const;
 
 function parseBooleanFlag(
   name: string,
@@ -87,24 +88,8 @@ function runtimeFlags(
   input: Record<string, string | undefined>,
 ): Record<string, boolean | number | string> {
   const result: Record<string, boolean | number | string> = {};
-  for (const key of ["automigrate", "dev", "hooksWatch", "indexFallback"]) {
-    const value = parseBooleanFlag(
-      key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`),
-      input[key],
-    );
-    if (value !== undefined) result[key] = value;
-  }
-  for (
-    const key of [
-      "dir",
-      "encryptionEnv",
-      "hooksDir",
-      "migrationsDir",
-      "publicDir",
-    ]
-  ) {
-    if (input[key] !== undefined) result[key] = input[key]!;
-  }
+  const dev = parseBooleanFlag("dev", input.dev);
+  if (dev !== undefined) result.dev = dev;
   for (const key of ["hooksPool", "queryTimeout"]) {
     if (input[key] === undefined) continue;
     const value = Number(input[key]);
@@ -112,6 +97,16 @@ function runtimeFlags(
       throw new CliError(`--${key} must be an integer.`, { code: "USAGE" });
     }
     result[key] = value;
+  }
+  return result;
+}
+
+function editableRuntimeFlags(
+  input: Record<string, boolean | number | string>,
+): Record<string, boolean | number | string> {
+  const result: Record<string, boolean | number | string> = {};
+  for (const key of EDITABLE_RUNTIME_KEYS) {
+    result[key] = input[key] ?? RUNTIME_DEFAULTS[key];
   }
   return result;
 }
@@ -398,8 +393,8 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Command> {
     "pocketbase create": defineCommand({
       path: ["pocketbase", "create"],
       usage:
-        "pbc pocketbase create [<name>] [--backup <zip>] [--env <name>] [--location <loc>] [--compute <id>] [--admin-email <e>] [--admin-password <p>] [--pb-version <v>]",
-      summary: "Create or restore a PocketBase instance.",
+        "pbc pocketbase create [<name>] [--env <name>] [--location <loc>] [--compute <id>] [--admin-email <e>] [--admin-password <p>] [--pb-version <v>] [--backup <zip>]",
+      summary: "Create a PocketBase instance.",
       details: `Provisions a running instance with nothing deployed to it — no
 pb_public, pb_hooks or pb_migrations — and waits until it answers.
 
@@ -436,7 +431,11 @@ password printed once when it finishes (and readable afterwards with
 The compute is chosen exactly as a deploy chooses it: on Pro, and in a project
 shared with an organization, the owner's compute is used, asked about when
 there is more than one, and settled outright by --compute. On the free and
-starter plans the platform picks from its shared pool.`,
+starter plans the platform picks from its shared pool.
+
+Advanced configuration: --dev, --hooks-pool, and --query-timeout adjust the
+runtime. --backup restores a PocketBase backup ZIP during creation. Existing
+superusers are preserved, so --backup cannot be combined with the admin flags.`,
       args: [{
         name: "name",
         required: false,
@@ -477,35 +476,13 @@ starter plans the platform picks from its shared pool.`,
           description:
             "PocketBase release to install. Defaults to pocketbaseVersion in pbc.json.",
         }),
+        dev: str({ description: "Enable PocketBase dev mode: true or false." }),
+        hooksPool: str({ description: "Hooks runtime pool size, 1-100." }),
+        queryTimeout: str({ description: "Query timeout in seconds, 1-3600." }),
         backup: path({
           description: "PocketBase backup ZIP to restore during creation.",
           conflicts: ["adminEmail", "adminPassword"],
         }),
-        automigrate: str({
-          description: "Enable automigrations: true or false.",
-        }),
-        dev: str({ description: "Enable PocketBase dev mode: true or false." }),
-        dir: str({
-          description: "Data directory relative to the instance root.",
-        }),
-        encryptionEnv: str({
-          description: "Environment variable holding the encryption key.",
-        }),
-        hooksDir: str({
-          description: "Hooks directory relative to the instance root.",
-        }),
-        hooksPool: str({ description: "Hooks runtime pool size, 1-100." }),
-        hooksWatch: str({ description: "Watch hooks: true or false." }),
-        indexFallback: str({
-          description: "Serve index fallback: true or false.",
-        }),
-        migrationsDir: str({
-          description: "Migrations directory relative to the instance root.",
-        }),
-        publicDir: str({
-          description: "Public directory relative to the instance root.",
-        }),
-        queryTimeout: str({ description: "Query timeout in seconds, 1-3600." }),
       },
       run: async (input, ctx) => {
         const progress = deployProgress(ctx.flags.json);
@@ -613,10 +590,16 @@ starter plans the platform picks from its shared pool.`,
             ...(reachable === undefined ? {} : { reachable }),
             ...(credentials ?? {}),
           }, "");
-        } else if (credentials) {
-          console.log(
-            `Admin login: ${credentials.adminUsername} / ${credentials.adminPassword}`,
-          );
+        } else {
+          if (credentials) {
+            console.log(
+              `Admin login: ${credentials.adminUsername} / ${credentials.adminPassword}`,
+            );
+          } else if (input.backup) {
+            console.log(
+              "Admin login: preserved from backup; credentials are not available to PocketBase Cloud.",
+            );
+          }
           if (final.status === "running") {
             console.log(
               `Recorded in pbc.json as environment "${environment}" — ` +
@@ -983,10 +966,10 @@ never moves an existing instance.`,
       run: async (input, ctx) => {
         const { client, found } = await resolveOne(ctx, input);
         const resource = await client.getResource("pocketbases", found.id);
-        const config = {
+        const config = editableRuntimeFlags({
           ...RUNTIME_DEFAULTS,
           ...(resource.runtimeFlags ?? {}),
-        };
+        });
         emit(ctx.flags.json, config, JSON.stringify(config, null, 2));
         return 0;
       },
@@ -1002,18 +985,8 @@ never moves an existing instance.`,
         name: str({
           description: "Which instance. Defaults to the directory binding.",
         }),
-        automigrate: str({ description: "true or false." }),
         dev: str({ description: "true or false." }),
-        dir: str({ description: "Relative data directory." }),
-        encryptionEnv: str({
-          description: "Encryption-key environment variable.",
-        }),
-        hooksDir: str({ description: "Relative hooks directory." }),
         hooksPool: str({ description: "Hooks pool size, 1-100." }),
-        hooksWatch: str({ description: "true or false." }),
-        indexFallback: str({ description: "true or false." }),
-        migrationsDir: str({ description: "Relative migrations directory." }),
-        publicDir: str({ description: "Relative public directory." }),
         queryTimeout: str({ description: "Query timeout, 1-3600 seconds." }),
       },
       run: async (input, ctx) => {
@@ -1037,7 +1010,11 @@ never moves an existing instance.`,
           runtimeFlags: runtime,
         });
         if (!response.ok) throw await httpError(response, "PocketBase config");
-        emit(ctx.flags.json, runtime, "Runtime configuration updated.");
+        emit(
+          ctx.flags.json,
+          editableRuntimeFlags(runtime),
+          "Runtime configuration updated.",
+        );
         return 0;
       },
     }),
