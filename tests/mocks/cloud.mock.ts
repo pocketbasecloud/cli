@@ -149,6 +149,22 @@ export function createMockCloudClient(
     fileToken: () => Promise.resolve("filetoken"),
     ext: (path, body) => {
       calls.ext.push([path, body]);
+      if (path === "/api/pocketbases/create") {
+        const data = body as Record<string, unknown>;
+        calls.createResource.push(["pocketbases", data]);
+        const resource: Resource = {
+          id: id(),
+          name: String(data.name ?? ""),
+          status: "provisioning",
+          project: String(data.project ?? ""),
+          createdBy: "u1",
+        };
+        state.resources.push(resource);
+        kinds.set(resource.id, "pocketbases");
+        return Promise.resolve(
+          Response.json({ success: true, data: resource }, { status: 201 }),
+        );
+      }
       return Promise.resolve(
         new Response(JSON.stringify({ ok: true }), { status: 200 }),
       );

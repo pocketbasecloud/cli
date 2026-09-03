@@ -243,8 +243,9 @@ export class PocketBaseCloudClient implements ICloudClient {
 
   listServers(): Promise<Server[]> {
     return this.guard(async () => {
+      const ownerId = await this.ownerId();
       const recs = await this.pb.collection("servers").getFullList({
-        filter: `${NOT_DELETED} && createdBy = @request.auth.id`,
+        filter: `${NOT_DELETED} && createdBy = "${ownerId}"`,
         sort: "created",
       });
       return recs as unknown as Server[];

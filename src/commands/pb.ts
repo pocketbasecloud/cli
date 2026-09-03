@@ -11,6 +11,7 @@ import {
 } from "../command.ts";
 import type { CloudCmdDeps } from "./project.ts";
 import type { ICloudClient } from "../clients/cloud.ts";
+import type { Resource } from "../clients/types.ts";
 import { CliError, httpError } from "../errors.ts";
 import { emit } from "../envelope.ts";
 import { printResult } from "../ui/output.ts";
@@ -43,8 +44,8 @@ import {
   pushEnvFile,
   reportUrl,
   resolveAdminCredentials,
-  resolveEnvFile,
   resolveDeployIntent,
+  resolveEnvFile,
   resolveEnvironmentTarget,
   resolveOwnerId,
   suggestName,
@@ -58,6 +59,94 @@ import { KINDS } from "../kinds.ts";
 const HOOK_EXTENSIONS = [".js", ".json"];
 
 const MAX_HOOKS_PER_PUSH = 30;
+const RUNTIME_DEFAULTS: Record<string, boolean | number | string> = {
+  automigrate: true,
+  dev: false,
+  dir: "pb_data",
+  encryptionEnv: "",
+  hooksDir: "pb_hooks",
+  hooksPool: 15,
+  hooksWatch: false,
+  indexFallback: true,
+  migrationsDir: "pb_migrations",
+  publicDir: "pb_public",
+  queryTimeout: 30,
+};
+
+function parseBooleanFlag(
+  name: string,
+  value: string | undefined,
+): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  throw new CliError(`--${name} must be true or false.`, { code: "USAGE" });
+}
+
+function runtimeFlags(
+  input: Record<string, string | undefined>,
+): Record<string, boolean | number | string> {
+  const result: Record<string, boolean | number | string> = {};
+  for (const key of ["automigrate", "dev", "hooksWatch", "indexFallback"]) {
+    const value = parseBooleanFlag(
+      key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`),
+      input[key],
+    );
+    if (value !== undefined) result[key] = value;
+  }
+  for (
+    const key of [
+      "dir",
+      "encryptionEnv",
+      "hooksDir",
+      "migrationsDir",
+      "publicDir",
+    ]
+  ) {
+    if (input[key] !== undefined) result[key] = input[key]!;
+  }
+  for (const key of ["hooksPool", "queryTimeout"]) {
+    if (input[key] === undefined) continue;
+    const value = Number(input[key]);
+    if (!Number.isInteger(value)) {
+      throw new CliError(`--${key} must be an integer.`, { code: "USAGE" });
+    }
+    result[key] = value;
+  }
+  return result;
+}
+
+async function uploadBackup(
+  client: ICloudClient,
+  filePath: string,
+): Promise<string> {
+  const info = await Deno.stat(filePath).catch(() => null);
+  if (!info?.isFile) {
+    throw new CliError(`Backup not found: ${filePath}`, { code: "USAGE" });
+  }
+  const response = await client.ext("/api/pocketbases/backup-upload-url", {});
+  if (!response.ok) throw await httpError(response, "Backup upload URL");
+  const body = await response.json() as {
+    data: { key: string; uploadUrl: string; maxMB: number };
+  };
+  if (info.size > body.data.maxMB * 1024 * 1024) {
+    throw new CliError(`Backup exceeds the ${body.data.maxMB} MB limit.`, {
+      code: "INVALID_VALUE",
+    });
+  }
+  const upload = await fetch(body.data.uploadUrl, {
+    method: "PUT",
+    headers: { "content-type": "application/zip" },
+    body: await Deno.readFile(filePath),
+  });
+  await upload.body?.cancel();
+  if (!upload.ok) {
+    throw new CliError(`Backup upload failed (${upload.status}).`, {
+      code: "NETWORK_ERROR",
+    });
+  }
+  return body.data.key;
+}
 
 async function findNestedHooks(dir: string): Promise<string[]> {
   const nested: string[] = [];
@@ -103,7 +192,9 @@ function assertUploadableArchive(bytes: Uint8Array, fileName: string): void {
     `${fileName} has no pb_hooks, pb_migrations or pb_public directory at ` +
       `its root — ${holds}. Those are the only directories an upload ` +
       `installs. If you zipped the contents of a folder, zip the folder ` +
-      `itself instead.`, { code: "USAGE" });
+      `itself instead.`,
+    { code: "USAGE" },
+  );
 }
 
 function nothingToDeployNote(cwd: string, created: boolean): string {
@@ -148,7 +239,9 @@ export async function pushHooks(
     throw new CliError(
       `${names.length} hook files in ${dir} — pbc pushes at most ` +
         `${MAX_HOOKS_PER_PUSH} at a time. Check that this is your pb_hooks ` +
-        `directory.`, { code: "USAGE" });
+        `directory.`,
+      { code: "USAGE" },
+    );
   }
   const hooks: { filename: string; content: string; active: boolean }[] = [];
   const oversized: string[] = [];
@@ -170,7 +263,9 @@ export async function pushHooks(
     throw new CliError(
       `${oversized.join(", ")} — a hook file may be at most ` +
         `${formatCount(MAX_HOOK_CONTENT_CHARS)} characters. Split it up and ` +
-        `require() the parts.`, { code: "USAGE" });
+        `require() the parts.`,
+      { code: "USAGE" },
+    );
   }
   const res = await client.pbApi("/api/hooks/bulk-write", {
     pocketbase_id: pocketbaseId,
@@ -250,7 +345,9 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Command> {
     const opts = { noInput: ctx.flags.noInput || ctx.flags.json, io: deps.io };
     if (!canPrompt(opts)) {
       throw new CliError(
-        "Pass a name: `pbc pocketbase create <name>`.", { code: "USAGE" });
+        "Pass a name: `pbc pocketbase create <name>`.",
+        { code: "USAGE" },
+      );
     }
     const suggested = suggestName(deps.cwd());
     const answer = await prompt(
@@ -275,7 +372,9 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Command> {
     if (link?.kind && link.kind !== "pocketbases") {
       throw new CliError(
         `pbc.json is bound to ${link.kind} — create a PocketBase from a ` +
-          `different directory.`, { code: "USAGE" });
+          `different directory.`,
+        { code: "USAGE" },
+      );
     }
     const bound = entryFor(link, "pocketbases", choice);
     if (bound) {
@@ -287,7 +386,8 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Command> {
           `under another environment with --env <name>, run this from a ` +
           `different directory, or remove the bound instance with ` +
           `\`pbc pocketbase rm --name ${bound.name ?? bound.id}\`.`,
-          { code: "USAGE" });
+        { code: "USAGE" },
+      );
     }
     return choice.name;
   }
@@ -298,8 +398,8 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Command> {
     "pocketbase create": defineCommand({
       path: ["pocketbase", "create"],
       usage:
-        "pbc pocketbase create [<name>] [--env <name>] [--location <loc>] [--compute <id>] [--admin-email <e>] [--admin-password <p>] [--pb-version <v>]",
-      summary: "Create an empty PocketBase instance.",
+        "pbc pocketbase create [<name>] [--backup <zip>] [--env <name>] [--location <loc>] [--compute <id>] [--admin-email <e>] [--admin-password <p>] [--pb-version <v>]",
+      summary: "Create or restore a PocketBase instance.",
       details: `Provisions a running instance with nothing deployed to it — no
 pb_public, pb_hooks or pb_migrations — and waits until it answers.
 
@@ -377,6 +477,35 @@ starter plans the platform picks from its shared pool.`,
           description:
             "PocketBase release to install. Defaults to pocketbaseVersion in pbc.json.",
         }),
+        backup: path({
+          description: "PocketBase backup ZIP to restore during creation.",
+          conflicts: ["adminEmail", "adminPassword"],
+        }),
+        automigrate: str({
+          description: "Enable automigrations: true or false.",
+        }),
+        dev: str({ description: "Enable PocketBase dev mode: true or false." }),
+        dir: str({
+          description: "Data directory relative to the instance root.",
+        }),
+        encryptionEnv: str({
+          description: "Environment variable holding the encryption key.",
+        }),
+        hooksDir: str({
+          description: "Hooks directory relative to the instance root.",
+        }),
+        hooksPool: str({ description: "Hooks runtime pool size, 1-100." }),
+        hooksWatch: str({ description: "Watch hooks: true or false." }),
+        indexFallback: str({
+          description: "Serve index fallback: true or false.",
+        }),
+        migrationsDir: str({
+          description: "Migrations directory relative to the instance root.",
+        }),
+        publicDir: str({
+          description: "Public directory relative to the instance root.",
+        }),
+        queryTimeout: str({ description: "Query timeout in seconds, 1-3600." }),
       },
       run: async (input, ctx) => {
         const progress = deployProgress(ctx.flags.json);
@@ -397,27 +526,43 @@ starter plans the platform picks from its shared pool.`,
         if (existing === "ambiguous") {
           throw new CliError(
             `More than one PocketBase in this project is already named "${name}". ` +
-              `Pick another name.`, { code: "CONFLICT" });
+              `Pick another name.`,
+            { code: "CONFLICT" },
+          );
         }
         if (existing) {
           throw new CliError(
             `A PocketBase named "${name}" already exists in this project ` +
               `(${existing.id}). Redeploy it with \`pbc pocketbase deploy --name ` +
               `${name}\`, or create this one under another name.`,
-            { code: "CONFLICT", hint: `pbc pocketbase deploy --name ${name}` });
+            { code: "CONFLICT", hint: `pbc pocketbase deploy --name ${name}` },
+          );
         }
 
-        const credentials = await resolveAdminCredentials(client, {
-          username: input.adminEmail,
-          password: input.adminPassword,
-        });
+        const credentials = input.backup
+          ? undefined
+          : await resolveAdminCredentials(client, {
+            username: input.adminEmail,
+            password: input.adminPassword,
+          });
+        const backupKey = input.backup
+          ? await progress.step(
+            "Uploading PocketBase backup",
+            () => uploadBackup(client, input.backup!),
+          )
+          : undefined;
         const data: Record<string, unknown> = {
           project: p.id,
           name,
           user: await resolveOwnerId(client, auth),
           status: "creating",
           version: await resolveDeployVersion(input.pbVersion, cwd, deps),
-          ...credentials,
+          ...(credentials ?? {}),
+          ...(backupKey ? { backupKey } : {}),
+          runtimeFlags: {
+            ...RUNTIME_DEFAULTS,
+            ...runtimeFlags(input as Record<string, string | undefined>),
+          },
         };
         if (input.location) data.location = input.location;
         const compute = input.compute ??
@@ -429,7 +574,13 @@ starter plans the platform picks from its shared pool.`,
 
         const resource = await progress.step(
           "Sending the create request",
-          () => client.createResource("pocketbases", data),
+          async () => {
+            const response = await client.ext("/api/pocketbases/create", data);
+            if (!response.ok) {
+              throw await httpError(response, "PocketBase create");
+            }
+            return (await response.json() as { data: Resource }).data;
+          },
         );
         await upsertEnvironment(cwd, {
           projectId: p.id,
@@ -460,9 +611,9 @@ starter plans the platform picks from its shared pool.`,
             ...final,
             environment,
             ...(reachable === undefined ? {} : { reachable }),
-            ...credentials,
+            ...(credentials ?? {}),
           }, "");
-        } else {
+        } else if (credentials) {
           console.log(
             `Admin login: ${credentials.adminUsername} / ${credentials.adminPassword}`,
           );
@@ -652,7 +803,9 @@ never moves an existing instance.`,
                 nested.map((f) =>
                   `pb_hooks/${f} is inside a subdirectory and cannot be installed. ` +
                   `Move it to pb_hooks/ directly.`
-                ).join("\n"), { code: "USAGE" });
+                ).join("\n"),
+                { code: "USAGE" },
+              );
             }
           } catch (e) {
             if (e instanceof CliError) throw e;
@@ -726,7 +879,11 @@ never moves an existing instance.`,
               bytes: bundle.bytes,
               onProgress: (f) =>
                 step.update(`Uploading — ${Math.round(f * 100)}%`),
-            }, { baseUrl: auth.extUrl, token: auth.userToken, fetchFn: deps.fetch });
+            }, {
+              baseUrl: auth.extUrl,
+              token: auth.userToken,
+              fetchFn: deps.fetch,
+            });
             const dep = await waitForDeployment(deploymentId, {
               baseUrl: auth.backendUrl,
               token: auth.userToken,
@@ -812,10 +969,118 @@ never moves an existing instance.`,
       },
     }),
 
+    "pocketbase config get": defineCommand({
+      path: ["pocketbase", "config", "get"],
+      needs: ["target:pocketbases", { explicit: true }],
+      usage: "pbc pocketbase config get [--name <instance>]",
+      summary: "Show PocketBase runtime configuration.",
+      args: [],
+      flags: {
+        name: str({
+          description: "Which instance. Defaults to the directory binding.",
+        }),
+      },
+      run: async (input, ctx) => {
+        const { client, found } = await resolveOne(ctx, input);
+        const resource = await client.getResource("pocketbases", found.id);
+        const config = {
+          ...RUNTIME_DEFAULTS,
+          ...(resource.runtimeFlags ?? {}),
+        };
+        emit(ctx.flags.json, config, JSON.stringify(config, null, 2));
+        return 0;
+      },
+    }),
+
+    "pocketbase config set": defineCommand({
+      path: ["pocketbase", "config", "set"],
+      needs: ["target:pocketbases", { explicit: true }],
+      usage: "pbc pocketbase config set [--name <instance>] [runtime flags]",
+      summary: "Update PocketBase runtime configuration.",
+      args: [],
+      flags: {
+        name: str({
+          description: "Which instance. Defaults to the directory binding.",
+        }),
+        automigrate: str({ description: "true or false." }),
+        dev: str({ description: "true or false." }),
+        dir: str({ description: "Relative data directory." }),
+        encryptionEnv: str({
+          description: "Encryption-key environment variable.",
+        }),
+        hooksDir: str({ description: "Relative hooks directory." }),
+        hooksPool: str({ description: "Hooks pool size, 1-100." }),
+        hooksWatch: str({ description: "true or false." }),
+        indexFallback: str({ description: "true or false." }),
+        migrationsDir: str({ description: "Relative migrations directory." }),
+        publicDir: str({ description: "Relative public directory." }),
+        queryTimeout: str({ description: "Query timeout, 1-3600 seconds." }),
+      },
+      run: async (input, ctx) => {
+        const { client, found } = await resolveOne(ctx, input);
+        const changed = runtimeFlags(
+          input as Record<string, string | undefined>,
+        );
+        if (Object.keys(changed).length === 0) {
+          throw new CliError("Pass at least one runtime flag.", {
+            code: "USAGE",
+          });
+        }
+        const current = await client.getResource("pocketbases", found.id);
+        const runtime = {
+          ...RUNTIME_DEFAULTS,
+          ...(current.runtimeFlags ?? {}),
+          ...changed,
+        };
+        const response = await client.ext("/api/pocketbases/runtime-config", {
+          pocketbaseId: found.id,
+          runtimeFlags: runtime,
+        });
+        if (!response.ok) throw await httpError(response, "PocketBase config");
+        emit(ctx.flags.json, runtime, "Runtime configuration updated.");
+        return 0;
+      },
+    }),
+
+    "pocketbase superuser sync": defineCommand({
+      path: ["pocketbase", "superuser", "sync"],
+      needs: ["target:pocketbases", { explicit: true }],
+      usage:
+        "pbc pocketbase superuser sync --email <email> --password <password> [--name <instance>]",
+      summary: "Add or update the managed PocketBase superuser.",
+      args: [],
+      flags: {
+        name: str({
+          description: "Which instance. Defaults to the directory binding.",
+        }),
+        email: str({ description: "Managed superuser email.", required: true }),
+        password: str({
+          description: "Managed superuser password.",
+          required: true,
+        }),
+      },
+      run: async (input, ctx) => {
+        const { client, found } = await resolveOne(ctx, input);
+        const response = await client.ext("/api/pocketbases/sync-superuser", {
+          pocketbaseId: found.id,
+          email: input.email,
+          password: input.password,
+        });
+        if (!response.ok) {
+          throw await httpError(response, "PocketBase superuser sync");
+        }
+        emit(
+          ctx.flags.json,
+          { id: found.id, email: input.email },
+          "Superuser synchronized.",
+        );
+        return 0;
+      },
+    }),
+
     "pocketbase hooks push": defineCommand({
       path: ["pocketbase", "hooks", "push"],
-      usage:
-        "pbc pocketbase hooks push <dir> [--name <instance>]",
+      usage: "pbc pocketbase hooks push <dir> [--name <instance>]",
       summary: "Upload every .js and .json file in <dir> as a hook.",
       details:
         `Hooks belong to one PocketBase instance. Name it with --name/--id, or let
@@ -834,10 +1099,12 @@ always the wrong one.`,
       },
       run: async (input, ctx) => {
         const dir = ctx.args[0];
-        if (!dir) throw new CliError(
-          "Usage: pbc pocketbase hooks push <dir>",
-          { code: "USAGE" },
-        );
+        if (!dir) {
+          throw new CliError(
+            "Usage: pbc pocketbase hooks push <dir>",
+            { code: "USAGE" },
+          );
+        }
         const { client, found } = await resolveOne(ctx, input, {
           args: ctx.args.slice(1),
         });
@@ -846,7 +1113,8 @@ always the wrong one.`,
         if (sent === 0) {
           throw new CliError(
             `No ${HOOK_EXTENSIONS.join(" or ")} files in ${dir}.`,
-            { code: "USAGE" });
+            { code: "USAGE" },
+          );
         }
         emit(
           ctx.flags.json,
@@ -893,8 +1161,7 @@ always the wrong one.`,
 
     "pocketbase hooks rm": defineCommand({
       path: ["pocketbase", "hooks", "rm"],
-      usage:
-        "pbc pocketbase hooks rm <filename> [--name <instance>]",
+      usage: "pbc pocketbase hooks rm <filename> [--name <instance>]",
       summary: "Delete a hook file.",
       args: [{ name: "filename", required: true }],
       flags: {
@@ -922,6 +1189,5 @@ always the wrong one.`,
         return 0;
       },
     }),
-
   };
 }

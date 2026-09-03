@@ -10,8 +10,8 @@ import {
 } from "./pkg.ts";
 
 const RELEASE_NOTES =
-  "unknown flags now exit 2 — set PBC_ALLOW_UNKNOWN_FLAGS=1 for one minor if " +
-  "a pinned script relies on a typo; removed in 0.8.0.";
+  "pocketbase config get/set and superuser sync; compute ls no longer sends " +
+  "@request filters (was rejected for non-superusers).";
 
 const CLI_DIR = dirname(dirname(fromFileUrl(import.meta.url)));
 const NPM_DIR = join(CLI_DIR, "npm");

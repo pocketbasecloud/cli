@@ -22,6 +22,7 @@ export type Resource = {
   subdomain?: string;
   custom_domain?: string;
   custom_domain_status?: string;
+  runtimeFlags?: Record<string, boolean | number | string>;
 };
 
 export type Org = {
