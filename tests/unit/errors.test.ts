@@ -157,6 +157,7 @@ const ALL_CODES: ErrorCode[] = [
   "NOT_FOUND",
   "NOT_AUTHENTICATED",
   "FORBIDDEN",
+  "UPGRADE_REQUIRED",
   "PLAN_LIMIT",
   "CONFLICT",
   "PLATFORM_ERROR",
@@ -175,6 +176,7 @@ Deno.test("every ErrorCode maps to a documented exit code", () => {
     NOT_FOUND: EXIT_CODES.NOT_FOUND,
     NOT_AUTHENTICATED: EXIT_CODES.AUTH,
     FORBIDDEN: EXIT_CODES.FORBIDDEN,
+    UPGRADE_REQUIRED: EXIT_CODES.USAGE,
     PLAN_LIMIT: EXIT_CODES.FORBIDDEN,
     CONFLICT: EXIT_CODES.CONFLICT,
     PLATFORM_ERROR: EXIT_CODES.PLATFORM,
@@ -215,6 +217,7 @@ Deno.test("codeFromStatus maps the resolvable HTTP statuses", () => {
   assertEquals(codeFromStatus(404), "NOT_FOUND");
   assertEquals(codeFromStatus(409), "CONFLICT");
   assertEquals(codeFromStatus(413), "INVALID_VALUE");
+  assertEquals(codeFromStatus(426), "UPGRADE_REQUIRED");
   assertEquals(codeFromStatus(500), "PLATFORM_ERROR");
   assertEquals(codeFromStatus(502), "PLATFORM_ERROR");
   assertEquals(codeFromStatus(400), undefined);
@@ -240,4 +243,40 @@ Deno.test("TIMEOUT and NETWORK_ERROR default to retryable, USAGE does not", () =
   assertEquals(new CliError("x", { code: "TIMEOUT" }).retryable, true);
   assertEquals(new CliError("x", { code: "NETWORK_ERROR" }).retryable, true);
   assertEquals(new CliError("x", { code: "USAGE" }).retryable, false);
+});
+
+Deno.test("httpError turns a 426 into an upgrade order with the floor", async () => {
+  const e = await httpError(
+    res({
+      error: "This operation needs pbc 9.9.9 or newer.",
+      minCliVersion: "9.9.9",
+      clientVersion: "0.8.2",
+    }, 426),
+    "Deploy context",
+    "0.8.2",
+  );
+  assertEquals(e.code, "UPGRADE_REQUIRED");
+  assertStringIncludes(e.message, "pbc 0.8.2 is too old (minimum: 9.9.9)");
+  assertStringIncludes(e.message, "`pbc self upgrade`");
+  assertEquals(e.exitCode, EXIT_CODES.USAGE);
+  assertEquals(e.retryable, false);
+});
+
+Deno.test("httpError still orders an upgrade when the 426 body is bare", async () => {
+  const e = await httpError(res("not json", 426), "Deploy");
+  assertEquals(e.code, "UPGRADE_REQUIRED");
+  assertStringIncludes(e.message, "is too old for this operation");
+  assertStringIncludes(e.message, "`pbc self upgrade`");
+});
+
+Deno.test("httpError does not repeat the upgrade order from a 426 body", async () => {
+  const e = await httpError(
+    res({
+      error: "This operation needs pbc 9.9.9 or newer. Run `pbc self upgrade`.",
+      minCliVersion: "9.9.9",
+    }, 426),
+    "Deploy context",
+    "0.8.2",
+  );
+  assertEquals(e.message.split("`pbc self upgrade`").length - 1, 1);
 });

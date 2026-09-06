@@ -49,7 +49,7 @@ in them.
 | `token` | *(required)* | A PocketBase Cloud access token. Always pass a secret, never a literal. |
 | `kind` | `auto` | `auto`, `pb`, `frontend`, or `backend`. `auto` lets the CLI decide from `pbc.json` and the directory. |
 | `working-directory` | `.` | The directory holding `pbc.json`. |
-| `cli-version` | the action's own version | Which `@pocketbasecloud/cli` to install. |
+| `cli-version` | the action's own version | Which pbc release to install from GitHub assets. |
 | `project` | — | Project name or id. Only needed when `pbc.json` is not committed. |
 | `name` | — | Resource name. Only needed when `pbc.json` does not name one. |
 | `env` | — | The `pbc.json` environment to deploy. |
@@ -99,12 +99,11 @@ workflow (both are in the example above):
 
 ## Requirements
 
-- **Node 18+ on the runner.** The action installs the CLI from npm. GitHub's
-  `ubuntu-latest`, `macos-latest` and `windows-latest` images all ship it; add
-  `actions/setup-node` if yours does not.
+- **curl on the runner.** The action installs the CLI from GitHub release
+  assets via `scripts/install.sh`. GitHub's stock runner images all ship it.
 - **glibc, not musl.** The CLI binaries are compiled against glibc, so
-  `container: node:20-alpine` fails to exec them. Use `node:20-bookworm-slim`
-  or a stock runner.
+  `container: node:20-alpine` fails to exec them. Use a stock runner or a
+  glibc-based image.
 - Supported hosts: `linux-x64`, `linux-arm64`, `darwin-x64`, `darwin-arm64`,
   `win32-x64`.
 

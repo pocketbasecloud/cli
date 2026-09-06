@@ -56,6 +56,9 @@ export function notice(latest: string, execPath: string): string {
   const command = install.kind === "standalone"
     ? "pbc self upgrade"
     : manualCommand(install.kind);
+  if (install.kind === "npm") {
+    return `Update available: pbc ${VERSION} → ${latest}. npm installs are deprecated — reinstall with \`${command}\`, then \`pbc self upgrade\` works in place.`;
+  }
   return `Update available: pbc ${VERSION} → ${latest}. Run \`${command}\`.`;
 }
 

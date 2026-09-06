@@ -13,7 +13,42 @@ import {
   type ReleaseManifest,
 } from "./release.ts";
 
-const NPM_PACKAGE = "@pocketbasecloud/cli";
+export const INSTALL_SCRIPT_URL =
+  "https://raw.githubusercontent.com/pocketbasecloud/cli/main/scripts/install.sh";
+
+export function installCommand(version?: string): string {
+  if (version) {
+    return `curl -fsSL ${INSTALL_SCRIPT_URL} | PBC_VERSION=${version} sh`;
+  }
+  return `curl -fsSL ${INSTALL_SCRIPT_URL} | sh`;
+}
+
+export function describeHostPlatform(key: string): string {
+  switch (key) {
+    case "darwin-arm64":
+      return "macOS (Apple Silicon)";
+    case "darwin-x64":
+      return "macOS (Intel)";
+    case "linux-arm64":
+      return "Linux (ARM64)";
+    case "linux-x64":
+      return "Linux (x64)";
+    case "win32-x64":
+    case "win32-arm64":
+      return "Windows (x64)";
+    default:
+      return key;
+  }
+}
+
+export function dirOnPath(dir: string, pathValue: string | undefined): boolean {
+  if (!pathValue) return false;
+  // Split Windows (;) entries first so a drive-letter colon is never treated
+  // as a separator; POSIX entries split on (:) inside each segment.
+  return pathValue.split(";").some((seg) =>
+    seg === dir || seg.split(":").includes(dir)
+  );
+}
 
 export type SelfDeps = LocalDeps & {
   execPath: () => string;
@@ -34,8 +69,9 @@ export function detectInstall(execPath: string): InstallInfo {
 export function manualCommand(
   kind: Exclude<InstallKind, "standalone">,
 ): string {
+  // npm installs are deprecated: the .sh installer owns upgrades now.
   return kind === "npm"
-    ? `npm i -g ${NPM_PACKAGE}@latest`
+    ? installCommand()
     : "git pull && deno install -g -A -c deno.json -n pbc ./main.ts";
 }
 

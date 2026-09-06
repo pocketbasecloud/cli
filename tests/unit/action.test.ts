@@ -34,6 +34,16 @@ Deno.test("action.yml's cli-version default matches the CLI's own VERSION", () =
   assertEquals(match[1], VERSION);
 });
 
+Deno.test("action.yml installs pbc from the install script, not npm", () => {
+  const text = readAction();
+  assertStringIncludes(text, "scripts/install.sh");
+  assertEquals(text.includes('npm i -g "@pocketbasecloud/cli'), false);
+});
+
+Deno.test("the Install step keeps pbc on PATH for later steps", () => {
+  assertStringIncludes(stepScript("Install pbc"), "GITHUB_PATH");
+});
+
 Deno.test("action.yml declares the documented inputs and outputs", () => {
   const text = readAction();
   for (

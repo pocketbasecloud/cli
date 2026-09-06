@@ -26,18 +26,18 @@ pbc admin records ls posts
 
 ## Install
 
-```sh
-npm i -g @pocketbasecloud/cli   # global
-npx @pocketbasecloud/cli --help # no install
-```
-
-No Node? macOS/Linux:
+macOS/Linux:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/pocketbasecloud/cli/main/scripts/install.sh | sh
 ```
 
-Verifies SHA-256, installs to `/usr/local/bin` (or `~/.local/bin`, override with `PBC_INSTALL_DIR`). From source:
+Pin a version: `curl -fsSL ... | PBC_VERSION=0.8.2 sh`. Verifies SHA-256,
+installs to `/usr/local/bin` (or `~/.local/bin`, override with
+`PBC_INSTALL_DIR`). Windows: download the win32 zip from
+[releases](https://github.com/pocketbasecloud/cli/releases/latest) and unzip
+`pbc` onto your PATH. npm installs (`@pocketbasecloud/cli`) are deprecated —
+reinstall once from the script above. From source:
 
 ```sh
 git clone https://github.com/pocketbasecloud/cli

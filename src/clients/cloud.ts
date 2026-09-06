@@ -1,7 +1,13 @@
 import PocketBase, { ClientResponseError } from "pocketbase";
 import { VERSION } from "../version.ts";
 import type { CloudAuth } from "../config.ts";
-import { CliError, codeFromStatus, fieldErrors } from "../errors.ts";
+import {
+  CliError,
+  codeFromStatus,
+  fieldErrors,
+  httpError,
+  upgradeRequiredError,
+} from "../errors.ts";
 import { MAX_ARCHIVE_MB } from "../limits.ts";
 import type {
   DeployContext,
@@ -69,6 +75,14 @@ function bodylessMessage(status: number): string {
 
 export function mapPbError(e: unknown): CliError {
   if (e instanceof ClientResponseError) {
+    if (e.status === 426) {
+      return upgradeRequiredError(
+        "Request",
+        e.status,
+        e.response,
+        VERSION,
+      );
+    }
     if (e.status === 403) {
       const reason = e.response?.message;
       return new CliError(
@@ -125,6 +139,7 @@ export class PocketBaseCloudClient implements ICloudClient {
       options.headers = Object.assign(options.headers || {}, {
         "X-Trace-Id": generateTraceId(),
         "X-Client-Type": "cli",
+        "X-CLI-Version": VERSION,
         "User-Agent": `pb-cloud-cli/${VERSION}`,
       });
       return { url, options };
@@ -259,6 +274,9 @@ export class PocketBaseCloudClient implements ICloudClient {
         method: "GET",
         query: projectId ? { projectId } : undefined,
       });
+      if (res.status === 426) {
+        throw await httpError(res, "Deploy context");
+      }
       if (!res.ok) {
         await res.body?.cancel();
         throw new CliError(
@@ -365,6 +383,9 @@ export class PocketBaseCloudClient implements ICloudClient {
       method,
       headers: {
         "Authorization": `Bearer ${this.auth.userToken}`,
+        "X-Client-Type": "cli",
+        "X-CLI-Version": VERSION,
+        "User-Agent": `pb-cloud-cli/${VERSION}`,
         ...(method === "POST" ? { "Content-Type": "application/json" } : {}),
       },
       body: method === "POST" ? JSON.stringify(body ?? {}) : undefined,

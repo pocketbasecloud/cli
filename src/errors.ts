@@ -1,3 +1,5 @@
+import { VERSION } from "./version.ts";
+
 export type ErrorCode =
   | "USAGE"
   | "UNKNOWN_FLAG"
@@ -7,6 +9,7 @@ export type ErrorCode =
   | "NOT_FOUND"
   | "NOT_AUTHENTICATED"
   | "FORBIDDEN"
+  | "UPGRADE_REQUIRED"
   | "PLAN_LIMIT"
   | "CONFLICT"
   | "PLATFORM_ERROR"
@@ -34,6 +37,7 @@ const EXIT_CODE_BY_ERROR_CODE: Record<ErrorCode, number> = {
   NOT_FOUND: EXIT_CODES.NOT_FOUND,
   NOT_AUTHENTICATED: EXIT_CODES.AUTH,
   FORBIDDEN: EXIT_CODES.FORBIDDEN,
+  UPGRADE_REQUIRED: EXIT_CODES.USAGE,
   PLAN_LIMIT: EXIT_CODES.FORBIDDEN,
   CONFLICT: EXIT_CODES.CONFLICT,
   PLATFORM_ERROR: EXIT_CODES.PLATFORM,
@@ -51,6 +55,7 @@ const HINT_BY_ERROR_CODE: Record<ErrorCode, string> = {
   NOT_FOUND: "List what exists with the resource's `ls` command.",
   NOT_AUTHENTICATED: "pbc login",
   FORBIDDEN: "This action may need different account permissions.",
+  UPGRADE_REQUIRED: "Run `pbc self upgrade` to install the required version.",
   PLAN_LIMIT: "pbc plan",
   CONFLICT:
     "The resource is in a state that blocks this action — check its `info` command.",
@@ -75,21 +80,6 @@ export type CliErrorOptions = {
   fields?: Record<string, string>;
 };
 
-export function fieldErrors(
-  data: unknown,
-): { detail: string; fields?: Record<string, string> } {
-  const entries = Object.entries(
-    (data ?? {}) as Record<string, { code?: string; message?: string }>,
-  );
-  if (entries.length === 0) return { detail: "" };
-  return {
-    detail: entries
-      .map(([f, v]) => `${f}: ${v?.message ?? v?.code ?? "invalid"}`)
-      .join("; "),
-    fields: Object.fromEntries(entries.map(([f, v]) => [f, v?.code ?? ""])),
-  };
-}
-
 export class CliError extends Error {
   code: ErrorCode;
   hint: string;
@@ -108,6 +98,21 @@ export class CliError extends Error {
   get exitCode(): number {
     return EXIT_CODE_BY_ERROR_CODE[this.code];
   }
+}
+
+export function fieldErrors(
+  data: unknown,
+): { detail: string; fields?: Record<string, string> } {
+  const entries = Object.entries(
+    (data ?? {}) as Record<string, { code?: string; message?: string }>,
+  );
+  if (entries.length === 0) return { detail: "" };
+  return {
+    detail: entries
+      .map(([f, v]) => `${f}: ${v?.message ?? v?.code ?? "invalid"}`)
+      .join("; "),
+    fields: Object.fromEntries(entries.map(([f, v]) => [f, v?.code ?? ""])),
+  };
 }
 
 const GENERIC_MESSAGES = new Set([
@@ -221,16 +226,50 @@ export function codeFromStatus(status: number): ErrorCode | undefined {
       return "CONFLICT";
     case 413:
       return "INVALID_VALUE";
+    case 426:
+      return "UPGRADE_REQUIRED";
     default:
       return status >= 500 ? "PLATFORM_ERROR" : undefined;
   }
 }
 
+export function upgradeRequiredError(
+  action: string,
+  status: number,
+  body: unknown,
+  current: string,
+): CliError {
+  const obj = (body ?? {}) as Record<string, unknown>;
+  const min = typeof obj.minCliVersion === "string" && obj.minCliVersion
+    ? obj.minCliVersion
+    : undefined;
+  const reason = typeof obj.error === "string" && obj.error
+    ? obj.error
+    : typeof obj.message === "string" && obj.message
+    ? obj.message
+    : undefined;
+  const detail = min
+    ? `pbc ${current} is too old (minimum: ${min}).`
+    : `pbc ${current} is too old for this operation.`;
+  const upgradeLine = "Run `pbc self upgrade`.";
+  const tail = reason && !reason.includes("pbc self upgrade")
+    ? ` ${reason}`
+    : "";
+  return new CliError(
+    `${action} failed (${status}): ${detail} ${upgradeLine}${tail}`,
+    { code: "UPGRADE_REQUIRED" },
+  );
+}
+
 export async function httpError(
   res: Response,
   action: string,
+  current: string = VERSION,
 ): Promise<CliError> {
   const body = await res.json().catch(() => null);
+  if (res.status === 426) {
+    return upgradeRequiredError(action, res.status, body, current);
+  }
   const reason = reasonFrom(body) ??
     (res.status === 401
       ? "not authenticated — run `pbc login`"

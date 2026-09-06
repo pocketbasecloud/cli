@@ -1,7 +1,11 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import {
   applyUpgrade,
+  describeHostPlatform,
   detectInstall,
+  dirOnPath,
+  installCommand,
+  INSTALL_SCRIPT_URL,
   manualCommand,
   planUpgrade,
   replaceBinary,
@@ -60,9 +64,37 @@ Deno.test("detectInstall treats a Windows standalone binary as standalone", () =
   assertEquals(detectInstall("C:\\tools\\pb.exe").kind, "standalone");
 });
 
-Deno.test("manualCommand names the tool that owns the install", () => {
-  assertStringIncludes(manualCommand("npm"), "npm i -g @pocketbasecloud/cli");
+Deno.test("manualCommand points npm installs at the install script, not npm", () => {
+  assertStringIncludes(manualCommand("npm"), INSTALL_SCRIPT_URL);
+  assertEquals(manualCommand("npm").includes("npm i -g"), false);
   assertStringIncludes(manualCommand("source"), "deno install");
+});
+
+Deno.test("installCommand pins a version through PBC_VERSION", () => {
+  assertEquals(
+    installCommand("0.0.1"),
+    `curl -fsSL ${INSTALL_SCRIPT_URL} | PBC_VERSION=0.0.1 sh`,
+  );
+  assertEquals(installCommand(), `curl -fsSL ${INSTALL_SCRIPT_URL} | sh`);
+});
+
+Deno.test("describeHostPlatform names the Codex-style platform", () => {
+  assertEquals(describeHostPlatform("darwin-arm64"), "macOS (Apple Silicon)");
+  assertEquals(describeHostPlatform("darwin-x64"), "macOS (Intel)");
+  assertEquals(describeHostPlatform("linux-arm64"), "Linux (ARM64)");
+  assertEquals(describeHostPlatform("linux-x64"), "Linux (x64)");
+  assertEquals(describeHostPlatform("win32-x64"), "Windows (x64)");
+  assertEquals(describeHostPlatform("freebsd-x64"), "freebsd-x64");
+});
+
+Deno.test("dirOnPath matches whole PATH entries only", () => {
+  assertEquals(dirOnPath("/usr/local/bin", "/usr/local/bin:/usr/bin"), true);
+  assertEquals(dirOnPath("/usr/local/bin", "/opt/bin:/usr/bin"), false);
+  assertEquals(dirOnPath("/usr/local/bin", undefined), false);
+  assertEquals(
+    dirOnPath("C:/tools", "C:\\other;C:/tools;C:\\bin"),
+    true,
+  );
 });
 
 type Harness = {
@@ -176,7 +208,7 @@ Deno.test("planUpgrade defers to npm for an npm install", async () => {
       .deps,
   );
   assertEquals(plan.action, "manual");
-  assertEquals(plan.command, "npm i -g @pocketbasecloud/cli@latest");
+  assertEquals(plan.command, installCommand());
 });
 
 Deno.test("planUpgrade defers to the clone for a source install", async () => {

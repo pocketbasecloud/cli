@@ -113,7 +113,11 @@ Deno.test("notice names the command that works for the install", () => {
   assertStringIncludes(notice("9.9.9", "/usr/local/bin/pb"), "pbc self upgrade");
   assertStringIncludes(
     notice("9.9.9", "/x/node_modules/@pocketbasecloud/cli-linux-x64/bin/pb"),
-    "npm i -g @pocketbasecloud/cli@latest",
+    "raw.githubusercontent.com/pocketbasecloud/cli",
+  );
+  assertStringIncludes(
+    notice("9.9.9", "/x/node_modules/@pocketbasecloud/cli-linux-x64/bin/pb"),
+    "deprecated",
   );
   assertStringIncludes(notice("9.9.9", "/usr/local/bin/pb"), VERSION);
   assertStringIncludes(notice("9.9.9", "/usr/local/bin/pb"), "9.9.9");

@@ -2,20 +2,16 @@ import { dirname, fromFileUrl, join } from "@std/path";
 import { encodeHex } from "@std/encoding/hex";
 import { VERSION } from "../src/version.ts";
 import { assetName, hostKey, hostMap, TARGETS } from "./targets.ts";
-import {
-  buildMainPackageJson,
-  buildPlatformPackageJson,
-  buildShim,
-  SHIM_FILE,
-} from "./pkg.ts";
 
 const RELEASE_NOTES =
   "pocketbase config get/set and superuser sync; compute ls no longer sends " +
   "@request filters (was rejected for non-superusers).";
 
 const CLI_DIR = dirname(dirname(fromFileUrl(import.meta.url)));
-const NPM_DIR = join(CLI_DIR, "npm");
 const DIST_DIR = join(CLI_DIR, "dist");
+// npm/ stays ignored build scratch for compiled binaries. Releases ship only
+// GitHub assets installed via scripts/install.sh; npm publishing is deprecated.
+const BUILD_DIR = join(CLI_DIR, "npm");
 
 const buildOnly = Deno.args.includes("--build-only");
 
@@ -48,11 +44,6 @@ async function ok(cmd: string[]): Promise<boolean> {
 }
 
 async function checkPrereqs() {
-  if (!(await ok(["npm", "whoami"]))) {
-    throw new Error(
-      "npm: not logged in. Run `npm login` for an account that can publish to @pocketbasecloud.",
-    );
-  }
   if (!(await ok(["gh", "auth", "status"]))) {
     throw new Error("gh: not authenticated. Run `gh auth login`.");
   }
@@ -66,10 +57,10 @@ async function gate() {
 }
 
 async function compileTargets() {
-  log("2. compile five targets");
-  await Deno.remove(NPM_DIR, { recursive: true }).catch(() => {});
+  log("2. compile targets");
+  await Deno.remove(BUILD_DIR, { recursive: true }).catch(() => {});
   for (const t of TARGETS) {
-    const outDir = join(NPM_DIR, t.key, "bin");
+    const outDir = join(BUILD_DIR, t.key, "bin");
     await Deno.mkdir(outDir, { recursive: true });
     const out = join(outDir, t.binName);
     console.log(`  ${t.key} -> ${t.denoTarget}`);
@@ -91,57 +82,23 @@ async function compileTargets() {
   }
 }
 
-async function stagePackages() {
-  log("3. stage six package.json files + shim + README");
-  for (const t of TARGETS) {
-    const pkg = buildPlatformPackageJson(t, VERSION);
-    await Deno.writeTextFile(
-      join(NPM_DIR, t.key, "package.json"),
-      JSON.stringify(pkg, null, 2) + "\n",
-    );
-  }
-  const mainDir = join(NPM_DIR, "cli");
-  await Deno.mkdir(join(mainDir, "bin"), { recursive: true });
-  await Deno.writeTextFile(
-    join(mainDir, "package.json"),
-    JSON.stringify(buildMainPackageJson(VERSION), null, 2) + "\n",
-  );
-  const shim = join(mainDir, "bin", SHIM_FILE);
-  await Deno.writeTextFile(shim, buildShim(TARGETS));
-  await Deno.chmod(shim, 0o755);
-  await Deno.copyFile(
-    join(CLI_DIR, "README.md"),
-    join(mainDir, "README.md"),
-  );
-}
-
-async function packSizes() {
-  log("4. npm pack --dry-run size table");
-  for (const t of TARGETS) {
-    await sh(["npm", "pack", "--dry-run", join(NPM_DIR, t.key)], NPM_DIR);
-  }
-  await sh(["npm", "pack", "--dry-run", join(NPM_DIR, "cli")], NPM_DIR);
-}
-
-async function selfVerifyShim() {
-  log("5. self-verify shim by executing it");
+async function selfVerifyBinary() {
+  log("3. self-verify compiled binary");
   const suffix = hostMap(TARGETS)[hostKey()];
-  if (!suffix) throw new Error(`no built package for host ${hostKey()}`);
-  const linkRoot = join(NPM_DIR, "cli", "node_modules", "@pocketbasecloud");
-  await Deno.mkdir(linkRoot, { recursive: true });
-  const link = join(linkRoot, `cli-${suffix}`);
-  await Deno.remove(link).catch(() => {});
-  await Deno.symlink(join(NPM_DIR, suffix), link);
-  const { code, stdout } = await new Deno.Command("node", {
-    args: [join(NPM_DIR, "cli", "bin", SHIM_FILE), "--version"],
+  if (!suffix) throw new Error(`no built binary for host ${hostKey()}`);
+  const target = TARGETS.find((t) => t.key === suffix);
+  if (!target) throw new Error(`no target for host ${hostKey()}`);
+  const bin = join(BUILD_DIR, suffix, "bin", target.binName);
+  const { code, stdout } = await new Deno.Command(bin, {
+    args: ["--version"],
     stdout: "piped",
     stderr: "inherit",
   }).output();
   const out = new TextDecoder().decode(stdout).trim();
   if (code !== 0 || out !== `pbc ${VERSION}`) {
-    throw new Error(`shim self-verify failed: got "${out}" (code ${code})`);
+    throw new Error(`binary self-verify failed: got "${out}" (code ${code})`);
   }
-  console.log(`  shim printed "${out}" ✓`);
+  console.log(`  binary printed "${out}" ✓`);
 }
 
 async function sha256(path: string): Promise<string> {
@@ -151,13 +108,13 @@ async function sha256(path: string): Promise<string> {
 }
 
 async function buildArchives() {
-  log("6. build dist/ archives + checksums.txt");
+  log("4. build dist/ archives + checksums.txt");
   await Deno.remove(DIST_DIR, { recursive: true }).catch(() => {});
   await Deno.mkdir(DIST_DIR, { recursive: true });
   const lines: string[] = [];
   for (const t of TARGETS) {
     const name = assetName(t, VERSION);
-    const binDir = join(NPM_DIR, t.key, "bin");
+    const binDir = join(BUILD_DIR, t.key, "bin");
     if (t.os === "win32") {
       await sh(["zip", "-j", join(DIST_DIR, name), join(binDir, t.binName)]);
     } else {
@@ -172,29 +129,27 @@ async function buildArchives() {
 }
 
 function printPublishCommands() {
-  log("7. publish commands (run these yourself, in this order)");
-  for (const t of TARGETS) {
-    console.log(`npm publish ./npm/${t.key} --access public`);
-  }
-  console.log(`npm publish ./npm/cli --access public   # last`);
+  log("5. publish commands (run these yourself, in this order)");
   console.log(
-    `\ngh release create v${VERSION} --repo pocketbasecloud/cli \\\n` +
-      `  --title "pbc v${VERSION}" \\\n` +
-      `  --notes '${RELEASE_NOTES}' dist/*`,
+    "gh release create v" + VERSION + " --repo pocketbasecloud/cli \\\n" +
+      '  --title "pbc v' + VERSION + '" \\\n' +
+      "  --notes '" + RELEASE_NOTES + "' dist/*",
+  );
+  console.log(
+    "\nInstalls come from scripts/install.sh against these assets. " +
+      "npm publishing is deprecated and intentionally has no step here.",
   );
 }
 
 if (import.meta.main) {
   if (!buildOnly) await gate();
   await compileTargets();
-  await stagePackages();
   if (buildOnly) {
-    log(`build-only: staged npm/ for v${VERSION}. Stop.`);
+    log(`build-only: staged binaries for v${VERSION}. Stop.`);
     Deno.exit(0);
   }
   await checkPrereqs();
-  await packSizes();
-  await selfVerifyShim();
+  await selfVerifyBinary();
   await buildArchives();
   printPublishCommands();
 }

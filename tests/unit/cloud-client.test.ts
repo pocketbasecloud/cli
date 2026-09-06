@@ -89,6 +89,24 @@ Deno.test("both hosts get a Bearer-prefixed token", async () => {
   assertEquals(p.headers.get("authorization"), "Bearer tok");
 });
 
+Deno.test("every cloud request identifies the CLI and its version", async () => {
+  const { VERSION } = await import("../../src/version.ts");
+  const e = await capture(HOSTS, (c) => c.ext("/api/logs/stream", {}));
+  assertEquals(e.headers.get("X-Client-Type"), "cli");
+  assertEquals(e.headers.get("X-CLI-Version"), VERSION);
+  assertEquals(e.headers.get("User-Agent"), `pb-cloud-cli/${VERSION}`);
+  const p = await capture(HOSTS, (c) => c.pbApi("/api/hooks", {}));
+  assertEquals(p.headers.get("X-Client-Type"), "cli");
+  assertEquals(p.headers.get("X-CLI-Version"), VERSION);
+  assertEquals(p.headers.get("User-Agent"), `pb-cloud-cli/${VERSION}`);
+});
+
+Deno.test("mapPbError turns a 426 into an upgrade order", () => {
+  const e = mapPbError(pbError(426, "Too old.", {}));
+  assertEquals(e.code, "UPGRADE_REQUIRED");
+  assertEquals(e.message.includes("`pbc self upgrade`"), true);
+});
+
 Deno.test("a GET carries its query and no body", async () => {
   const got = await capture(
     HOSTS,

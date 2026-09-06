@@ -1,7 +1,10 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { makeSelfCommands } from "../../../src/commands/self.ts";
 import { silentProgress } from "../../../src/ui/progress.ts";
-import type { SelfDeps } from "../../../src/self/upgrade.ts";
+import {
+  INSTALL_SCRIPT_URL,
+  type SelfDeps,
+} from "../../../src/self/upgrade.ts";
 import type { CmdCtx } from "../../../src/command.ts";
 import { VERSION } from "../../../src/version.ts";
 import { sha256Hex } from "../../../src/hash.ts";
@@ -31,6 +34,7 @@ function deps(opts: {
   release?: string;
   execPath?: string;
   archive?: Uint8Array;
+  pathEnv?: string;
 } = {}): SelfDeps {
   const release = opts.release ?? newer();
   const files = new Map<string, Uint8Array>();
@@ -69,7 +73,7 @@ function deps(opts: {
       files.delete(p);
       return Promise.resolve();
     },
-    env: () => undefined,
+    env: (k) => k === "PATH" ? opts.pathEnv : undefined,
     execPath: () => opts.execPath ?? "/usr/local/bin/pb",
     hostKey: () => "linux-x64",
   };
@@ -89,6 +93,14 @@ Deno.test("upgrade --check reports the available version without installing", as
   assertStringIncludes(text, `Installed: pbc ${VERSION} (standalone)`);
   assertStringIncludes(text, `Latest:    pbc ${newer()}`);
   assertStringIncludes(text, "Run `pbc self upgrade` to update.");
+});
+
+Deno.test("upgrade --check points an npm install at the script", async () => {
+  const { cmd, out } = run(
+    deps({ execPath: "/x/node_modules/@pocketbasecloud/cli-linux-x64/bin/pb" }),
+  );
+  assertEquals(await cmd.run({ check: true }, ctx()), 0);
+  assertStringIncludes(out.join("\n"), INSTALL_SCRIPT_URL);
 });
 
 Deno.test("upgrade --check says so when already current", async () => {
@@ -127,14 +139,16 @@ Deno.test("upgrade is a no-op when already on the latest version", async () => {
   assertStringIncludes(out.join("\n"), "already the latest version");
 });
 
-Deno.test("upgrade exits non-zero and names the command for an npm install", async () => {
+Deno.test("upgrade exits non-zero and points an npm install at the script", async () => {
   const { cmd, out } = run(
     deps({ execPath: "/x/node_modules/@pocketbasecloud/cli-linux-x64/bin/pb" }),
   );
   assertEquals(await cmd.run({}, ctx()), 1);
   const text = out.join("\n");
   assertStringIncludes(text, "installed with npm");
-  assertStringIncludes(text, "npm i -g @pocketbasecloud/cli@latest");
+  assertStringIncludes(text, "deprecated");
+  assertStringIncludes(text, INSTALL_SCRIPT_URL);
+  assertEquals(text.includes("npm i -g"), false);
 });
 
 Deno.test("upgrade does not print Deno's path for a source install", async () => {
@@ -153,16 +167,41 @@ Deno.test("upgrade --json signals failure for an install it cannot replace", asy
   const j = JSON.parse(out[0]).data;
   assertEquals(j.upgraded, false);
   assertEquals(j.action, "manual");
-  assertEquals(j.command, "npm i -g @pocketbasecloud/cli@latest");
+  assertStringIncludes(j.command, INSTALL_SCRIPT_URL);
 });
 
-Deno.test("upgrade replaces a standalone binary and reports the move", async () => {
+Deno.test("upgrade prints the Codex-style report for a standalone binary", async () => {
   const archive = await buildTarGz([{ name: "pb", body: BODY }]);
   const { cmd, out } = run(deps({ archive }));
   assertEquals(await cmd.run({}, ctx()), 0);
+  const text = out.join("\n");
+  assertStringIncludes(text, "Updating pbc via `sh -c 'curl -fsSL");
+  assertStringIncludes(text, `==> Updating pbc from ${VERSION} to ${newer()}`);
+  assertStringIncludes(text, "==> Detected platform: Linux (x64)");
+  assertStringIncludes(text, `==> Resolved version: ${newer()}`);
+  assertStringIncludes(text, "==> Downloading pbc");
   assertStringIncludes(
-    out.join("\n"),
-    `Upgraded pbc ${VERSION} → ${newer()} (/usr/local/bin/pb)`,
+    text,
+    "==> Installing standalone package to /usr/local/bin/pb",
+  );
+  assertStringIncludes(text, `pbc ${newer()} installed successfully.`);
+  assertStringIncludes(text, "🎉 Update ran successfully!");
+});
+
+Deno.test("upgrade notes whether the install dir is on PATH", async () => {
+  const archive = await buildTarGz([{ name: "pb", body: BODY }]);
+  const onPath = run(deps({ archive, pathEnv: "/usr/local/bin:/usr/bin" }));
+  assertEquals(await onPath.cmd.run({}, ctx()), 0);
+  assertStringIncludes(
+    onPath.out.join("\n"),
+    "==> /usr/local/bin is already on PATH",
+  );
+
+  const offPath = run(deps({ archive, pathEnv: "/opt/bin" }));
+  assertEquals(await offPath.cmd.run({}, ctx()), 0);
+  assertStringIncludes(
+    offPath.out.join("\n"),
+    "==> /usr/local/bin is not on your PATH",
   );
 });
 
@@ -180,7 +219,9 @@ Deno.test("upgrade installs an explicitly requested older version", async () => 
   const archive = await buildTarGz([{ name: "pb", body: BODY }]);
   const { cmd, out } = run(deps({ archive, release: "0.0.1" }));
   assertEquals(await cmd.run({}, ctx(["0.0.1"])), 0);
-  assertStringIncludes(out.join("\n"), `Switched pbc ${VERSION} → 0.0.1`);
+  const text = out.join("\n");
+  assertStringIncludes(text, `==> Updating pbc from ${VERSION} to 0.0.1`);
+  assertStringIncludes(text, "pbc 0.0.1 installed successfully.");
 });
 
 Deno.test("upgrade does not call a requested rollback an available update", async () => {

@@ -24,8 +24,9 @@ inputs:
     default: "."
   cli-version:
     description: >-
-      Version of @pocketbasecloud/cli to install. Defaults to the version this
+      Version of pbc to install. Defaults to the version this
       action shipped with; pinning both together is the point of the tag.
+      Installed from GitHub release assets via scripts/install.sh.
     required: false
     # Must equal VERSION in src/version.ts — tests/unit/action.test.ts enforces it.
     default: "0.8.2"
@@ -101,25 +102,30 @@ runs:
           auto|pb|frontend|backend) ;;
           *) echo "::error::kind must be one of: auto, pb, frontend, backend (got '${PBC_KIND}')."; exit 2 ;;
         esac
-        if ! command -v node >/dev/null 2>&1; then
-          echo "::error::Node is not on PATH. This action installs the pbc CLI from npm; add actions/setup-node before it."
-          exit 1
-        fi
-        major="$(node -p 'process.versions.node.split(".")[0]')"
-        if [ "${major}" -lt 18 ]; then
-          echo "::error::Node ${major} is too old — @pocketbasecloud/cli needs Node 18 or newer."
+        if ! command -v curl >/dev/null 2>&1; then
+          echo "::error::curl is not on PATH. This action installs the pbc CLI from GitHub releases; add curl to the runner."
           exit 1
         fi
 
     # Pinned on purpose: an unpinned install makes every run depend on whatever
-    # was published that morning.
+    # was published that morning. Installs from GitHub release assets; npm is
+    # deprecated. The dir is exported to later steps through GITHUB_PATH —
+    # each step runs in a fresh shell, so an in-step PATH export alone would
+    # not carry over to the deploy below.
     - name: Install pbc
       shell: bash
       env:
         PBC_CLI_VERSION: ${{ inputs.cli-version }}
       run: |
         set -euo pipefail
-        npm i -g "@pocketbasecloud/cli@${PBC_CLI_VERSION}"
+        if [ -w /usr/local/bin ]; then
+          export PBC_INSTALL_DIR=/usr/local/bin
+        else
+          export PBC_INSTALL_DIR="$HOME/.local/bin"
+        fi
+        export PATH="$PBC_INSTALL_DIR:$PATH"
+        echo "$PBC_INSTALL_DIR" >> "$GITHUB_PATH"
+        curl -fsSL https://raw.githubusercontent.com/pocketbasecloud/cli/main/scripts/install.sh | PBC_VERSION="${PBC_CLI_VERSION}" sh
         pbc --version
 
     # The cheapest possible check, and it runs before the build: a missing or
