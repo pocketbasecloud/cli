@@ -13,7 +13,7 @@ export function makeCronCommands(deps: AdminCmdDeps): Record<string, Command> {
       args: [],
       flags: {},
       run: async (_input, ctx) => {
-        const { client } = await deps.requireAdmin();
+        const { client } = await deps.requireAdmin(ctx);
         printResult(await client.listCrons(), [
           { header: "ID", get: (j) => j.id },
           { header: "EXPRESSION", get: (j) => j.expression },
@@ -34,7 +34,7 @@ export function makeCronCommands(deps: AdminCmdDeps): Record<string, Command> {
           "Usage: pbc admin cron run <jobId>",
           { code: "USAGE" },
         );
-        const { client } = await deps.requireAdmin();
+        const { client } = await deps.requireAdmin(ctx);
         await client.runCron(jobId);
         emit(ctx.flags.json, { ok: true }, `Ran cron job ${jobId}.`);
         return 0;

@@ -12,7 +12,7 @@ export type MockCloudClient = ICloudClient & {
   calls: {
     createResource: [ResourceKind, Record<string, unknown>][];
     updateResource: [ResourceKind, string, Record<string, unknown>][];
-    shareProject: [string, string | null][];
+    shareProject: [string, string][];
     ext: [string, unknown][];
     pbApi: [string, unknown][];
   };
@@ -58,12 +58,12 @@ export function createMockCloudClient(
           ? state.projects.filter((p) => p.organization === orgId)
           : state.projects,
       ),
-    createProject: (name: string) => {
+    createProject: (name: string, orgId?: string) => {
       const p: Project = {
         id: id(),
         name,
         user: "u1",
-        organization: "",
+        organization: orgId ?? state.orgs[0]?.id ?? "",
         createdBy: "u1",
       };
       state.projects.push(p);

@@ -31,6 +31,29 @@ Deno.test("collections create sends name and type", async () => {
   );
 });
 
+Deno.test("collections ls forwards the selected profile", async () => {
+  const d = deps();
+  const requireAdmin = d.requireAdmin;
+  let selectedProfile: string | undefined;
+  d.requireAdmin = (ctx) => {
+    selectedProfile = ctx.flags.profile;
+    return requireAdmin(ctx);
+  };
+
+  await makeCollectionsCommands(d)["admin collections ls"].run({}, {
+    args: [],
+    flags: {
+      json: true,
+      yes: true,
+      noInput: true,
+      interactive: false,
+      profile: "telemetry-prod",
+    },
+  });
+
+  assertEquals(selectedProfile, "telemetry-prod");
+});
+
 Deno.test("collections export writes JSON to out file", async () => {
   const dir = await Deno.makeTempDir();
   const out = `${dir}/schema.json`;

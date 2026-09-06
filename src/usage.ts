@@ -1576,7 +1576,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ]
   },
   "admin login": {
-    "usage": "pbc admin login [--email <e>] [--password <p>] [--profile <name>]",
+    "usage": "pbc admin login [--email <e>] [--password <p>]",
     "summary": "Log in as the instance superuser.",
     "args": [],
     "flags": [
@@ -1595,7 +1595,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ]
   },
   "admin logout": {
-    "usage": "pbc admin logout [--remove] [--profile <name>]",
+    "usage": "pbc admin logout [--remove]",
     "summary": "Log out of the current instance profile. --remove also forgets it.",
     "args": [],
     "flags": [
@@ -1608,7 +1608,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ]
   },
   "admin whoami": {
-    "usage": "pbc admin whoami [--profile <name>]",
+    "usage": "pbc admin whoami",
     "summary": "Show the active instance profile.",
     "args": [],
     "flags": []

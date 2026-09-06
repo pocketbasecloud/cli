@@ -1,8 +1,4 @@
-import {
-  str,
-  type Command,
-  defineCommand,
-} from "../../command.ts";
+import { type CmdCtx, type Command, defineCommand, str } from "../../command.ts";
 import type { AdminCmdDeps } from "./deps.ts";
 import { CliError, httpError } from "../../errors.ts";
 import { emit } from "../../envelope.ts";
@@ -12,8 +8,8 @@ import { confirm } from "../../ui/prompt.ts";
 export function makeSettingsCommands(
   deps: AdminCmdDeps,
 ): Record<string, Command> {
-  async function section(name: string): Promise<unknown> {
-    const { client } = await deps.requireAdmin();
+  async function section(name: string, ctx: CmdCtx): Promise<unknown> {
+    const { client } = await deps.requireAdmin(ctx);
     const all = await client.getSettings();
     return all[name];
   }
@@ -26,7 +22,7 @@ export function makeSettingsCommands(
       args: [],
       flags: {},
       run: async (_input, ctx) => {
-        const { client } = await deps.requireAdmin();
+        const { client } = await deps.requireAdmin(ctx);
         const settings = await client.getSettings();
         emit(ctx.flags.json, settings, () => JSON.stringify(settings, null, 2));
         return 0;
@@ -40,7 +36,7 @@ export function makeSettingsCommands(
       args: [],
       flags: {},
       run: async (_input, ctx) => {
-        const smtp = await section("smtp");
+        const smtp = await section("smtp", ctx);
         emit(ctx.flags.json, smtp, () => JSON.stringify(smtp, null, 2));
         return 0;
       },
@@ -62,7 +58,7 @@ export function makeSettingsCommands(
           "Usage: pbc admin settings mail set '<json>'",
           { code: "USAGE" },
         );
-        const { client } = await deps.requireAdmin();
+        const { client } = await deps.requireAdmin(ctx);
         await client.updateSettings({ smtp: JSON.parse(json) });
         emit(ctx.flags.json, { ok: true }, "Updated SMTP settings.");
         return 0;
@@ -81,7 +77,7 @@ export function makeSettingsCommands(
           "Usage: pbc admin settings mail test <email>",
           { code: "USAGE" },
         );
-        const { client } = await deps.requireAdmin();
+        const { client } = await deps.requireAdmin(ctx);
         await client.testEmail(to);
         emit(ctx.flags.json, { ok: true }, `Test email sent to ${to}.`);
         return 0;
@@ -95,7 +91,7 @@ export function makeSettingsCommands(
       args: [],
       flags: {},
       run: async (_input, ctx) => {
-        const s3 = await section("s3");
+        const s3 = await section("s3", ctx);
         emit(ctx.flags.json, s3, () => JSON.stringify(s3, null, 2));
         return 0;
       },
@@ -117,7 +113,7 @@ export function makeSettingsCommands(
           "Usage: pbc admin settings s3 set '<json>'",
           { code: "USAGE" },
         );
-        const { client } = await deps.requireAdmin();
+        const { client } = await deps.requireAdmin(ctx);
         await client.updateSettings({ s3: JSON.parse(json) });
         emit(ctx.flags.json, { ok: true }, "Updated S3 settings.");
         return 0;
@@ -131,7 +127,7 @@ export function makeSettingsCommands(
       args: [],
       flags: {},
       run: async (_input, ctx) => {
-        const { client } = await deps.requireAdmin();
+        const { client } = await deps.requireAdmin(ctx);
         await client.testS3();
         emit(ctx.flags.json, { ok: true }, "S3 connection OK.");
         return 0;
@@ -145,7 +141,7 @@ export function makeSettingsCommands(
       args: [],
       flags: {},
       run: async (_input, ctx) => {
-        const { client } = await deps.requireAdmin();
+        const { client } = await deps.requireAdmin(ctx);
         printResult(await client.listBackups(), [
           { header: "KEY", get: (b) => b.key },
           { header: "SIZE", get: (b) => String(b.size) },
@@ -163,7 +159,7 @@ export function makeSettingsCommands(
       flags: {},
       run: async (_input, ctx) => {
         const name = ctx.args[0] ?? "";
-        const { client } = await deps.requireAdmin();
+        const { client } = await deps.requireAdmin(ctx);
         await client.createBackup(name);
         emit(
           ctx.flags.json,
@@ -186,7 +182,7 @@ export function makeSettingsCommands(
           "Usage: pbc admin settings backup rm <key>",
           { code: "USAGE" },
         );
-        const { client } = await deps.requireAdmin();
+        const { client } = await deps.requireAdmin(ctx);
         if (
           !await confirm(`Delete backup ${key}?`, {
             noInput: ctx.flags.noInput,
@@ -219,7 +215,7 @@ export function makeSettingsCommands(
             "Usage: pbc admin settings backup download <key> [--out <file>]",
             { code: "USAGE" });
         }
-        const { client } = await deps.requireAdmin();
+        const { client } = await deps.requireAdmin(ctx);
         const url = await client.backupDownloadUrl(key);
         const out = input.out ?? key;
         const res = await fetch(url);

@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: pocketbasecloud/cli/action@v0.8.1
+      - uses: pocketbasecloud/cli/action@v0.8.2
         with:
           token: ${{ secrets.PBC_TOKEN }}
 ```

@@ -1,8 +1,9 @@
 import type { Config, Profile } from "../../config.ts";
 import type { IAdminClient } from "../../clients/admin.ts";
+import type { CmdCtx } from "../../command.ts";
 
 export type AdminCmdDeps = {
-  requireAdmin: () => Promise<
+  requireAdmin: (ctx: CmdCtx) => Promise<
     { client: IAdminClient; profile: Profile; name: string }
   >;
   loadConfig: () => Promise<Config>;

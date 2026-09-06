@@ -45,7 +45,7 @@ export function makeInstanceAuthCommands(
 
     "admin login": defineCommand({
       path: ["admin", "login"],
-      usage: "pbc admin login [--email <e>] [--password <p>] [--profile <name>]",
+      usage: "pbc admin login [--email <e>] [--password <p>]",
       summary: "Log in as the instance superuser.",
       args: [],
       flags: {
@@ -83,7 +83,7 @@ export function makeInstanceAuthCommands(
 
     "admin logout": defineCommand({
       path: ["admin", "logout"],
-      usage: "pbc admin logout [--remove] [--profile <name>]",
+      usage: "pbc admin logout [--remove]",
       summary:
         "Log out of the current instance profile. --remove also forgets it.",
       args: [],
@@ -110,7 +110,7 @@ export function makeInstanceAuthCommands(
 
     "admin whoami": defineCommand({
       path: ["admin", "whoami"],
-      usage: "pbc admin whoami [--profile <name>]",
+      usage: "pbc admin whoami",
       summary: "Show the active instance profile.",
       args: [],
       flags: {},

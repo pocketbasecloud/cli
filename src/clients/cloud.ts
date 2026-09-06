@@ -16,7 +16,7 @@ import type {
 export interface ICloudClient {
   whoami(): Promise<User>;
   listProjects(orgId?: string): Promise<Project[]>;
-  createProject(name: string): Promise<Project>;
+  createProject(name: string, orgId?: string): Promise<Project>;
   deleteProject(id: string): Promise<void>;
   listResources(
     kind: ResourceKind,
@@ -40,7 +40,7 @@ export interface ICloudClient {
   listMembers(orgId: string): Promise<{ email: string; role: string }[]>;
   addMember(orgId: string, email: string): Promise<void>;
   removeMember(orgId: string, email: string): Promise<void>;
-  shareProject(projectId: string, orgId: string | null): Promise<void>;
+  shareProject(projectId: string, orgId: string): Promise<void>;
   fileToken(): Promise<string>;
   ext(path: string, body?: unknown, opts?: ApiOpts): Promise<Response>;
   pbApi(path: string, body?: unknown, opts?: ApiOpts): Promise<Response>;
@@ -175,11 +175,12 @@ export class PocketBaseCloudClient implements ICloudClient {
     });
   }
 
-  createProject(name: string): Promise<Project> {
+  createProject(name: string, orgId?: string): Promise<Project> {
     return this.guard(async () =>
       await this.pb.collection("projects").create({
         name,
         user: await this.ownerId(),
+        ...(orgId ? { organization: orgId } : {}),
       }) as unknown as Project
     );
   }
@@ -330,10 +331,10 @@ export class PocketBaseCloudClient implements ICloudClient {
     });
   }
 
-  shareProject(projectId: string, orgId: string | null): Promise<void> {
+  shareProject(projectId: string, orgId: string): Promise<void> {
     return this.guard(async () => {
       await this.pb.collection("projects").update(projectId, {
-        organization: orgId ?? "",
+        organization: orgId,
       });
     });
   }

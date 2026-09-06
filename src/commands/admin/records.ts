@@ -32,7 +32,7 @@ export function makeRecordsCommands(
             "Usage: pbc admin records ls <collection> [--filter] [--sort]",
             { code: "USAGE" });
         }
-        const { client } = await deps.requireAdmin();
+        const { client } = await deps.requireAdmin(ctx);
         const page = await client.listRecords(collection, {
           filter: input.filter,
           sort: input.sort,
@@ -71,7 +71,7 @@ export function makeRecordsCommands(
             { code: "USAGE" },
           );
         }
-        const { client } = await deps.requireAdmin();
+        const { client } = await deps.requireAdmin(ctx);
         const record = await client.getRecord(collection, id);
         emit(ctx.flags.json, record, () => JSON.stringify(record, null, 2));
         return 0;
@@ -100,7 +100,7 @@ export function makeRecordsCommands(
             { code: "USAGE" },
           );
         }
-        const { client } = await deps.requireAdmin();
+        const { client } = await deps.requireAdmin(ctx);
         const data = JSON.parse(json) as Record<string, unknown>;
         const r = await client.createRecord(collection, data);
         emit(ctx.flags.json, r, `Created record ${r.id}.`);
@@ -130,7 +130,7 @@ export function makeRecordsCommands(
             "Usage: pbc admin records update <collection> <id> '<json>'",
             { code: "USAGE" });
         }
-        const { client } = await deps.requireAdmin();
+        const { client } = await deps.requireAdmin(ctx);
         const data = JSON.parse(json) as Record<string, unknown>;
         const r = await client.updateRecord(collection, id, data);
         emit(ctx.flags.json, r, `Updated record ${r.id}.`);
@@ -155,7 +155,7 @@ export function makeRecordsCommands(
             { code: "USAGE" },
           );
         }
-        const { client } = await deps.requireAdmin();
+        const { client } = await deps.requireAdmin(ctx);
         if (
           !await confirm(`Delete record ${id} from ${collection}?`, {
             noInput: ctx.flags.noInput,

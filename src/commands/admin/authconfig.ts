@@ -67,7 +67,7 @@ Examples:
             "Usage: pbc admin auth <collection> config [--set '<field>=<json>']",
             { code: "USAGE" });
         }
-        const { client } = await deps.requireAdmin();
+        const { client } = await deps.requireAdmin(ctx);
         const c = await client.getCollection(collection);
         if (c.type !== "auth") {
           throw new CliError(

@@ -1295,3 +1295,33 @@ Deno.test("pb ls announces nothing under --json", async () => {
     log.restore();
   }
 });
+
+Deno.test("pb ls JSON omits admin credentials", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const pb = await client.createResource("pocketbases", {
+    name: "db1",
+    project: p.id,
+  });
+  Object.assign(pb, {
+    adminUsername: "admin@example.com",
+    adminPassword: "secret-password",
+  });
+  const { d, config } = deps(client);
+  config.currentProject = p.id;
+  const log = captureLog();
+
+  try {
+    await makeResourceCommands(d, KINDS.pocketbases)["pocketbase ls"].run({}, {
+      args: [],
+      flags: flags({ json: true }),
+    });
+  } finally {
+    log.restore();
+  }
+
+  const resource = JSON.parse(log.lines[0]).data[0];
+  assertEquals(resource.id, pb.id);
+  assertEquals("adminUsername" in resource, false);
+  assertEquals("adminPassword" in resource, false);
+});

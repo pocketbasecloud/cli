@@ -44,7 +44,7 @@ export function makeCollectionsCommands(
       args: [],
       flags: {},
       run: async (_input, ctx) => {
-        const { client } = await deps.requireAdmin();
+        const { client } = await deps.requireAdmin(ctx);
         printResult(await client.listCollections(), [
           { header: "ID", get: (c) => c.id },
           { header: "NAME", get: (c) => c.name },
@@ -69,7 +69,7 @@ export function makeCollectionsCommands(
             { code: "USAGE" },
           );
         }
-        const { client } = await deps.requireAdmin();
+        const { client } = await deps.requireAdmin(ctx);
         const c = await client.getCollection(name);
         emit(ctx.flags.json, c, () => JSON.stringify(c, null, 2));
         return 0;
@@ -99,7 +99,7 @@ export function makeCollectionsCommands(
               "       pbc admin collections create '<json>'   (full definition, with fields)",
               { code: "USAGE" });
         }
-        const { client } = await deps.requireAdmin();
+        const { client } = await deps.requireAdmin(ctx);
         const body = arg.trimStart().startsWith("{")
           ? parseDefinition(arg)
           : { name: arg, type: input.type ?? "base" };
@@ -130,7 +130,7 @@ export function makeCollectionsCommands(
             "Usage: pbc admin collections update <idOrName> '<json>'",
             { code: "USAGE" });
         }
-        const { client } = await deps.requireAdmin();
+        const { client } = await deps.requireAdmin(ctx);
         const data = JSON.parse(json) as Record<string, unknown>;
         const c = await client.updateCollection(name, data);
         emit(ctx.flags.json, c, `Updated ${c.name}.`);
@@ -150,7 +150,7 @@ export function makeCollectionsCommands(
           "Usage: pbc admin collections rm <idOrName>",
           { code: "USAGE" },
         );
-        const { client } = await deps.requireAdmin();
+        const { client } = await deps.requireAdmin(ctx);
         if (
           !await confirm(`Delete collection ${name}? This drops its data.`, {
             noInput: ctx.flags.noInput,
@@ -177,7 +177,7 @@ export function makeCollectionsCommands(
         }),
       },
       run: async (input, ctx) => {
-        const { client } = await deps.requireAdmin();
+        const { client } = await deps.requireAdmin(ctx);
         const cols = await client.listCollections();
         const out = input.out ?? "collections.json";
         await Deno.writeTextFile(out, JSON.stringify(cols, null, 2));
@@ -208,7 +208,7 @@ export function makeCollectionsCommands(
             "Usage: pbc admin collections import <file.json> [--delete-missing]",
             { code: "USAGE" });
         }
-        const { client } = await deps.requireAdmin();
+        const { client } = await deps.requireAdmin(ctx);
         const collections = JSON.parse(await Deno.readTextFile(file)) as Record<
           string,
           unknown

@@ -63,9 +63,9 @@ export function buildCloudDeps(): CloudCmdDeps {
 
 export function buildAdminDeps(): AdminCmdDeps {
   return {
-    requireAdmin: async () => {
+    requireAdmin: async (ctx) => {
       const config = await loadConfig();
-      const name = activeProfileName(config);
+      const name = activeProfileName(config, ctx.flags.profile);
       if (!name || !config.profiles[name]) {
         throw new CliError(
           "No instance selected. Run `pbc admin use <url>`.",

@@ -28,7 +28,7 @@ export function makeInstanceLogsCommands(
         }),
       },
       run: async (input, ctx) => {
-        const { client } = await deps.requireAdmin();
+        const { client } = await deps.requireAdmin(ctx);
         const filter = input.filter;
         const perPage = input.perPage ? Number(input.perPage) : 50;
 

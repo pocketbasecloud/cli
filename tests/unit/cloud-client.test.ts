@@ -176,9 +176,20 @@ async function recordSdk(
 
 Deno.test("createProject sets the owner, without which the project is invisible", async () => {
   const seen = await recordSdk((c) => c.createProject("app"));
+  const write = seen.at(-1)!;
+  assertEquals(write.method, "POST");
+  assertEquals(write.body, { name: "app", user: "u1" });
+});
+
+Deno.test("createProject names no organization, leaving the create hook to pick the caller's newest without a lookup round trip", async () => {
+  const seen = await recordSdk((c) => c.createProject("app"));
   assertEquals(seen.length, 1);
-  assertEquals(seen[0].method, "POST");
-  assertEquals(seen[0].body, { name: "app", user: "u1" });
+});
+
+Deno.test("createProject passes an explicitly chosen organization through", async () => {
+  const seen = await recordSdk((c) => c.createProject("app", "org9"));
+  assertEquals(seen.length, 1);
+  assertEquals(seen[0].body, { name: "app", user: "u1", organization: "org9" });
 });
 
 Deno.test("deleteProject tombstones rather than hard-deleting", async () => {

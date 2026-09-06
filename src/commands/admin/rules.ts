@@ -29,7 +29,7 @@ export function makeRulesCommands(deps: AdminCmdDeps): Record<string, Command> {
           "Usage: pbc admin rules get <collection>",
           { code: "USAGE" },
         );
-        const { client } = await deps.requireAdmin();
+        const { client } = await deps.requireAdmin(ctx);
         const c = await client.getCollection(name);
         const rules = {
           listRule: c.listRule,
@@ -84,7 +84,7 @@ export function makeRulesCommands(deps: AdminCmdDeps): Record<string, Command> {
             "Provide at least one of --list-rule/--view-rule/--create-rule/--update-rule/--delete-rule (use 'null' to clear).",
             { code: "USAGE" });
         }
-        const { client } = await deps.requireAdmin();
+        const { client } = await deps.requireAdmin(ctx);
         await client.updateCollection(name, data);
         emit(
           ctx.flags.json,

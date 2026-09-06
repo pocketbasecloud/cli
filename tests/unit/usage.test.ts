@@ -18,6 +18,18 @@ Deno.test("--project stays a global filter, and no usage string advertises it", 
   assertEquals(project?.description?.includes("Narrow"), true);
 });
 
+Deno.test("--profile reaches every instance command, so no usage string advertises it either", () => {
+  for (const [key, spec] of Object.entries(COMMANDS)) {
+    assertEquals(
+      spec.usage.includes("--profile"),
+      false,
+      `${key} usage still names --profile`,
+    );
+  }
+  const profile = GLOBAL_FLAGS.find((f) => f.name === "profile");
+  assertEquals(profile?.type, "string");
+});
+
 Deno.test("COMMANDS has exactly one entry per registered command, no orphans", () => {
   const registry: CommandRegistry = {};
   registerCommands(registry);

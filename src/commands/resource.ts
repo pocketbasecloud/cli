@@ -28,6 +28,16 @@ const DOMAIN_SUMMARIES = {
 
 type DomainVerb = keyof typeof DOMAIN_SUMMARIES;
 
+function withoutAdminCredentials(resource: Resource): Resource {
+  const listed = { ...resource } as Resource & {
+    adminUsername?: unknown;
+    adminPassword?: unknown;
+  };
+  delete listed.adminUsername;
+  delete listed.adminPassword;
+  return listed;
+}
+
 export type ResourceResolver = {
   resolveOne: (
     ctx: CmdCtx,
@@ -168,8 +178,11 @@ export function makeResourceCommands(
       flags: {},
       run: async (_input, ctx) => {
         const { client, project: p } = await project(ctx);
+        const resources = await client.listResources(spec.kind, {
+          project: p.id,
+        });
         printResult(
-          await client.listResources(spec.kind, { project: p.id }),
+          resources.map(withoutAdminCredentials),
           spec.columns,
           ctx.flags.json,
         );
