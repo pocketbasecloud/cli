@@ -3,14 +3,8 @@ import { encodeHex } from "@std/encoding/hex";
 import { VERSION } from "../src/version.ts";
 import { assetName, hostKey, hostMap, TARGETS } from "./targets.ts";
 
-const RELEASE_NOTES =
-  "Backend deploy checks the plan of the project it resolves to: on free or " +
-  "starter it lists your other projects so you can send the backend to a Pro " +
-  "organization, or asks for --project under --no-input/--json. Adds server " +
-  "location labels for Tokyo, Mumbai, and US Central/East/West.";
-
-const CLI_DIR = dirname(dirname(fromFileUrl(import.meta.url)));
-const DIST_DIR = join(CLI_DIR, "dist");
+export const CLI_DIR = dirname(dirname(fromFileUrl(import.meta.url)));
+export const DIST_DIR = join(CLI_DIR, "dist");
 // npm/ stays ignored build scratch for compiled binaries. Releases ship only
 // GitHub assets installed via scripts/install.sh; npm publishing is deprecated.
 const BUILD_DIR = join(CLI_DIR, "npm");
@@ -45,20 +39,20 @@ async function ok(cmd: string[]): Promise<boolean> {
   }
 }
 
-async function checkPrereqs() {
+export async function checkPrereqs() {
   if (!(await ok(["gh", "auth", "status"]))) {
     throw new Error("gh: not authenticated. Run `gh auth login`.");
   }
 }
 
-async function gate() {
+export async function gate() {
   log("1. test / check / lint");
   await sh(["deno", "task", "test"]);
   await sh(["deno", "task", "check"]);
   await sh(["deno", "task", "lint"]);
 }
 
-async function compileTargets() {
+export async function compileTargets() {
   log("2. compile targets");
   await Deno.remove(BUILD_DIR, { recursive: true }).catch(() => {});
   for (const t of TARGETS) {
@@ -130,28 +124,34 @@ async function buildArchives() {
   );
 }
 
-function printPublishCommands() {
-  log("5. publish commands (run these yourself, in this order)");
+export async function stageArtifacts(opts: { gate: boolean }) {
+  if (opts.gate) await gate();
+  await compileTargets();
+  await selfVerifyBinary();
+  await buildArchives();
+}
+
+function printNextSteps() {
+  log("5. next steps");
   console.log(
-    "gh release create v" + VERSION + " --repo pocketbasecloud/cli \\\n" +
-      '  --title "pbc v' + VERSION + '" \\\n' +
-      "  --notes '" + RELEASE_NOTES + "' dist/*",
-  );
-  console.log(
-    "\nInstalls come from scripts/install.sh against these assets. " +
-      "npm publishing is deprecated and intentionally has no step here.",
+    `  dist/ is staged for v${VERSION}. To publish:\n` +
+      `    deno task cut-release ${VERSION} --notes "<release notes>"\n` +
+      "  or follow the manual steps in docs/cli-public-repo-sync.md.\n" +
+      "  npm publishing is deprecated and intentionally has no step here.",
   );
 }
 
 if (import.meta.main) {
-  if (!buildOnly) await gate();
-  await compileTargets();
   if (buildOnly) {
+    await compileTargets();
     log(`build-only: staged binaries for v${VERSION}. Stop.`);
     Deno.exit(0);
   }
+  if (Deno.args.includes("--stage-only")) {
+    await stageArtifacts({ gate: true });
+    Deno.exit(0);
+  }
   await checkPrereqs();
-  await selfVerifyBinary();
-  await buildArchives();
-  printPublishCommands();
+  await stageArtifacts({ gate: true });
+  printNextSteps();
 }
