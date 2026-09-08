@@ -5,6 +5,7 @@ import {
   str,
 } from "../command.ts";
 import type { CloudCmdDeps } from "./project.ts";
+import type { ICloudClient } from "../clients/cloud.ts";
 import { CliError, httpError } from "../errors.ts";
 import { SCHEMA_VERSION } from "../envelope.ts";
 import { kindByAlias, kindsWith } from "../kinds.ts";
@@ -17,13 +18,18 @@ const LOG_ARG = LOG_NOUNS.join("|");
 export async function streamToWriter(
   body: ReadableStream<Uint8Array>,
   write: (s: string) => void,
-  opts: { limit?: number } = {},
+  opts: { limit?: number; signal?: AbortSignal } = {},
 ): Promise<void> {
   const reader = body.getReader();
   const dec = new TextDecoder();
   let buffer = "";
   let printed = 0;
+  const cancel = () => {
+    void reader.cancel().catch(() => {});
+  };
+  opts.signal?.addEventListener("abort", cancel, { once: true });
   try {
+    if (opts.signal?.aborted) return;
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
@@ -40,8 +46,55 @@ export async function streamToWriter(
     const last = decodeLogLine(buffer);
     if (last !== null) write(`${last}\n`);
   } finally {
+    opts.signal?.removeEventListener("abort", cancel);
     await reader.cancel().catch(() => {});
   }
+}
+
+const DEPLOY_LOG_LINES = 50;
+const DEPLOY_LOG_TIMEOUT_MS = 5_000;
+
+export async function reportDeploymentLogs(
+  client: ICloudClient,
+  opts: {
+    type: "pocketbase" | "backend";
+    targetId: string;
+    log: (message: string) => void;
+    timeoutMs?: number;
+  },
+): Promise<void> {
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(),
+    opts.timeoutMs ?? DEPLOY_LOG_TIMEOUT_MS,
+  );
+  const follow = `pbc logs ${opts.type} --id ${opts.targetId} --follow`;
+  let printed = false;
+  opts.log(`Recent logs (${DEPLOY_LOG_LINES} lines max):`);
+  try {
+    const res = await client.ext("/api/logs/stream", {
+      target_id: opts.targetId,
+      type: opts.type,
+      initial_lines: DEPLOY_LOG_LINES,
+    }, { signal: controller.signal });
+    if (!res.ok || !res.body) throw await httpError(res, "Log stream");
+    await streamToWriter(res.body, (line) => {
+      printed = true;
+      opts.log(line.replace(/\n$/, ""));
+    }, { limit: DEPLOY_LOG_LINES, signal: controller.signal });
+    if (!printed) opts.log("No logs available yet.");
+  } catch (error) {
+    if (!controller.signal.aborted) {
+      opts.log(
+        `Could not read logs: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } else if (!printed) {
+      opts.log("No logs available yet.");
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+  opts.log(`Follow logs: ${follow}`);
 }
 
 export function decodeLogLine(raw: string): string | null {

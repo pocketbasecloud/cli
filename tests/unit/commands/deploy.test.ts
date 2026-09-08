@@ -394,3 +394,75 @@ Deno.test("an explicit kind that contradicts the binding is refused by the deplo
     "pbc.json is bound to frontends",
   );
 });
+
+for (const kind of ["pocketbases", "backends"] as const) {
+  for (const status of ["success", "failed"] as const) {
+    for (const json of [false, true]) {
+      Deno.test(`${kind} deploy prints logs after ${status} (json=${json})`, async () => {
+        const client = createMockCloudClient();
+        const project = await client.createProject("app");
+        const resource = await client.createResource(kind, {
+          name: "app",
+          project: project.id,
+          status: "running",
+        });
+        const cwd = dir(kind === "pocketbases"
+          ? { "pb_hooks/main.pb.js": "" }
+          : { "main.ts": "console.log('ready');" });
+        client.getResource = () => Promise.resolve({ ...resource, status: "running" });
+        const config: Config = {
+          ...defaultConfig(),
+          cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
+          currentProject: project.id,
+        };
+        const deploy = createMockDeployFetch();
+        deploy.setStatus(status, "Deployment rejected.");
+        const requests: unknown[] = [];
+        client.ext = (path, body) => {
+          if (path === "/api/logs/stream") requests.push(body);
+          return Promise.resolve(new Response('data: {"type":"history","line":"Startup output"}\n\n'));
+        };
+        const deps: CloudCmdDeps = {
+          requireAuth: () => Promise.resolve({ client, config, auth: config.cloud! }),
+          loadConfig: () => Promise.resolve(config),
+          saveConfig: () => Promise.resolve(),
+          cwd: () => cwd,
+          fetch: deploy.fetchFn,
+        };
+        const noun = kind === "pocketbases" ? "pocketbase" : "backend";
+        const commands = kind === "pocketbases" ? makePbCommands(deps) : makeBackendCommands(deps);
+        const stderr: string[] = [];
+        const stdout = captureLog();
+        const originalWrite = Deno.stderr.writeSync;
+        const originalError = console.error;
+        Deno.stderr.writeSync = (bytes) => {
+          stderr.push(new TextDecoder().decode(bytes));
+          return bytes.length;
+        };
+        console.error = (...args: unknown[]) => stderr.push(args.map(String).join(" "));
+        try {
+          const run = () => commands[`${noun} deploy`].run(
+            { name: "app", runtime: "deno", skipEnv: true },
+            { args: [], flags: flags({ json }) },
+          );
+          if (status === "failed") {
+            await assertRejects(run, CliError, "Deployment rejected.");
+          } else {
+            assertEquals(await run(), 0);
+          }
+          assertStringIncludes(stderr.join(""), "Startup output");
+          assertEquals(requests, [{ target_id: resource.id, type: noun, initial_lines: 50 }]);
+          if (json && status === "success") {
+            assertEquals(stdout.lines.length, 1);
+            assertEquals(JSON.parse(stdout.lines[0]).data.id, resource.id);
+          }
+        } finally {
+          Deno.stderr.writeSync = originalWrite;
+          console.error = originalError;
+          stdout.restore();
+          await Deno.remove(cwd, { recursive: true });
+        }
+      });
+    }
+  }
+}

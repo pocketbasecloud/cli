@@ -34,6 +34,7 @@ import {
   uploadLabel,
 } from "./deploy-helper.ts";
 import { deployArchive, waitForDeployment } from "../clients/deployments.ts";
+import { reportDeploymentLogs } from "./logs.ts";
 
 export function makeBackendCommands(
   deps: CloudCmdDeps,
@@ -294,6 +295,11 @@ it asks for --project instead.`,
               baseUrl: auth.backendUrl,
               token: auth.userToken,
               fetchFn: deps.fetch,
+            });
+            await reportDeploymentLogs(client, {
+              type: "backend",
+              targetId: out.resource.id,
+              log: ctx.flags.json ? (m) => console.error(m) : log,
             });
             if (dep.status === "failed") {
               throw new CliError(dep.statusMessage, { code: "PLATFORM_ERROR" });

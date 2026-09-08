@@ -55,6 +55,7 @@ export interface ICloudClient {
 export type ApiOpts = {
   method?: "GET" | "POST";
   query?: Record<string, string>;
+  signal?: AbortSignal;
 };
 
 function bodylessMessage(status: number): string {
@@ -381,6 +382,7 @@ export class PocketBaseCloudClient implements ICloudClient {
       : "";
     return fetch(`${base}${path}${query}`, {
       method,
+      signal: opts.signal,
       headers: {
         "Authorization": `Bearer ${this.auth.userToken}`,
         "X-Client-Type": "cli",

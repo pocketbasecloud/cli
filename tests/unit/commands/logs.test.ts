@@ -1,6 +1,7 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import {
   makeLogsCommands,
+  reportDeploymentLogs,
   streamToWriter,
 } from "../../../src/commands/logs.ts";
 import { createMockCloudClient } from "../../mocks/cloud.mock.ts";
@@ -314,4 +315,97 @@ Deno.test("logs does not announce the project when --project names it", async ()
   } finally {
     log.restore();
   }
+});
+
+Deno.test("deployment logs cancel a quiet stream after the deadline", async () => {
+  let cancelled = false;
+  const client = createMockCloudClient({
+    ext: () => Promise.resolve(new Response(new ReadableStream({
+      cancel() { cancelled = true; },
+    }))),
+  });
+  const lines: string[] = [];
+  await reportDeploymentLogs(client, {
+    type: "pocketbase",
+    targetId: "db1",
+    log: (line) => lines.push(line),
+    timeoutMs: 1,
+  });
+  assertEquals(cancelled, true);
+  assertStringIncludes(lines.join("\n"), "No logs available yet.");
+  assertStringIncludes(lines.join("\n"), "pbc logs pocketbase --id db1 --follow");
+});
+
+Deno.test("deployment logs limit history and cancel the tail", async () => {
+  let cancelled = false;
+  const client = createMockCloudClient({
+    ext: () => Promise.resolve(new Response(new ReadableStream({
+      start(controller) {
+        for (let i = 0; i < 60; i++) {
+          controller.enqueue(new TextEncoder().encode(`data: {"line":"Log ${i}"}\n\n`));
+        }
+      },
+      cancel() { cancelled = true; },
+    }))),
+  });
+  const lines: string[] = [];
+  await reportDeploymentLogs(client, {
+    type: "backend",
+    targetId: "api1",
+    log: (line) => lines.push(line),
+  });
+  assertEquals(lines.filter((line) => line.startsWith("Log ")).length, 50);
+  assertEquals(cancelled, true);
+});
+
+Deno.test("deployment logs preserve partial output when the tail stays open", async () => {
+  const client = createMockCloudClient({
+    ext: () => Promise.resolve(new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('data: {"line":"Started"}\n\n'));
+      },
+    }))),
+  });
+  const lines: string[] = [];
+  await reportDeploymentLogs(client, {
+    type: "backend",
+    targetId: "api1",
+    log: (line) => lines.push(line),
+    timeoutMs: 1,
+  });
+  assertEquals(lines, [
+    "Recent logs (50 lines max):",
+    "Started",
+    "Follow logs: pbc logs backend --id api1 --follow",
+  ]);
+});
+
+Deno.test("deployment logs abort a stalled connection", async () => {
+  const client = createMockCloudClient({
+    ext: (_path, _body, opts) => new Promise((_resolve, reject) => {
+      opts?.signal?.addEventListener("abort", () => reject(opts.signal?.reason), { once: true });
+    }),
+  });
+  const lines: string[] = [];
+  await reportDeploymentLogs(client, {
+    type: "backend",
+    targetId: "api1",
+    log: (line) => lines.push(line),
+    timeoutMs: 1,
+  });
+  assertStringIncludes(lines.join("\n"), "No logs available yet.");
+});
+
+Deno.test("deployment log failures report a warning without failing the deploy", async () => {
+  const client = createMockCloudClient({
+    ext: () => Promise.resolve(new Response("Logs unavailable", { status: 503 })),
+  });
+  const lines: string[] = [];
+  await reportDeploymentLogs(client, {
+    type: "backend",
+    targetId: "api1",
+    log: (line) => lines.push(line),
+  });
+  assertStringIncludes(lines.join("\n"), "Could not read logs:");
+  assertStringIncludes(lines.join("\n"), "pbc logs backend --id api1 --follow");
 });

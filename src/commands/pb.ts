@@ -53,6 +53,7 @@ import {
   validateLocationChoice,
 } from "./deploy-helper.ts";
 import { deployArchive, waitForDeployment } from "../clients/deployments.ts";
+import { reportDeploymentLogs } from "./logs.ts";
 import { makeResourceResolver } from "./resource.ts";
 import { KINDS } from "../kinds.ts";
 
@@ -871,6 +872,11 @@ never moves an existing instance.`,
               baseUrl: auth.backendUrl,
               token: auth.userToken,
               fetchFn: deps.fetch,
+            });
+            await reportDeploymentLogs(client, {
+              type: "pocketbase",
+              targetId: out.resource.id,
+              log: ctx.flags.json ? (m) => console.error(m) : log,
             });
             if (dep.status === "failed") {
               throw new CliError(dep.statusMessage, { code: "PLATFORM_ERROR" });
