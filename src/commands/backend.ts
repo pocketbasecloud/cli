@@ -23,6 +23,7 @@ import {
   computeChooser,
   deployProgress,
   deployResource,
+  ensureBackendProject,
   envFileEntry,
   pushEnvFile,
   reportUrl,
@@ -106,7 +107,12 @@ Creating a backend also picks the compute it runs on: the project owner's, so
 a developer in a shared organization project deploys onto the owner's Pro
 compute (and against the owner's plan) without needing to see it. A single
 compute is used, several are offered as a menu, and --compute settles it
-outright. A redeploy never moves an existing backend.`,
+outright. A redeploy never moves an existing backend.
+
+Backends run on a Pro organization's compute. When the project the deploy
+resolves to is on the free or starter plan, deploy lists your other projects
+so you can send the backend to one that qualifies; under --no-input or --json
+it asks for --project instead.`,
       args: [],
       flags: {
         name: str({
@@ -171,6 +177,8 @@ outright. A redeploy never moves an existing backend.`,
         );
         const cwd = deps.cwd();
         const name = input.name ?? ctx.args[0];
+        const log = (m: string) => progress.log(m);
+        const noInput = ctx.flags.noInput || ctx.flags.json;
         const envTarget = await resolveEnvironmentTarget(
           { name },
           "backends",
@@ -179,20 +187,33 @@ outright. A redeploy never moves an existing backend.`,
             envFlag: input.env,
             allowNewEnvironment: true,
             strictKind: true,
-            askEnvironment: { noInput: ctx.flags.noInput || ctx.flags.json },
+            askEnvironment: { noInput },
           },
         );
-        const target = await resolveDeployIntent(envTarget, {
-          client,
-          spec: KINDS.backends,
-          projectId: p.id,
-          cwd,
-          newName: input.new,
-          noInput: ctx.flags.noInput || ctx.flags.json,
-          io: deps.io,
-          onStale: () => removeEnvironment(cwd, envTarget.environment),
-        });
-        const log = (m: string) => progress.log(m);
+        const intentFor = (projectId: string) =>
+          resolveDeployIntent(envTarget, {
+            client,
+            spec: KINDS.backends,
+            projectId,
+            cwd,
+            newName: input.new,
+            noInput,
+            io: deps.io,
+            onStale: () => removeEnvironment(cwd, envTarget.environment),
+          });
+        let deployProject = p;
+        let target = await intentFor(deployProject.id);
+        if (target.create) {
+          const chosen = await ensureBackendProject(client, deployProject, {
+            noInput,
+            io: deps.io,
+            log,
+          });
+          if (chosen.id !== deployProject.id) {
+            deployProject = chosen;
+            target = await intentFor(deployProject.id);
+          }
+        }
         const bundle = await buildBundle({
           cwd,
           kind: "backends",
@@ -210,7 +231,7 @@ outright. A redeploy never moves an existing backend.`,
           environment: target.environment,
           flag: input.envFile,
           skip: input.skipEnv === true,
-          noInput: ctx.flags.noInput || ctx.flags.json,
+          noInput,
         });
         const runtime = input.runtime ?? bundle.build.runtime;
         if (!runtime) {
@@ -218,7 +239,10 @@ outright. A redeploy never moves an existing backend.`,
             "Pass --runtime (deno|bun|nodejs|nextjs) or set build.runtime in pbc.json.",
             { code: "USAGE" });
         }
-        const data: Record<string, unknown> = { project: p.id, runtime };
+        const data: Record<string, unknown> = {
+          project: deployProject.id,
+          runtime,
+        };
         const compute = input.compute;
         if (compute) data.server = compute;
         const start = input.start ?? bundle.build.startCommand ??
@@ -233,8 +257,8 @@ outright. A redeploy never moves an existing backend.`,
               `set build.startCommand in pbc.json, or pass --start "<command>".`,
               { code: "USAGE" });
         }
-        const askCompute = computeChooser(client, p.id, {
-          noInput: ctx.flags.noInput || ctx.flags.json,
+        const askCompute = computeChooser(client, deployProject.id, {
+          noInput,
           log,
         });
         const { resource, created } = await progress.step(
@@ -278,7 +302,7 @@ outright. A redeploy never moves an existing backend.`,
           },
         );
         await upsertEnvironment(cwd, {
-          projectId: p.id,
+          projectId: deployProject.id,
           kind: "backends",
           environment: target.environment,
           entry: {

@@ -11,6 +11,7 @@ import {
   chooseCompute,
   computeChooser,
   deployResource,
+  ensureBackendProject,
   findExisting,
   MAX_ARCHIVE_BYTES,
   pollStatus,
@@ -502,6 +503,69 @@ Deno.test("chooseCompute leaves the choice to the platform off Pro", async () =>
     { noInput: true, log: () => {} },
   );
   assertEquals(picked, undefined);
+});
+
+Deno.test("ensureBackendProject keeps a Pro project after a single lookup", async () => {
+  const c = createMockCloudClient();
+  const project = await c.createProject("team");
+  let lookups = 0;
+  c.deployContext = () => {
+    lookups++;
+    return Promise.resolve({
+      ownerPlan: "pro",
+      isOwner: true,
+      organization: "",
+      servers: [],
+    });
+  };
+  const out = await ensureBackendProject(c, project, {
+    noInput: true,
+    log: () => {},
+  });
+  assertEquals(out.id, project.id);
+  assertEquals(lookups, 1);
+});
+
+Deno.test("ensureBackendProject tells a non-interactive caller how to switch", async () => {
+  const c = createMockCloudClient();
+  const free = await c.createProject("personal");
+  await c.createProject("team");
+  c.deployContext = (id?: string) =>
+    Promise.resolve({
+      ownerPlan: id === free.id ? "free" : "pro",
+      isOwner: true,
+      organization: "",
+      servers: [],
+    });
+  await assertRejects(
+    () => ensureBackendProject(c, free, { noInput: true, log: () => {} }),
+    CliError,
+    "--project",
+  );
+});
+
+Deno.test("ensureBackendProject walks an interactive caller past every non-Pro project", async () => {
+  const c = createMockCloudClient();
+  const free = await c.createProject("personal");
+  await c.createProject("side");
+  const pro = await c.createProject("team");
+  c.deployContext = (id?: string) =>
+    Promise.resolve({
+      ownerPlan: id === pro.id ? "pro" : "free",
+      isOwner: true,
+      organization: "",
+      servers: id === pro.id ? [CPU("s1", "pro-1")] : [],
+    });
+  const said: string[] = [];
+  const out = await ensureBackendProject(c, free, {
+    noInput: false,
+    io: fakeIO(["1", "1"]),
+    log: (m) => said.push(m),
+  });
+  assertEquals(out.id, pro.id);
+  assertEquals(said.length, 2);
+  assertStringIncludes(said[0], "personal");
+  assertStringIncludes(said[1], "side");
 });
 
 Deno.test("computeChooser asks once however often a create is retried", async () => {

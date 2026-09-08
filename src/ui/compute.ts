@@ -19,6 +19,11 @@ export const KNOWN_LOCATIONS: Record<string, string> = {
   "vn-han": "Hanoi",
   "vn-sgn": "Ho Chi Minh City",
   "vn-dad": "Da Nang",
+  "jp-tyo": "Japan",
+  "in-bom": "India",
+  "us-central": "US Central",
+  "us-east": "US East",
+  "us-west": "US West",
 };
 
 export function humanizeLocationCode(code: string): string {

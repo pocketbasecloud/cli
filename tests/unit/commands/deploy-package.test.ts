@@ -56,6 +56,17 @@ function runningNow(client: MockCloudClient) {
   });
 }
 
+function backendDeps(client: MockCloudClient, projectId: string, cwd: string) {
+  client.deployContext = () =>
+    Promise.resolve({
+      ownerPlan: "pro",
+      isOwner: true,
+      organization: "",
+      servers: [{ id: "srv1", name: "pro-1", location: "GRA" }],
+    });
+  return deps(client, projectId, cwd);
+}
+
 const flags = (projectId: string) => ({
   json: true,
   yes: true,
@@ -213,7 +224,7 @@ Deno.test("backend deploy infers the runtime and assembles a Next.js bundle", as
     ".next/standalone/server.js": "listen()",
     ".next/static/chunk.js": "x",
   });
-  const d = deps(client, p.id, cwd);
+  const d = backendDeps(client, p.id, cwd);
   const cmds = makeBackendCommands(d);
 
   const code = await cmds["backend deploy"].run({ new: "api" }, {
@@ -242,7 +253,7 @@ Deno.test("an explicit --start beats the packager's suggestion", async () => {
     "package.json": "{}",
     ".next/standalone/server.js": "x",
   });
-  const cmds = makeBackendCommands(deps(client, p.id, cwd));
+  const cmds = makeBackendCommands(backendDeps(client, p.id, cwd));
 
   await cmds["backend deploy"].run({ new: "api", start: "node server.js --port 3000" }, {
       args: [],
@@ -263,7 +274,7 @@ Deno.test("backend deploy pushes nothing when no env file is configured", async 
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   runningNow(client);
-  await makeBackendCommands(deps(client, p.id, cwd))["backend deploy"].run({ new: "api" }, {
+  await makeBackendCommands(backendDeps(client, p.id, cwd))["backend deploy"].run({ new: "api" }, {
       args: [],
       flags: flags(p.id),
   });
@@ -285,7 +296,7 @@ Deno.test("backend deploy pushes --env-file and records it for the environment",
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   runningNow(client);
-  await makeBackendCommands(deps(client, p.id, cwd))["backend deploy"].run({ new: "api", envFile: ".env.prod", env: "prod" }, {
+  await makeBackendCommands(backendDeps(client, p.id, cwd))["backend deploy"].run({ new: "api", envFile: ".env.prod", env: "prod" }, {
       args: [],
       flags: flags(p.id),
   });
@@ -320,7 +331,7 @@ Deno.test("backend deploy pushes the environment's configured file, and --skip-e
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   runningNow(client);
-  await makeBackendCommands(deps(client, p.id, cwd))["backend deploy"].run({ new: "api" }, {
+  await makeBackendCommands(backendDeps(client, p.id, cwd))["backend deploy"].run({ new: "api" }, {
       args: [],
       flags: flags(p.id),
   });
@@ -333,7 +344,7 @@ Deno.test("backend deploy pushes the environment's configured file, and --skip-e
   const client2 = createMockCloudClient();
   const p2 = await client2.createProject("app");
   runningNow(client2);
-  await makeBackendCommands(deps(client2, p2.id, cwd2))["backend deploy"].run(
+  await makeBackendCommands(backendDeps(client2, p2.id, cwd2))["backend deploy"].run(
     { new: "api", skipEnv: true },
     { args: [], flags: flags(p2.id) },
   );
@@ -349,7 +360,7 @@ Deno.test("no dotenv file means no env push and no error", async () => {
   runningNow(client);
   const cwd = seed({ "deno.json": START_TASK, "main.ts": "x" });
 
-  const code = await makeBackendCommands(deps(client, p.id, cwd))[
+  const code = await makeBackendCommands(backendDeps(client, p.id, cwd))[
     "backend deploy"
   ].run(
     { new: "api" },
@@ -371,7 +382,7 @@ Deno.test("a named env file that is missing fails before anything is created", a
 
   await assertRejects(
     () =>
-      makeBackendCommands(deps(client, p.id, cwd))["backend deploy"].run({ new: "api", envFile: ".env.production" }, {
+      makeBackendCommands(backendDeps(client, p.id, cwd))["backend deploy"].run({ new: "api", envFile: ".env.production" }, {
           args: [],
           flags: flags(p.id),
       }),
@@ -400,7 +411,7 @@ Deno.test("a pbc.json-configured env file that is missing fails the same way", a
 
   await assertRejects(
     () =>
-      makeBackendCommands(deps(client, p.id, cwd))["backend deploy"].run({ new: "api" }, {
+      makeBackendCommands(backendDeps(client, p.id, cwd))["backend deploy"].run({ new: "api" }, {
           args: [],
           flags: flags(p.id),
       }),

@@ -6,6 +6,7 @@ import { createMockCloudClient } from "../../mocks/cloud.mock.ts";
 import { createMockDeployFetch } from "../../mocks/deployments.mock.ts";
 import { tempStatePath } from "../../mocks/state.mock.ts";
 import { type Config, defaultConfig } from "../../../src/config.ts";
+import type { PromptIO } from "../../../src/ui/prompt.ts";
 
 function seedSource(): string {
   const cwd = Deno.makeTempDirSync();
@@ -13,9 +14,19 @@ function seedSource(): string {
   return cwd;
 }
 
+function fakeIO(inputs: string[]): PromptIO {
+  const queue = [...inputs];
+  return {
+    read: () => Promise.resolve(queue.shift() ?? null),
+    write: () => {},
+    isTTY: true,
+  };
+}
+
 Deno.test("backend deploy sends runtime and start command", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
+  withComputes(client, [{ id: "srv1", name: "pro-1", location: "GRA" }]);
   const cwd = seedSource();
   const orig = client.getResource.bind(client);
   client.getResource = async (k, id) => ({
@@ -108,6 +119,7 @@ Deno.test("backend rm keeps a binding it did not resolve", async () => {
 Deno.test("backend deploy forwards --compute, which Pro deploys cannot do without", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
+  withComputes(client, [{ id: "srv1", name: "pro-1", location: "GRA" }]);
   const cwd = seedSource();
   const orig = client.getResource.bind(client);
   client.getResource = async (k, id) => ({
@@ -178,6 +190,7 @@ const deployFlags = (projectId: string) => ({
 Deno.test("backend deploy uses the inferred start command with no --start", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
+  withComputes(client, [{ id: "srv1", name: "pro-1", location: "GRA" }]);
   const cwd = seedSource();
   Deno.writeTextFileSync(
     `${cwd}/deno.json`,
@@ -257,6 +270,89 @@ Deno.test("backend deploy works for an org developer on the owner's Pro compute"
   assertEquals(client.calls.createResource[0][1].server, "owner-srv");
 });
 
+Deno.test("backend deploy errors when the only project cannot host a backend", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("solo");
+  const cwd = seedSource();
+  const cmds = makeBackendCommands(backendDeps(client, cwd, p.id));
+  await assertRejects(
+    () =>
+      cmds["backend deploy"].run({
+        new: "api",
+        runtime: "deno",
+        start: "deno task start",
+      }, {
+        args: [],
+        flags: deployFlags(p.id),
+      }),
+    Error,
+    "cannot host a backend",
+  );
+  assertEquals(client.calls.createResource.length, 0);
+});
+
+Deno.test("backend deploy tells a non-interactive caller to pass --project", async () => {
+  const client = createMockCloudClient();
+  const free = await client.createProject("personal");
+  const pro = await client.createProject("team");
+  client.deployContext = (projectId?: string) =>
+    Promise.resolve({
+      ownerPlan: projectId === pro.id ? "pro" : "free",
+      isOwner: true,
+      organization: "",
+      servers: [],
+    });
+  const cwd = seedSource();
+  const cmds = makeBackendCommands(backendDeps(client, cwd, free.id));
+  await assertRejects(
+    () =>
+      cmds["backend deploy"].run({
+        new: "api",
+        runtime: "deno",
+        start: "deno task start",
+      }, {
+        args: [],
+        flags: deployFlags(free.id),
+      }),
+    Error,
+    "--project",
+  );
+  assertEquals(client.calls.createResource.length, 0);
+});
+
+Deno.test("backend deploy lets an interactive user switch to a Pro project", async () => {
+  const client = reportRunning(createMockCloudClient());
+  const free = await client.createProject("personal");
+  const pro = await client.createProject("team");
+  client.deployContext = (projectId?: string) =>
+    Promise.resolve({
+      ownerPlan: projectId === pro.id ? "pro" : "free",
+      isOwner: true,
+      organization: "",
+      servers: projectId === pro.id
+        ? [{ id: "team-srv", name: "pro-1", location: "GRA" }]
+        : [],
+    });
+  const cwd = seedSource();
+  const cmds = makeBackendCommands({
+    ...backendDeps(client, cwd, free.id),
+    io: fakeIO(["1"]),
+  });
+  const code = await cmds["backend deploy"].run({
+    new: "api",
+    runtime: "deno",
+    start: "deno task start",
+    env: "production",
+  }, {
+    args: [],
+    flags: { json: false, yes: true, noInput: false, interactive: true },
+  });
+  assertEquals(code, 0);
+  assertEquals(client.calls.createResource.length, 1);
+  assertEquals(client.calls.createResource[0][1].project, pro.id);
+  assertEquals(client.calls.createResource[0][1].server, "team-srv");
+});
+
 Deno.test("backend redeploy never re-picks the compute", async () => {
   const client = reportRunning(createMockCloudClient());
   const p = await client.createProject("app");
@@ -300,6 +396,7 @@ Deno.test("backend deploy refuses to guess between two computes under --json", a
 Deno.test("backend deploy refuses to create a backend that cannot start", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
+  withComputes(client, [{ id: "srv1", name: "pro-1", location: "GRA" }]);
   const cwd = seedSource();
   Deno.writeTextFileSync(`${cwd}/deno.json`, "{}");
   const cmds = makeBackendCommands(backendDeps(client, cwd, p.id));

@@ -1,6 +1,6 @@
 import { basename, join } from "@std/path";
 import type { ICloudClient } from "../clients/cloud.ts";
-import type { Resource, ResourceKind } from "../clients/types.ts";
+import type { Project, Resource, ResourceKind } from "../clients/types.ts";
 import { describeSubStatus } from "../deploy-status.ts";
 import { CliError, httpError } from "../errors.ts";
 import type { KindSpec } from "../kinds.ts";
@@ -10,6 +10,7 @@ import type { BuildConfig } from "../config.ts";
 import {
   bindingFileName,
   linkFileName,
+  portalUrl,
   readLinkFile,
   readOwnLinkFile,
 } from "../config.ts";
@@ -310,6 +311,52 @@ export function computeChooser(
 ): () => Promise<string | undefined> {
   let pending: Promise<string | undefined> | undefined;
   return () => (pending ??= chooseCompute(client, projectId, o));
+}
+
+function planPageUrl(): string {
+  return `${portalUrl().replace(/\/login\/?$/, "")}/plan`;
+}
+
+export async function ensureBackendProject(
+  client: ICloudClient,
+  project: Project,
+  o: { noInput: boolean; io?: PromptIO; log: (msg: string) => void },
+): Promise<Project> {
+  const rejected = new Set<string>();
+  let current = project;
+  while (true) {
+    const { ownerPlan } = await client.deployContext(current.id);
+    if (ownerPlan === "pro") return current;
+    rejected.add(current.id);
+
+    const reason =
+      `Project "${current.name}" is on the ${ownerPlan} plan, which cannot ` +
+      `host a backend — backends run on a Pro organization's compute.`;
+    const others = (await client.listProjects()).filter(
+      (p) => !rejected.has(p.id),
+    );
+
+    if (!canPrompt({ noInput: o.noInput, io: o.io }) || others.length === 0) {
+      throw new CliError(
+        `${reason} ${
+          others.length === 0
+            ? `Upgrade at ${planPageUrl()}, or deploy from a project owned by ` +
+              `a Pro organization.`
+            : `Re-run with --project <name> for a project owned by a Pro ` +
+              `organization, or upgrade at ${planPageUrl()}.`
+        }`,
+        { code: "USAGE" },
+      );
+    }
+
+    o.log(reason);
+    current = await select(
+      "Deploy the backend into which project instead?",
+      others,
+      (p) => `${p.name} (${p.id})`,
+      { noInput: o.noInput, io: o.io },
+    );
+  }
 }
 
 export async function resolveOwnerId(

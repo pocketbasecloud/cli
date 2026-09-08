@@ -42,4 +42,9 @@ Deno.test("every provider and custom location code names a real city", () => {
   assertEquals(locationCity("vn-han"), "Hanoi");
   assertEquals(locationCity("vn-sgn"), "Ho Chi Minh City");
   assertEquals(locationCity("vn-dad"), "Da Nang");
+  assertEquals(locationCity("jp-tyo"), "Japan");
+  assertEquals(locationCity("in-bom"), "India");
+  assertEquals(locationCity("us-central"), "US Central");
+  assertEquals(locationCity("us-east"), "US East");
+  assertEquals(locationCity("us-west"), "US West");
 });

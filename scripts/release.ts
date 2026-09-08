@@ -4,8 +4,10 @@ import { VERSION } from "../src/version.ts";
 import { assetName, hostKey, hostMap, TARGETS } from "./targets.ts";
 
 const RELEASE_NOTES =
-  "pocketbase config get/set and superuser sync; compute ls no longer sends " +
-  "@request filters (was rejected for non-superusers).";
+  "Backend deploy checks the plan of the project it resolves to: on free or " +
+  "starter it lists your other projects so you can send the backend to a Pro " +
+  "organization, or asks for --project under --no-input/--json. Adds server " +
+  "location labels for Tokyo, Mumbai, and US Central/East/West.";
 
 const CLI_DIR = dirname(dirname(fromFileUrl(import.meta.url)));
 const DIST_DIR = join(CLI_DIR, "dist");
