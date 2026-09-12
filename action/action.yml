@@ -29,7 +29,7 @@ inputs:
       Installed from GitHub release assets via scripts/install.sh.
     required: false
     # Must equal VERSION in src/version.ts — tests/unit/action.test.ts enforces it.
-    default: "0.8.6"
+    default: "0.8.7"
   project:
     description: "Project name or id. Only needed when pbc.json is not committed."
     required: false
