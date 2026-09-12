@@ -15,6 +15,16 @@ Deno.test("computeLabel drops the city when the record has no location", () => {
   assertEquals(computeLabel(1, ""), "Compute 2");
 });
 
+Deno.test("computeLabel appends the shortKey to distinguish compute in the same location", () => {
+  assertEquals(computeLabel(0, "GRA", "ab12"), "Compute 1 — Gravelines (ab12)");
+  assertEquals(computeLabel(1, "GRA", "cd34"), "Compute 2 — Gravelines (cd34)");
+});
+
+Deno.test("computeLabel omits the shortKey parenthetical when absent", () => {
+  assertEquals(computeLabel(0, "GRA", ""), "Compute 1 — Gravelines");
+  assertEquals(computeLabel(0, "GRA", undefined), "Compute 1 — Gravelines");
+});
+
 Deno.test("an unknown datacenter code is humanized rather than hidden", () => {
   assertEquals(locationCity("xyz"), "XYZ");
   assertEquals(humanizeLocationCode("new-region"), "NEW Region");

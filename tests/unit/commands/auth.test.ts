@@ -98,6 +98,70 @@ Deno.test("login without a user id clears the selected project", async () => {
   assertEquals(saved.currentProject, null);
 });
 
+Deno.test("login --token persists cloud auth resolved via whoami without opening the browser", async () => {
+  const saved = defaultConfig();
+  let browserLoginCalls = 0;
+  const cmds = makeAuthCommands({
+    loadConfig: () => Promise.resolve(saved),
+    saveConfig: (c) => {
+      Object.assign(saved, c);
+      return Promise.resolve();
+    },
+    makeClient: () =>
+      createMockCloudClient({
+        whoami: () =>
+          Promise.resolve(
+            {
+              id: "u9",
+              email: "u9@e.com",
+              plan: "free",
+              role: "member",
+            } as never,
+          ),
+      }),
+    login: () => {
+      browserLoginCalls++;
+      return Promise.reject(new Error("should not open the browser"));
+    },
+    portalUrl: "https://portal",
+  });
+  const code = await cmds["login"].run({ token: "tok123" }, {
+    args: [],
+    flags: { json: false, yes: true, noInput: true, interactive: false },
+  });
+  assertEquals(code, 0);
+  assertEquals(browserLoginCalls, 0);
+  assertEquals(saved.cloud?.userToken, "tok123");
+  assertEquals(saved.cloud?.userId, "u9");
+});
+
+Deno.test("login --token surfaces an invalid token without saving anything", async () => {
+  const saved = defaultConfig();
+  const cmds = makeAuthCommands({
+    loadConfig: () => Promise.resolve(saved),
+    saveConfig: () => {
+      throw new Error("should not save on a failed token login");
+    },
+    makeClient: () =>
+      createMockCloudClient({
+        whoami: () => Promise.reject(new Error("invalid token")),
+      }),
+    login: () => Promise.reject(new Error("should not open the browser")),
+    portalUrl: "https://portal",
+  });
+  let threw = false;
+  try {
+    await cmds["login"].run({ token: "bad" }, {
+      args: [],
+      flags: { json: false, yes: true, noInput: true, interactive: false },
+    });
+  } catch {
+    threw = true;
+  }
+  assertEquals(threw, true);
+  assertEquals(saved.cloud, null);
+});
+
 async function withStderr(fn: () => Promise<unknown>): Promise<string> {
   const original = console.error;
   const lines: string[] = [];

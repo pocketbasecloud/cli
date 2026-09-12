@@ -1,6 +1,11 @@
-import { defineCommand, type CmdCtx, type Command } from "../command.ts";
+import { type CmdCtx, type Command, defineCommand, str } from "../command.ts";
 import type { CloudAuth, Config } from "../config.ts";
-import { envVarName, resolveCloudAuth } from "../config.ts";
+import {
+  backendExtUrl,
+  backendUrl,
+  envVarName,
+  resolveCloudAuth,
+} from "../config.ts";
 import type { ICloudClient } from "../clients/cloud.ts";
 import { CliError } from "../errors.ts";
 import { emit } from "../envelope.ts";
@@ -24,19 +29,41 @@ function warnIfEnvTokenShadows(ctx: CmdCtx, effect: string): void {
   );
 }
 
+async function loginWithToken(
+  deps: AuthDeps,
+  userToken: string,
+): Promise<CloudAuth> {
+  const auth: CloudAuth = {
+    backendUrl: backendUrl(),
+    extUrl: backendExtUrl(),
+    userToken,
+    userId: "",
+  };
+  const user = await deps.makeClient(auth).whoami();
+  return { ...auth, userId: user.id };
+}
+
 export function makeAuthCommands(deps: AuthDeps): Record<string, Command> {
   return {
     "login": defineCommand({
       path: ["login"],
-      usage: "pbc login",
-      summary: "Log in to PocketBase Cloud via browser.",
+      usage: "pbc login [--token <t>]",
+      summary:
+        "Log in to PocketBase Cloud via browser, or with an access token.",
       args: [],
-      flags: {},
-      run: async (_input, ctx) => {
-        const auth = await createProgress({ silent: ctx.flags.json }).step(
-          "Waiting for the browser login to finish",
-          () => deps.login({ portalUrl: deps.portalUrl }),
-        );
+      flags: {
+        token: str({
+          description:
+            "CLI access token from the portal's Account page (skips the browser flow)",
+        }),
+      },
+      run: async (input, ctx) => {
+        const auth = input.token
+          ? await loginWithToken(deps, input.token)
+          : await createProgress({ silent: ctx.flags.json }).step(
+            "Waiting for the browser login to finish",
+            () => deps.login({ portalUrl: deps.portalUrl }),
+          );
         const config = await deps.loadConfig();
         if (!auth.userId || config.cloud?.userId !== auth.userId) {
           config.currentProject = null;

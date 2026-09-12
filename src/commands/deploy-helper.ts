@@ -283,8 +283,10 @@ export async function chooseCompute(
     return undefined;
   }
 
-  const label = (s: { id: string; location: string }, i: number) =>
-    `${computeLabel(i, s.location)}  ${s.id}`;
+  const label = (
+    s: { id: string; location: string; shortKey?: string },
+    i: number,
+  ) => `${computeLabel(i, s.location, s.shortKey)}  ${s.id}`;
 
   if (computes.length === 1) {
     o.log(`Compute: ${label(computes[0], 0)}.`);

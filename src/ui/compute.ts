@@ -41,7 +41,12 @@ export function locationCity(code: string): string {
   return KNOWN_LOCATIONS[code] ?? humanizeLocationCode(code);
 }
 
-export function computeLabel(index: number, location?: string): string {
+export function computeLabel(
+  index: number,
+  location?: string,
+  shortKey?: string,
+): string {
   const base = `Compute ${index + 1}`;
-  return location ? `${base} — ${locationCity(location)}` : base;
+  const withLocation = location ? `${base} — ${locationCity(location)}` : base;
+  return shortKey ? `${withLocation} (${shortKey})` : withLocation;
 }

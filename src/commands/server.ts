@@ -13,7 +13,7 @@ export function makeServerCommands(
       { header: "ID", get: (s) => s.id },
       {
         header: "COMPUTE",
-        get: (s) => computeLabel(computes.indexOf(s), s.location),
+        get: (s) => computeLabel(computes.indexOf(s), s.location, s.shortKey),
       },
       { header: "STATUS", get: (s) => s.status },
       { header: "LOCATION", get: (s) => s.location },

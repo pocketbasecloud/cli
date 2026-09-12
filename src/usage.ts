@@ -8,10 +8,17 @@ export type Need = `target:${string}` | { explicit: true };
 export type CommandSpec = { usage: string; summary: string; details?: string; /** Target resolution the command needs: which resource kind, and whether a lone candidate may be auto-selected. */ needs?: Need[]; args: ArgSpec[]; flags: FlagSpec[] };
 export const COMMANDS: Record<string, CommandSpec> = {
   "login": {
-    "usage": "pbc login",
-    "summary": "Log in to PocketBase Cloud via browser.",
+    "usage": "pbc login [--token <t>]",
+    "summary": "Log in to PocketBase Cloud via browser, or with an access token.",
     "args": [],
-    "flags": []
+    "flags": [
+      {
+        "name": "token",
+        "type": "string",
+        "required": false,
+        "description": "CLI access token from the portal's Account page (skips the browser flow)"
+      }
+    ]
   },
   "logout": {
     "usage": "pbc logout",

@@ -71,6 +71,7 @@ pbc whoami --json               # preflight
 pbc frontend deploy --no-input --json
 ```
 
+- `pbc login --token <t>` saves that same access token to the local config instead of exporting it — handy on a headless box you'll run several sessions on.
 - `--json` prints one `{ ok, schemaVersion, data|error }` object on stdout; progress goes to stderr, so piping to `jq` is safe.
 - `--yes` skips confirmations; `--no-input` fails instead of prompting.
 - `pbc ci init` writes the GitHub workflow using [`pocketbasecloud/cli/action`](./action). Full reference: [CI/CD docs](https://pocketbasecloud.com/docs/ci-cd/deploying-from-github-actions).

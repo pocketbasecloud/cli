@@ -439,7 +439,12 @@ function clientWithComputes(
   return c;
 }
 
-const CPU = (id: string, name: string) => ({ id, name, location: "GRA" });
+const CPU = (id: string, name: string, shortKey?: string) => ({
+  id,
+  name,
+  location: "GRA",
+  shortKey,
+});
 
 Deno.test("chooseCompute takes the owner's only compute without asking", async () => {
   const said: string[] = [];
@@ -472,6 +477,17 @@ Deno.test("chooseCompute leaves an org with no compute to the platform", async (
     { noInput: true, log: () => {} },
   );
   assertEquals(picked, undefined);
+});
+
+Deno.test("chooseCompute shows the shortKey to distinguish compute in the same location", async () => {
+  const said: string[] = [];
+  const picked = await chooseCompute(
+    clientWithComputes([CPU("s1", "pro-1", "ab12")]),
+    "p1",
+    { noInput: false, log: (m) => said.push(m), io: fakeIO([]) },
+  );
+  assertEquals(picked, "s1");
+  assertStringIncludes(said[0], "Compute 1 — Gravelines (ab12)");
 });
 
 Deno.test("chooseCompute asks which compute when the owner has several", async () => {

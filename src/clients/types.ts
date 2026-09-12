@@ -52,6 +52,7 @@ export type DeployContextServer = {
   id: string;
   name: string;
   location: string;
+  shortKey?: string;
 };
 
 export type Server = {
@@ -60,6 +61,7 @@ export type Server = {
   status: string;
   location: string;
   ownership: string;
+  shortKey?: string;
   cores?: number;
   memory?: number;
   disk?: number;
