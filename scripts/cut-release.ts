@@ -13,7 +13,7 @@ const DOCS_REFERENCE = join(
   "langding_page_v4/src/content/docs/ci-cd/reference.md",
 );
 const MIN_CLI_HOOK = join(MONOREPO_DIR, "backend/pb_hooks/helpers.js");
-const SYNC_SCRIPT = join(CLI_DIR, "scripts/sync-cli-to-public.sh");
+const SYNC_SCRIPT = join(MONOREPO_DIR, "scripts/sync-cli-to-public.sh");
 const PUBLIC_REPO = "pocketbasecloud/cli";
 
 const USAGE = `Cut a pbc release: bump the version everywhere, gate, build, and publish.

@@ -2,6 +2,7 @@ import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import type { Command, CmdCtx } from "../../../src/command.ts";
 import type { ResourceKind } from "../../../src/clients/types.ts";
+import { parseCommand } from "../../../src/parse.ts";
 import { makeDeployCommands } from "../../../src/commands/deploy.ts";
 import { makeFrontendCommands } from "../../../src/commands/frontend.ts";
 import { makePbCommands } from "../../../src/commands/pb.ts";
@@ -318,6 +319,14 @@ function realDeploy(d: CloudCmdDeps) {
     backends: backend["backend deploy"],
   })["deploy"];
 }
+
+Deno.test("flags the kind-specific deploy commands accept parse on the generic dispatcher", () => {
+  const d = deps();
+  const deploy = realDeploy(d);
+  const out = parseCommand(deploy, ["--env", "qa"], [], {});
+  assertEquals(out.ok, true);
+  if (out.ok) assertEquals(out.input.env, "qa");
+});
 
 Deno.test("a static directory deploys as a frontend end to end", async () => {
   const client = createMockCloudClient();

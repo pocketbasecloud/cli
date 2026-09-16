@@ -50,7 +50,18 @@ export function browserLogin(opts: {
     const server = Deno.serve({
       port: opts.port ?? 0,
       onListen: ({ port }) => {
-        open(buildLoginUrl(opts.portalUrl, port, state));
+        try {
+          open(buildLoginUrl(opts.portalUrl, port, state));
+        } catch {
+          reject(
+            new CliError(
+              "Could not open a browser on this machine. Run `pbc login --token <t>` " +
+                "with a token from the portal's Account page instead.",
+              { code: "NOT_AUTHENTICATED" },
+            ),
+          );
+          queueMicrotask(() => server.shutdown());
+        }
       },
     }, (req) => {
       const url = new URL(req.url);

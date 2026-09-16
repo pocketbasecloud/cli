@@ -1217,7 +1217,127 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "description": "The existing resource to redeploy, same as --name; create with --new"
       }
     ],
-    "flags": []
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which existing PocketBase to redeploy. Asked for when omitted and pbc.json has no binding."
+      },
+      {
+        "name": "new",
+        "type": "string",
+        "required": false,
+        "description": "Create a new PocketBase with this name. Fails if the name is taken."
+      },
+      {
+        "name": "location",
+        "type": "string",
+        "required": false,
+        "description": "Region for the deploy, on Starter. Optional — without it the platform picks the region with the most free capacity."
+      },
+      {
+        "name": "compute",
+        "type": "string",
+        "required": false,
+        "description": "Compute to create the instance on. Asked for when the project owner has more than one; required under --no-input/--json."
+      },
+      {
+        "name": "server",
+        "type": "string",
+        "required": false,
+        "description": "Old name for --compute; scripts may keep using it.",
+        "renamedTo": "compute"
+      },
+      {
+        "name": "admin-email",
+        "type": "string",
+        "required": false,
+        "description": "Superuser login for the new instance. Defaults to your account email."
+      },
+      {
+        "name": "admin-password",
+        "type": "string",
+        "required": false,
+        "description": "Superuser password, 12-20 characters. Generated and printed once when omitted."
+      },
+      {
+        "name": "pb-version",
+        "type": "string",
+        "required": false,
+        "description": "PocketBase release to install. Defaults to pocketbaseVersion in pbc.json."
+      },
+      {
+        "name": "skip-build",
+        "type": "boolean",
+        "required": false,
+        "description": "Package without running the build command."
+      },
+      {
+        "name": "skip-env",
+        "type": "boolean",
+        "required": false,
+        "description": "Push no env vars for this run, whatever pbc.json configures."
+      },
+      {
+        "name": "env-file",
+        "type": "path",
+        "required": false,
+        "description": "Dotenv file to push. Recorded in pbc.json for this environment when it has none yet."
+      },
+      {
+        "name": "delete-missing",
+        "type": "boolean",
+        "required": false,
+        "description": "Remove cloud env vars the pushed file does not list."
+      },
+      {
+        "name": "force-env",
+        "type": "boolean",
+        "required": false,
+        "description": "Push env vars even when they are unchanged since the last push."
+      },
+      {
+        "name": "zip",
+        "type": "string",
+        "required": false,
+        "description": "Upload this archive instead of packaging the directory."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target. Defaults to the file's default, or production."
+      },
+      {
+        "name": "subdomain",
+        "type": "string",
+        "required": false,
+        "description": "",
+        "retired": {
+          "since": "0.6.0",
+          "note": "Frontends use uid addresses."
+        }
+      },
+      {
+        "name": "runtime",
+        "type": "string",
+        "required": false,
+        "choices": [
+          "deno",
+          "bun",
+          "nodejs",
+          "nextjs"
+        ],
+        "description": "Defaults to build.runtime in pbc.json, else inferred."
+      },
+      {
+        "name": "start",
+        "type": "string",
+        "required": false,
+        "description": "Command to run. Defaults to build.startCommand, then inference."
+      }
+    ]
   },
   "project ls": {
     "usage": "pbc project ls",

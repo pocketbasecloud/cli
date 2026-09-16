@@ -1,4 +1,4 @@
-import { defineCommand, type Command } from "../command.ts";
+import { defineCommand, type Command, type FlagSpec } from "../command.ts";
 import type { ResourceKind } from "../clients/types.ts";
 import { CliError } from "../errors.ts";
 import { parseKind } from "../resolve/link.ts";
@@ -18,6 +18,16 @@ export function ambiguousMessage(cwd: string): string {
     `  pbc frontend deploy     (a static site)\n` +
     `  pbc backend deploy      (a Deno/Bun/Node/Next.js server)\n` +
     `Or run \`pbc init <kind>\` once to record it in pbc.json.`;
+}
+
+function sharedFlags(handlers: Record<ResourceKind, Command>): Record<string, FlagSpec> {
+  const flags: Record<string, FlagSpec> = {};
+  for (const kind of KINDS) {
+    for (const [key, spec] of Object.entries(handlers[kind].flags)) {
+      if (!(key in flags)) flags[key] = spec;
+    }
+  }
+  return flags;
 }
 
 export function makeDeployCommands(
@@ -66,7 +76,7 @@ and get an error naming the three explicit commands under --no-input or
         { name: "kind", required: false, description: "pocketbase, frontend, or backend; detected from the directory when omitted" },
         { name: "name", required: false, description: "The existing resource to redeploy, same as --name; create with --new" },
       ],
-      flags: {},
+      flags: sharedFlags(handlers),
       run: async (_input, ctx) => {
         const cwd = deps.cwd();
         const explicit = ctx.args[0] ? parseKind(ctx.args[0]) : null;

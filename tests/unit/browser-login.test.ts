@@ -1,5 +1,10 @@
-import { assertEquals, assertThrows } from "@std/assert";
-import { buildLoginUrl, parseCallback } from "../../src/auth/browser-login.ts";
+import { assertEquals, assertRejects, assertThrows } from "@std/assert";
+import {
+  browserLogin,
+  buildLoginUrl,
+  parseCallback,
+} from "../../src/auth/browser-login.ts";
+import { CliError } from "../../src/errors.ts";
 
 Deno.test("buildLoginUrl encodes callback and state", () => {
   const u = new URL(buildLoginUrl("https://portal.app", 51888, "abc"));
@@ -23,4 +28,20 @@ Deno.test("parseCallback rejects state mismatch", () => {
 Deno.test("parseCallback rejects missing token", () => {
   const url = new URL("http://localhost/callback?state=abc");
   assertThrows(() => parseCallback(url, "abc"));
+});
+
+Deno.test("browserLogin surfaces a --token hint when no browser can be opened", async () => {
+  const err = await assertRejects(
+    () =>
+      browserLogin({
+        portalUrl: "https://portal.app",
+        port: 0,
+        open: () => {
+          throw new Deno.errors.NotFound("Failed to spawn 'xdg-open'");
+        },
+      }),
+    CliError,
+  );
+  assertEquals(err.code, "NOT_AUTHENTICATED");
+  assertEquals(err.message.includes("--token"), true);
 });
