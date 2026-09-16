@@ -52,7 +52,7 @@ export type CloudAuth = {
   userToken: string;
   userId: string;
 };
-export type Profile = { url: string; superuserToken: string };
+export type Profile = { url: string; superuserToken: string; email?: string };
 export type Config = {
   cloud: CloudAuth | null;
   currentProject: string | null;

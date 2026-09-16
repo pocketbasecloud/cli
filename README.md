@@ -16,11 +16,15 @@ pbc logs pocketbase --name my-app-db
 Works against any instance, not just the cloud:
 
 ```sh
-pbc admin use https://my-instance.example.com
-pbc admin login
+pbc admin login --url https://my-instance.example.com
 pbc admin collections ls
 pbc admin records ls posts
 ```
+
+Keep several instances — or several superusers on one — at once:
+`pbc admin login --url <url> --name <profile>` saves each, `pbc admin profiles`
+lists them (the active one starred), and `pbc admin use --name <profile>` or
+`--profile <profile>` switches between them.
 
 `pbc --help` lists everything. `pbc <command> --help` explains one command.
 

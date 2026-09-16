@@ -1685,12 +1685,12 @@ export const COMMANDS: Record<string, CommandSpec> = {
     "flags": []
   },
   "admin use": {
-    "usage": "pbc admin use <url> [--name <profile>]",
-    "summary": "Select a PocketBase instance.",
+    "usage": "pbc admin use [<url>] [--name <profile>]",
+    "summary": "Select a PocketBase instance, creating or updating its profile from a URL.",
     "args": [
       {
         "name": "url",
-        "required": true
+        "required": false
       }
     ],
     "flags": [
@@ -1698,15 +1698,27 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": false,
-        "description": "Profile name (defaults to the host)"
+        "description": "Profile name (defaults to the URL)"
       }
     ]
   },
   "admin login": {
-    "usage": "pbc admin login [--email <e>] [--password <p>]",
-    "summary": "Log in as the instance superuser.",
+    "usage": "pbc admin login [--url <url>] [--name <profile>] [--email <e>] [--password <p>]",
+    "summary": "Log in as the instance superuser. --url creates the profile in one step.",
     "args": [],
     "flags": [
+      {
+        "name": "url",
+        "type": "string",
+        "required": false,
+        "description": "Instance URL; its profile is created when it is new"
+      },
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Profile name for --url (defaults to the URL)"
+      },
       {
         "name": "email",
         "type": "string",
@@ -1737,6 +1749,12 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "admin whoami": {
     "usage": "pbc admin whoami",
     "summary": "Show the active instance profile.",
+    "args": [],
+    "flags": []
+  },
+  "admin profiles": {
+    "usage": "pbc admin profiles",
+    "summary": "List saved instance logins and which one is active.",
     "args": [],
     "flags": []
   },
