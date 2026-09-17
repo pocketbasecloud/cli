@@ -56,69 +56,28 @@ export function makeBackendCommands(
     "backend deploy": defineCommand({
       path: ["backend", "deploy"],
       needs: ["target:backends", { explicit: true }],
-      usage:
-        "pbc backend deploy [--name <name>] [--new <name>] [--runtime <deno|bun|nodejs|nextjs>] [--start <cmd>] [--compute <id>] [--skip-env] [--zip <file>] [--env <name>]",
+      usage: "pbc backend deploy [--name <name>|--new <name>] [flags]",
       summary: "Build, package, and deploy a backend.",
-      details:
-        `Runs the build command and uploads the result. The runtime, build command,
+      details: `Runs the build command and uploads the result. The runtime, build command,
 and output directory come from the "build" block in pbc.json, inferred from the
 directory (deno.json, bun.lockb, next.config.*, package.json) and written there
 on the first deploy.
 
-deno, bun, and nodejs ship their source — the platform installs dependencies on
-start, so node_modules is excluded.
+deno, bun, and nodejs ship their source — the platform installs dependencies
+on start, so node_modules is excluded. Where there is a build command, deploy
+installs its dependencies first when they are missing, with the package
+manager the lockfile names.
 
-Where there is a build command, it needs its dependencies, so deploy installs
-them first when something package.json declares is not installed — with the
-package manager the lockfile names, at the workspace root when the project is
-one. This is what keeps a Next.js deploy from a fresh clone or a CI runner from
-dying on "next: not found". A tree that is already installed is left alone;
-"install" in the build block sets the command outright, and "" turns the step
-off.
-
-nextjs ships a prebuilt bundle: the platform does not run next build (it
-exhausts memory on a shared host). That bundle only exists when the build asks
-for it, so deploy adds output: "standalone" to next.config.* before building
-(creating the file if the project has none) and says so — the CLI then
-assembles .next/standalone, .next/static, and public into the layout the
-runtime expects, defaulting the start command to "node server.js". A config
-that already sets output is left alone; output: "export" is a static site, so
-deploy it with "pbc frontend deploy" instead.
-
-Each wait — installing, building, packaging, uploading, provisioning, waiting
-for the domain — is reported as its own step, with a spinner and the elapsed
-time on a terminal, plain lines when the output is piped, and nothing at all
-under --json.
-
-Env vars are pushed only from the file you name — nothing is uploaded by
-default. Each environment has its own: the first deploy of an environment asks
-which dotenv file it uses (or none) and records the answer as envFile under
-that environment in pbc.json, so it is asked once. --env-file names one outright
-and is recorded the same way when the environment has none yet. Pushing merges,
-keeping cloud-only keys; --delete-missing removes them so the file is the whole
-truth, and --skip-env pushes nothing for this run. A file whose variables are
-unchanged since the last push is not uploaded again — pass --force-env to push
-it anyway, e.g. after editing the variables in the portal.
-
-With no --name and nothing bound in pbc.json, deploy asks which backend to
-redeploy — or what to call a new one — the way it already asks which project
-to use. Pass --no-input (or --json) to get the usage error instead.
-
-Creating a backend also picks the compute it runs on: the project owner's, so
-a developer in a shared organization project deploys onto the owner's Pro
-compute (and against the owner's plan) without needing to see it. A single
-compute is used, several are offered as a menu, and --compute settles it
-outright. A redeploy never moves an existing backend.
-
-Backends run on a Pro organization's compute. When the project the deploy
-resolves to is on the free or starter plan, deploy lists your other projects
-so you can send the backend to one that qualifies; under --no-input or --json
-it asks for --project instead.`,
+nextjs ships a prebuilt bundle: deploy adds output: "standalone" to
+next.config.* before building (and says so) unless the config already sets
+output, then assembles .next/standalone, .next/static, and public, starting
+with node server.js. output: "export" is a static site — deploy it with
+pbc frontend deploy instead.`,
       args: [],
       flags: {
         name: str({
           description:
-            "Which existing backend to redeploy. Asked for when omitted and pbc.json has no binding.",
+            "Which existing backend to redeploy; asked for when unbound.",
           conflicts: ["new"],
         }),
         new: str({
@@ -131,43 +90,40 @@ it asks for --project instead.`,
           choices: ["deno", "bun", "nodejs", "nextjs"],
         }),
         start: str({
-          description: "Command to run. Defaults to build.startCommand, then inference.",
+          description: "Command to run; defaults to build.startCommand.",
         }),
         compute: str({
           description:
-            "Compute to create the backend on. Asked for when the project owner " +
-            "has more than one; required under --no-input/--json.",
+            "Compute to create on; asked for when there is a choice, or required " +
+            "under --no-input/--json.",
         }),
         server: renamed("compute", {
           description: "Old name for --compute; scripts may keep using it.",
         }),
         zip: str({
           description:
-            "Upload this archive instead of packaging the directory.",
+            "Deploy this archive instead of building the directory.",
         }),
         skipBuild: bool({
           description: "Package without running the build command.",
         }),
         skipEnv: bool({
-          description:
-            "Push no env vars for this run, whatever pbc.json configures.",
+          description: "Push no env vars this run.",
         }),
         envFile: path({
           description:
-            "Dotenv file to push. Recorded in pbc.json for this environment " +
-            "when it has none yet.",
+            "Dotenv file to push; recorded in pbc.json for this environment.",
         }),
         deleteMissing: bool({
-          description: "Remove cloud env vars the pushed file does not list.",
+          description: "Remove cloud vars the file does not list.",
         }),
         forceEnv: bool({
-          description:
-            "Push env vars even when they are unchanged since the last push.",
+          description: "Push even when unchanged since the last push.",
         }),
         env: str({
           description:
-            "Which pbc.json environment to target. Defaults to the file's " +
-            "default, or production.",
+            "Which pbc.json environment; defaults to the file's default or " +
+            "production.",
         }),
       },
       run: async (input, ctx) => {

@@ -109,7 +109,7 @@ Deno.test("describeSubStatus explains a failure and stays quiet otherwise", () =
   );
   assertStringIncludes(
     describeSubStatus("hooksNotInstallable") ?? "",
-    "subdirectory",
+    "could not be installed",
   );
   assertEquals(describeSubStatus("sendingToServer"), undefined);
   assertEquals(describeSubStatus(""), undefined);

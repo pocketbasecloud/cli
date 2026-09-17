@@ -184,22 +184,18 @@ export function makeCiCommands(
   return {
     "ci init": defineCommand({
       path: ["ci", "init"],
-      usage:
-        "pbc ci init [pb|frontend|backend] [--out <path>] [--branch <name>] [--force] [--env <name>]",
+      usage: "pbc ci init [pb|frontend|backend] [flags]",
       summary: "Write a GitHub Actions workflow that deploys this directory.",
-      details: `Writes .github/workflows/deploy.yml (or deploy-<path>.yml, when this
-directory is not the repo root — nested folders become deploy-apps-web.yml),
-using the official pocketbasecloud/cli/action. Nothing in the cloud is
-touched, and no login is needed — like \`pbc init\`, it only inspects the
+      details: `Writes .github/workflows/deploy.yml (or deploy-<path>.yml for a nested
+directory) using the official pocketbasecloud/cli/action. Nothing in the cloud
+is touched, and no login is needed — like \`pbc init\`, it only inspects the
 directory and the surrounding git repo.
 
-The kind comes from the argument, or from pbc.json's existing binding. The
-branch defaults to the one currently checked out; --branch overrides it.
---out picks a different file path. An existing file is left alone unless
---force is passed.
+The kind comes from the argument or pbc.json's binding; the branch from the
+one checked out. An existing file is left alone unless --force is passed.
 
-Prints the two remaining one-time steps: copying an access token from the
-portal's Account page, and adding it as a repository secret named PBC_TOKEN.`,
+It then prints the remaining one-time step: a CLI access token from the
+portal's Account page, saved as the repository secret PBC_TOKEN.`,
       args: [{
         name: "kind",
         required: false,

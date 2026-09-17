@@ -146,7 +146,6 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Command> {
       path: ["env", "set"],
       usage: `pbc env set KEY=VALUE --target ${ENV_NOUNS.join("|")} --name <n> [--env <name>]`,
       summary: "Set an environment variable.",
-      details: "Without --name/--id, a terminal offers a picker.",
       args: [{ name: "KEY=VALUE", required: true }],
       flags: {
         target: targetFlag,
@@ -181,7 +180,6 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Command> {
       path: ["env", "rm"],
       usage: `pbc env rm KEY --target ${ENV_NOUNS.join("|")} --name <n> [--env <name>]`,
       summary: "Remove an environment variable.",
-      details: "Without --name/--id, a terminal offers a picker.",
       args: [{ name: "KEY", required: true }],
       flags: {
         target: targetFlag,
@@ -214,13 +212,10 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Command> {
       usage:
         `pbc env import <.env> --target ${ENV_NOUNS.join("|")} --name <n> [--delete-missing] [--env <name>]`,
       summary: "Bulk-import variables from a .env file.",
-      details: `Merges by default: keys in the file are written, keys only in the cloud
-are left alone. Pass --delete-missing to make the file the whole truth — cloud
-variables it does not list are removed from the instance too, which asks for
-confirmation unless --yes is given. --no-input does not waive it: without a way
-to ask, the import stops and names --yes.
-
-Without --name/--id, a terminal offers a picker.`,
+      details: `Merges: keys in the file are written, cloud-only keys are left alone.
+--delete-missing makes the file the whole truth — cloud variables it does not
+list are removed too, after a confirmation that --no-input does not waive
+(without a way to ask, the import stops and names --yes).`,
       args: [{ name: ".env", required: true }],
       flags: {
         target: targetFlag,

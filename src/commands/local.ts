@@ -122,8 +122,7 @@ Start the instance afterwards with \`./pocketbase serve\`.`,
 
     "local install": defineCommand({
       path: ["local", "install"],
-      usage:
-        "pbc local install [<version>] [--dir <d>] [--force] [--os <o>] [--arch <a>]",
+      usage: "pbc local install [<version>] [flags]",
       summary: "Download a PocketBase binary and record the version pin.",
       details: `Like \`pbc local init\` without the scaffolding. --os/--arch override platform
 detection to fetch a build for another machine.
@@ -175,7 +174,7 @@ Start the instance afterwards with \`./pocketbase serve\`.`,
 
     "local versions": defineCommand({
       path: ["local", "versions"],
-      usage: "pbc local versions [--all] [--pre] [--json]",
+      usage: "pbc local versions [--all] [--pre]",
       summary: "List available PocketBase versions.",
       details: `Reads the live GitHub releases. Shows the 20 newest by semver; --all
 lists every release and --pre includes prereleases. Falls back to a

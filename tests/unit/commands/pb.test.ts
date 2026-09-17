@@ -467,6 +467,10 @@ Deno.test("pb redeploy never re-picks the compute", async () => {
 function hooksDir(files: Record<string, string>): string {
   const dir = Deno.makeTempDirSync();
   for (const [name, content] of Object.entries(files)) {
+    const slash = name.lastIndexOf("/");
+    if (slash >= 0) {
+      Deno.mkdirSync(`${dir}/${name.slice(0, slash)}`, { recursive: true });
+    }
     Deno.writeTextFileSync(`${dir}/${name}`, content);
   }
   return dir;
@@ -576,11 +580,15 @@ Deno.test("pb config set returns only supported fields and preserves the rest", 
   });
 });
 
-Deno.test("pb create presents backup restore as an advanced option", () => {
+Deno.test("pb create keeps backup restore available as a create flag", () => {
   const command = makePbCommands(deps().d)["pocketbase create"];
   assertEquals(command.summary, "Create a PocketBase instance.");
-  assertEquals(command.usage.endsWith("[--backup <zip>]"), true);
-  assertEquals(command.details?.includes("Advanced configuration:"), true);
+  assertEquals(command.usage, "pbc pocketbase create [<name>] [flags]");
+  assertEquals(
+    command.flags.backup.description,
+    "PocketBase backup ZIP to restore during creation.",
+  );
+  assertEquals(command.flags.backup.conflicts, ["adminEmail", "adminPassword"]);
 });
 
 Deno.test("pb create makes a running instance and sends no archive", async () => {
@@ -1023,20 +1031,24 @@ Deno.test("pb create --json prints the instance with its credentials", async () 
   );
 });
 
-Deno.test("pushHooks uploads .js and .json, not just *.pb.js", async () => {
+Deno.test("pushHooks uploads .js, .json, .html, and .md, not just *.pb.js", async () => {
   const client = createMockCloudClient();
   const dir = hooksDir({
     "main.pb.js": "// entrypoint\n",
     "helpers.js": "module.exports = {}\n",
     "countries.json": "[]\n",
-    "README.md": "not a hook\n",
+    "README.md": "docs, not code\n",
+    "template.html": "<p>hi</p>\n",
+    "logo.png": "not a supported hook type\n",
   });
   const r = await pushHooks(client, "pb1", dir);
-  assertEquals(r, { sent: 3, stored: 3 });
+  assertEquals(r, { sent: 5, stored: 5 });
   assertEquals(pushedNames(client), [
+    "README.md",
     "countries.json",
     "helpers.js",
     "main.pb.js",
+    "template.html",
   ]);
 });
 
@@ -1050,27 +1062,39 @@ Deno.test("pushHooks marks every file active", async () => {
   assertEquals(body.hooks.every((h) => h.active === true), true);
 });
 
-Deno.test("pushHooks skips subdirectories and says so", async () => {
+Deno.test("pushHooks uploads nested files with their relative path", async () => {
   const client = createMockCloudClient();
   const dir = hooksDir({ "main.pb.js": "// hook\n" });
   Deno.mkdirSync(`${dir}/lib`);
-  Deno.writeTextFileSync(`${dir}/lib/deep.js`, "// unreachable\n");
+  Deno.writeTextFileSync(`${dir}/lib/deep.js`, "// nested\n");
+  const r = await pushHooks(client, "pb1", dir);
+  assertEquals(r.sent, 2);
+  assertEquals(pushedNames(client), ["lib/deep.js", "main.pb.js"]);
+});
+
+Deno.test("pushHooks skips a file nested too deep and still pushes the rest", async () => {
+  const client = createMockCloudClient();
+  const dir = hooksDir({
+    "main.pb.js": "// hook\n",
+    "a/b/c/d/e/f/g.js": "// too deep\n",
+  });
   const logs: string[] = [];
   const r = await pushHooks(client, "pb1", dir, (m) => logs.push(m));
   assertEquals(r.sent, 1);
   assertEquals(pushedNames(client), ["main.pb.js"]);
   assertEquals(logs.length, 1);
-  assertEquals(logs[0].includes("lib/"), true);
+  assertEquals(logs[0].includes("a/b/c/d/e/f/g.js"), true);
+  assertEquals(logs[0].includes("nested more than"), true);
 });
 
-Deno.test("pushHooks refuses more than 30 files in one push", async () => {
+Deno.test("pushHooks refuses more than 500 files in one push", async () => {
   const client = createMockCloudClient();
   const files: Record<string, string> = {};
-  for (let i = 0; i < 31; i++) files[`h${i}.js`] = "// hook\n";
+  for (let i = 0; i < 501; i++) files[`h${i}.js`] = "// hook\n";
   await assertRejects(
     () => pushHooks(client, "pb1", hooksDir(files)),
     Error,
-    "pushes at most 30 at a time",
+    "pushes at most 500 at a time",
   );
   assertEquals(client.calls.pbApi.length, 0);
 });
@@ -1078,9 +1102,9 @@ Deno.test("pushHooks refuses more than 30 files in one push", async () => {
 Deno.test("pushHooks accepts a directory sitting exactly on the limit", async () => {
   const client = createMockCloudClient();
   const files: Record<string, string> = {};
-  for (let i = 0; i < 30; i++) files[`h${i}.js`] = "// hook\n";
+  for (let i = 0; i < 500; i++) files[`h${i}.js`] = "// hook\n";
   const r = await pushHooks(client, "pb1", hooksDir(files));
-  assertEquals(r.sent, 30);
+  assertEquals(r.sent, 500);
   assertEquals(client.calls.pbApi.length, 1);
 });
 

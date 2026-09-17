@@ -350,6 +350,34 @@ Deno.test("creating a frontend uses the owner's Pro compute", async () => {
   assertEquals(client.calls.createResource[0][1].server, "srv9");
 });
 
+Deno.test("creating a frontend passes --location for a shared-pool plan", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const d = deps(client, p.id);
+  Deno.writeTextFileSync(`${d.cwd()}/index.html`, "<html></html>");
+  runningNow(client);
+  client.deployContext = () =>
+    Promise.resolve({
+      ownerPlan: "starter",
+      isOwner: true,
+      organization: "",
+      servers: [],
+      locations: ["fsn1"],
+    });
+  const code = await makeFrontendCommands(d)["frontend deploy"].run({
+    new: "web",
+    location: "fsn1",
+    skipBuild: true,
+  }, {
+    args: [],
+    flags: flags({ project: p.id }),
+  });
+  assertEquals(code, 0);
+  const [, data] = client.calls.createResource[0];
+  assertEquals(data.location, "fsn1");
+  assertEquals(data.server, undefined);
+});
+
 Deno.test("creating a frontend in an org project uses the organization's compute", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");

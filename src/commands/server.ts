@@ -33,8 +33,7 @@ export function makeServerCommands(
         "Compute is provisioned by the platform, not the CLI. This lists your\n" +
         "account's own dedicated compute — the ids `--compute <id>` accepts on a\n" +
         "deploy. The shared pool is not listed: on every plan except Pro the\n" +
-        "platform picks from it by capacity and the flag is unnecessary.\n\n" +
-        "`pbc server ls` is the same command under its former name.",
+        "platform picks from it by capacity and the flag is unnecessary.",
       args: [],
       flags: {},
       run: ls,

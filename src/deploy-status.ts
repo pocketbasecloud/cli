@@ -12,7 +12,7 @@ const FAILURE_REASONS: Record<string, string> = {
   archiveMissingPbDirs:
     "the archive holds no pb_hooks, pb_migrations or pb_public directory at its root, so nothing was installed — the instance is untouched and still running",
   hooksNotInstallable:
-    "a hook file could not be installed — hooks must be .js or .json files directly under pb_hooks/, not in a subdirectory; nothing was installed and the instance is still running",
+    "a hook file could not be installed — check the file names, types, and contents, then deploy again; nothing was installed and the instance is still running",
   noAssignedPort: "no port could be assigned on the compute — contact support",
   computeFull: "your compute is full — add-ons coming soon",
   noServerAvailable:

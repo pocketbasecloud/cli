@@ -23,30 +23,21 @@ export function makeSelfCommands(
   return {
     "self upgrade": defineCommand({
       path: ["self", "upgrade"],
-      usage: "pbc self upgrade [<version>] [--check] [--force] [--json]",
+      usage: "pbc self upgrade [<version>] [--check] [--force]",
       summary: "Update pbc itself to the latest release.",
       details: `Downloads the release archive for this OS and CPU, verifies its
 SHA-256 against the release's checksums.txt, and replaces the running
-binary. Nothing is changed unless the checksum matches. This is the same
-package the install script fetches:
-
-  ${installCommand()}
+binary. Nothing is changed unless the checksum matches.
 
 Pass a <version> to install a specific release, including an older one
 to roll back. --check reports what is available without installing;
 --force reinstalls the version you already have.
 
-Only a standalone binary (the \`curl | sh\` installer, or a release
-archive) can be replaced in place. npm installs are deprecated: reinstall
-once from the script above, then \`pbc self upgrade\` works in place.
-A from-source install is updated by updating its clone instead.
+Only a standalone binary (the installer, or a release archive) can be
+replaced in place; a from-source install is updated by updating its clone.
 
-pbc also looks for a newer release once a day on its own and mentions
-one on stderr after a command finishes. Set PBC_NO_UPDATE_CHECK to turn
-that off; it is already skipped under --json, CI, and redirected
-output.
-
-To change your plan, see \`pbc plan\` instead.`,
+pbc also mentions a newer release on stderr at most once a day;
+PBC_NO_UPDATE_CHECK=1 disables that. To change your plan, see \`pbc plan\`.`,
       args: [{
         name: "version",
         required: false,

@@ -715,7 +715,7 @@ Deno.test("a failed deploy reports the platform's own message, not just the sub-
   const d = deps(client, p.id, cwd);
   d.deploy.setStatus(
     "failed",
-    "pb_hooks/lib/helpers.js is inside a subdirectory. Hooks must be flat files.",
+    "pb_hooks/lib/helpers.js holds an unsupported file type. Nothing was installed.",
   );
   const cmds = makePbCommands(d);
 
@@ -726,7 +726,7 @@ Deno.test("a failed deploy reports the platform's own message, not just the sub-
         flags: flags(p.id),
       }),
     CliError,
-    "inside a subdirectory",
+    "unsupported file type",
   );
   assertEquals(err.message.includes("pb_hooks/lib/helpers.js"), true);
 });

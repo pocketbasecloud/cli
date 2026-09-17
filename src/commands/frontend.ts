@@ -52,48 +52,24 @@ export function makeFrontendCommands(
     "frontend deploy": defineCommand({
       path: ["frontend", "deploy"],
       needs: ["target:frontends", { explicit: true }],
-      usage:
-        "pbc frontend deploy [--name <name>] [--new <name>] [--skip-build] [--zip <file>] [--location <loc>] [--compute <id>] [--env <name>]",
+      usage: "pbc frontend deploy [--name <name>|--new <name>] [flags]",
       summary: "Build, package, and deploy a static site.",
-      details:
-        `Runs the build command, zips the output directory, and uploads it. Both
-come from the "build" block in pbc.json, which is inferred from the directory
-(vite/svelte/angular/next config, package.json build script) and written there
-on the first deploy.
-
-A build needs its dependencies, so deploy installs them first when something
-package.json declares is not installed — with the package manager the lockfile
-names, at the workspace root when the project is one. A tree that is already
-installed is left alone; "install" in the build block sets the command outright,
-and "" turns the step off.
-
-Each wait — installing, building, packaging, uploading, provisioning, waiting
-for the domain — is reported as its own step, with a spinner and the elapsed
-time on a terminal, plain lines when the output is piped, and nothing at all
-under --json.
+      details: `Runs the build command, zips the output directory, and uploads it. Both
+come from the "build" block in pbc.json, inferred from the directory
+(vite/svelte/angular/next config, package.json build script) and written
+there on the first deploy.
 
 Frontends have no cloud env store — build-time variables are baked into the
 bundle, so there is no --env-file flag here.
 
 A site is served from an address the platform assigns and never changes:
-<id>.<compute>.pocketbasecloud.com. To put a domain of your own in front of it,
-use pbc frontend domain add.
-
-With no --name and nothing bound in pbc.json, deploy asks which frontend to
-redeploy — or what to call a new one — the way it already asks which project
-to use. Pass --no-input (or --json) to get the usage error instead.
-
-Creating a site also picks the compute it runs on, whenever there is a choice to
-make: on Pro, and in a project shared with an organization, where the compute is
-the owner's. One compute is used without asking, several are offered as a menu,
-and --compute settles it outright. On the free and starter plans the platform
-picks from the shared pool and the flag is unnecessary. A redeploy never moves
-an existing site.`,
+<id>.<compute>.pocketbasecloud.com. To put a domain of your own in front of
+it, use pbc frontend domain add.`,
       args: [],
       flags: {
         name: str({
           description:
-            "Which existing frontend to redeploy. Asked for when omitted and pbc.json has no binding.",
+            "Which existing frontend to redeploy; asked for when unbound.",
           conflicts: ["new"],
         }),
         new: str({
@@ -103,28 +79,27 @@ an existing site.`,
         }),
         zip: str({
           description:
-            "Upload this archive instead of packaging the directory.",
+            "Deploy this archive instead of building the directory.",
         }),
         skipBuild: bool({
           description: "Package without running the build command.",
         }),
         location: str({
           description:
-            "Region for the deploy. Optional — without it the platform picks " +
-            "the region with the most free capacity.",
+            "Region for the deploy. The platform picks when omitted.",
         }),
         compute: str({
           description:
-            "Compute to create the site on. Asked for when the project owner " +
-            "has more than one; required under --no-input/--json.",
+            "Compute to create on; asked for when there is a choice, or required " +
+            "under --no-input/--json.",
         }),
         server: renamed("compute", {
           description: "Old name for --compute; scripts may keep using it.",
         }),
         env: str({
           description:
-            "Which pbc.json environment to target. Defaults to the file's " +
-            "default, or production.",
+            "Which pbc.json environment; defaults to the file's default or " +
+            "production.",
         }),
         subdomain: retired({
           description: "",

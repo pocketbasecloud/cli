@@ -31,19 +31,17 @@ export function makeCloudInitCommands(
       path: ["init"],
       usage: "pbc init [pocketbase|frontend|backend] [--force] [--env <name>]",
       summary: "Write this directory's build config into pbc.json.",
-      details: `Inspects the directory and records how it should be built and packaged:
-the build command, the output directory, the backend runtime, or a
-PocketBase project's pb_public / pb_hooks / pb_migrations paths.
+      details: `Inspects the directory and records how it should be built and packaged: the
+build command, output directory, backend runtime, or a PocketBase project's
+pb_public / pb_hooks / pb_migrations paths. Nothing in the cloud is touched,
+and no login is needed.
 
 Deploy infers the same block when pbc.json has none, so this command is
-optional — it just lets you see and edit the guess before anything ships.
-Nothing in the cloud is touched, and no login is needed.
+optional — it lets you see and edit the guess before anything ships. An
+existing block is left alone unless --force is passed.
 
-The kind comes from the argument, or from the directory's existing resource
-binding. An existing block is left alone unless --force is passed.
-
-On a terminal it also asks which environment this directory deploys to, and
-records it as the default, so the first deploy has nothing left to ask.`,
+On a terminal it also asks which environment this directory deploys to and
+records it as the default.`,
       args: [{
         name: "kind",
         required: false,

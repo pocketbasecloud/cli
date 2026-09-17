@@ -56,24 +56,12 @@ Deno.test("a multi-paragraph command (auth) reconstructs identically to the orig
       "View or edit an auth collection's auth-related settings.\n\n" +
       "Without --set, prints the current value of: authRule, manageRule, authAlert,\n" +
       "oauth2, passwordAuth, mfa, otp, verificationTemplate, resetPasswordTemplate.\n\n" +
-      "With --set '<field>=<json>', replaces that one field's value entirely — run\n" +
-      "without --set first if the field (e.g. oauth2.providers) already has content\n" +
-      "you need to keep, and include it in the json you send.\n\n" +
-      "Examples:\n" +
+      "--set '<field>=<json>' replaces that field entirely, so run without --set\n" +
+      "first when the field already has content you need to keep (e.g.\n" +
+      "oauth2.providers) and include it in the json. Collection and field names as\n" +
+      "in the admin UI.\n\n" +
       "  pbc admin auth users config\n" +
-      '  pbc admin auth users config --set \'passwordAuth={"enabled":true,"identityFields":["email"]}\'\n\n' +
-      '  Enable Google sign-in on the "users" collection (get clientId/clientSecret\n' +
-      "  from a Google Cloud OAuth 2.0 Client ID, with authorized redirect URI\n" +
-      "  <your-instance-url>/api/oauth2-redirect):\n" +
-      '    pbc admin auth users config --set \'oauth2={"enabled":true,"providers":' +
-      '[{"name":"google","clientId":"<GOOGLE_CLIENT_ID>.apps.googleusercontent.com",' +
-      '"clientSecret":"<GOOGLE_CLIENT_SECRET>"}]}' + "'\n\n" +
-      "  Add Google alongside an existing provider — include every provider you\n" +
-      "  want to keep, since the json replaces the whole oauth2 field:\n" +
-      '    pbc admin auth users config --set \'oauth2={"enabled":true,"providers":' +
-      '[{"name":"github","clientId":"<GITHUB_CLIENT_ID>","clientSecret":"<GITHUB_CLIENT_SECRET>"},' +
-      '{"name":"google","clientId":"<GOOGLE_CLIENT_ID>.apps.googleusercontent.com",' +
-      '"clientSecret":"<GOOGLE_CLIENT_SECRET>"}]}' + "'",
+      "  pbc admin auth users config --set 'passwordAuth={\"enabled\":true,\"identityFields\":[\"email\"]}'",
   );
 });
 

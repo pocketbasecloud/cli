@@ -122,7 +122,6 @@ export function makeResourceCommands(
         : `pbc ${spec.noun} domain status [--name <name>] ` +
           `[--env <name>]`,
       summary: DOMAIN_SUMMARIES[verb],
-      details: "Without --name/--id, a terminal offers a picker.",
       needs: takesDomain ? addressesToMutate : addresses,
       args: takesDomain ? [{ name: "domain", required: true }] : [],
       flags: {
@@ -195,7 +194,6 @@ export function makeResourceCommands(
       usage: `pbc ${spec.noun} info (<name>|--name <name>|--id <id>) ` +
         `[--env <name>]`,
       summary: `Show ${spec.display} details.`,
-      details: "Without --name/--id, a terminal offers a picker.",
       needs: addresses,
       args: [positional],
       flags: {
@@ -217,7 +215,6 @@ export function makeResourceCommands(
       usage: `pbc ${spec.noun} rm (<name>|--name <name>|--id <id>) ` +
         `[--yes] [--env <name>]`,
       summary: `Delete a ${spec.display}.`,
-      details: "Without --name/--id, a terminal offers a picker.",
       needs: addressesToMutate,
       args: [positional],
       flags: {

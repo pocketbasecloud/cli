@@ -30,22 +30,13 @@ export function makeAuthConfigCommands(
       details: `Without --set, prints the current value of: authRule, manageRule, authAlert,
 oauth2, passwordAuth, mfa, otp, verificationTemplate, resetPasswordTemplate.
 
-With --set '<field>=<json>', replaces that one field's value entirely — run
-without --set first if the field (e.g. oauth2.providers) already has content
-you need to keep, and include it in the json you send.
+--set '<field>=<json>' replaces that field entirely, so run without --set
+first when the field already has content you need to keep (e.g.
+oauth2.providers) and include it in the json. Collection and field names as
+in the admin UI.
 
-Examples:
   pbc admin auth users config
-  pbc admin auth users config --set 'passwordAuth={"enabled":true,"identityFields":["email"]}'
-
-  Enable Google sign-in on the "users" collection (get clientId/clientSecret
-  from a Google Cloud OAuth 2.0 Client ID, with authorized redirect URI
-  <your-instance-url>/api/oauth2-redirect):
-    pbc admin auth users config --set 'oauth2={"enabled":true,"providers":[{"name":"google","clientId":"<GOOGLE_CLIENT_ID>.apps.googleusercontent.com","clientSecret":"<GOOGLE_CLIENT_SECRET>"}]}'
-
-  Add Google alongside an existing provider — include every provider you
-  want to keep, since the json replaces the whole oauth2 field:
-    pbc admin auth users config --set 'oauth2={"enabled":true,"providers":[{"name":"github","clientId":"<GITHUB_CLIENT_ID>","clientSecret":"<GITHUB_CLIENT_SECRET>"},{"name":"google","clientId":"<GOOGLE_CLIENT_ID>.apps.googleusercontent.com","clientSecret":"<GOOGLE_CLIENT_SECRET>"}]}'`,
+  pbc admin auth users config --set 'passwordAuth={"enabled":true,"identityFields":["email"]}'`,
       args: [
         { name: "collection", required: true },
         {

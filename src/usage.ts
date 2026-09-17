@@ -41,7 +41,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "pocketbase info": {
     "usage": "pbc pocketbase info (<name>|--name <name>|--id <id>) [--env <name>]",
     "summary": "Show PocketBase instance details.",
-    "details": "Without --name/--id, a terminal offers a picker.",
     "needs": [
       "target:pocketbases"
     ],
@@ -76,7 +75,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "pocketbase rm": {
     "usage": "pbc pocketbase rm (<name>|--name <name>|--id <id>) [--yes] [--env <name>]",
     "summary": "Delete a PocketBase instance.",
-    "details": "Without --name/--id, a terminal offers a picker.",
     "needs": [
       "target:pocketbases",
       {
@@ -114,7 +112,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "pocketbase domain add": {
     "usage": "pbc pocketbase domain add <domain> --name <name> [--env <name>]",
     "summary": "Add a custom domain.",
-    "details": "Without --name/--id, a terminal offers a picker.",
     "needs": [
       "target:pocketbases",
       {
@@ -151,7 +148,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "pocketbase domain verify": {
     "usage": "pbc pocketbase domain verify <domain> --name <name> [--env <name>]",
     "summary": "Verify a custom domain.",
-    "details": "Without --name/--id, a terminal offers a picker.",
     "needs": [
       "target:pocketbases",
       {
@@ -188,7 +184,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "pocketbase domain remove": {
     "usage": "pbc pocketbase domain remove <domain> --name <name> [--env <name>]",
     "summary": "Remove a custom domain.",
-    "details": "Without --name/--id, a terminal offers a picker.",
     "needs": [
       "target:pocketbases",
       {
@@ -225,7 +220,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "pocketbase domain status": {
     "usage": "pbc pocketbase domain status [--name <name>] [--env <name>]",
     "summary": "Check whether the custom domain is reachable.",
-    "details": "Without --name/--id, a terminal offers a picker.",
     "needs": [
       "target:pocketbases"
     ],
@@ -260,7 +254,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "frontend info": {
     "usage": "pbc frontend info (<name>|--name <name>|--id <id>) [--env <name>]",
     "summary": "Show frontend details.",
-    "details": "Without --name/--id, a terminal offers a picker.",
     "needs": [
       "target:frontends"
     ],
@@ -295,7 +288,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "frontend rm": {
     "usage": "pbc frontend rm (<name>|--name <name>|--id <id>) [--yes] [--env <name>]",
     "summary": "Delete a frontend.",
-    "details": "Without --name/--id, a terminal offers a picker.",
     "needs": [
       "target:frontends",
       {
@@ -333,7 +325,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "frontend domain add": {
     "usage": "pbc frontend domain add <domain> --name <name> [--env <name>]",
     "summary": "Add a custom domain.",
-    "details": "Without --name/--id, a terminal offers a picker.",
     "needs": [
       "target:frontends",
       {
@@ -370,7 +361,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "frontend domain verify": {
     "usage": "pbc frontend domain verify <domain> --name <name> [--env <name>]",
     "summary": "Verify a custom domain.",
-    "details": "Without --name/--id, a terminal offers a picker.",
     "needs": [
       "target:frontends",
       {
@@ -407,7 +397,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "frontend domain remove": {
     "usage": "pbc frontend domain remove <domain> --name <name> [--env <name>]",
     "summary": "Remove a custom domain.",
-    "details": "Without --name/--id, a terminal offers a picker.",
     "needs": [
       "target:frontends",
       {
@@ -444,7 +433,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "frontend domain status": {
     "usage": "pbc frontend domain status [--name <name>] [--env <name>]",
     "summary": "Check whether the custom domain is reachable.",
-    "details": "Without --name/--id, a terminal offers a picker.",
     "needs": [
       "target:frontends"
     ],
@@ -479,7 +467,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "backend info": {
     "usage": "pbc backend info (<name>|--name <name>|--id <id>) [--env <name>]",
     "summary": "Show backend details.",
-    "details": "Without --name/--id, a terminal offers a picker.",
     "needs": [
       "target:backends"
     ],
@@ -514,7 +501,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "backend rm": {
     "usage": "pbc backend rm (<name>|--name <name>|--id <id>) [--yes] [--env <name>]",
     "summary": "Delete a backend.",
-    "details": "Without --name/--id, a terminal offers a picker.",
     "needs": [
       "target:backends",
       {
@@ -552,7 +538,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "backend domain add": {
     "usage": "pbc backend domain add <domain> --name <name> [--env <name>]",
     "summary": "Add a custom domain.",
-    "details": "Without --name/--id, a terminal offers a picker.",
     "needs": [
       "target:backends",
       {
@@ -589,7 +574,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "backend domain verify": {
     "usage": "pbc backend domain verify <domain> --name <name> [--env <name>]",
     "summary": "Verify a custom domain.",
-    "details": "Without --name/--id, a terminal offers a picker.",
     "needs": [
       "target:backends",
       {
@@ -626,7 +610,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "backend domain remove": {
     "usage": "pbc backend domain remove <domain> --name <name> [--env <name>]",
     "summary": "Remove a custom domain.",
-    "details": "Without --name/--id, a terminal offers a picker.",
     "needs": [
       "target:backends",
       {
@@ -663,7 +646,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "backend domain status": {
     "usage": "pbc backend domain status [--name <name>] [--env <name>]",
     "summary": "Check whether the custom domain is reachable.",
-    "details": "Without --name/--id, a terminal offers a picker.",
     "needs": [
       "target:backends"
     ],
@@ -690,9 +672,9 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ]
   },
   "pocketbase create": {
-    "usage": "pbc pocketbase create [<name>] [--env <name>] [--location <loc>] [--compute <id>] [--admin-email <e>] [--admin-password <p>] [--pb-version <v>] [--backup <zip>]",
+    "usage": "pbc pocketbase create [<name>] [flags]",
     "summary": "Create a PocketBase instance.",
-    "details": "Provisions a running instance with nothing deployed to it — no\npb_public, pb_hooks or pb_migrations — and waits until it answers.\n\nNothing is built, packaged, or uploaded, and no env file is asked about. Use it\nto get a database from a script, from a directory that holds no project, or\nbefore there is anything to deploy.\n\nThe new instance is recorded in this directory's pbc.json, under the environment\nthis command targets, exactly as a deploy would record it — so the next\n`pbc pocketbase deploy` here needs no --name:\n\n  pbc pocketbase create my-app-db\n  pbc pocketbase deploy              # ships this directory to it\n\n--env names the environment (default: production, or the file's own default).\nA directory bound to frontends or backends is refused, and so is an environment\nthat already names an instance: repointing it would leave the old one with\nnothing pointing at it. Pass --env <other>, or run this somewhere else.\n\n`pbc pocketbase deploy` also creates an instance when there is none yet, and\ncreates it bare when the directory holds none of the three directories — so\nthis command is the explicit way to do the same thing when there is nothing to\npackage.\n\nThe name comes from the argument or --name, and is asked for on a terminal\n(defaulting to the directory's name) when neither is given. A name already used\nby an instance in this project is refused rather than duplicated: redeploy that\none with `pbc pocketbase deploy --name <name>` instead.\n\nThe instance gets a superuser account — your account email, and a generated\npassword printed once when it finishes (and readable afterwards with\n`pbc pocketbase info`). Override either with --admin-email/--admin-password.\n\nThe compute is chosen exactly as a deploy chooses it: on Pro, and in a project\nshared with an organization, the owner's compute is used, asked about when\nthere is more than one, and settled outright by --compute. On the free and\nstarter plans the platform picks from its shared pool.\n\nAdvanced configuration: --dev, --hooks-pool, and --query-timeout adjust the\nruntime. --backup restores a PocketBase backup ZIP during creation. Existing\nsuperusers are preserved, so --backup cannot be combined with the admin flags.",
+    "details": "Provisions a running instance with nothing deployed to it — no\npb_public, pb_hooks or pb_migrations — and waits until it answers. Use it to\nget a database before there is anything to deploy.\n\nThe instance is recorded in this directory's pbc.json under the target\nenvironment, exactly as a deploy would record it, so the next\n`pbc pocketbase deploy` here needs no --name. A directory bound to another\nkind, or an environment that already names an instance, is refused.\n\nIt gets a superuser account — your account email, and a generated password\nprinted once (readable afterwards with `pbc pocketbase info`). Override\neither with --admin-email/--admin-password. --backup restores a PocketBase\nbackup ZIP instead and preserves its existing superusers.\n\n`pbc pocketbase deploy` also creates an instance when there is none, so this\nis the explicit form for when there is nothing to package.",
     "args": [
       {
         "name": "name",
@@ -717,13 +699,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "location",
         "type": "string",
         "required": false,
-        "description": "Region for the instance, on Starter. Optional — without it the platform picks the region with the most free capacity."
+        "description": "Region for the instance, on Starter. The platform picks when omitted."
       },
       {
         "name": "compute",
         "type": "string",
         "required": false,
-        "description": "Compute to create the instance on. Asked for when the project owner has more than one; required under --no-input/--json."
+        "description": "Compute to create on; asked for when there is a choice, or required under --no-input/--json."
       },
       {
         "name": "server",
@@ -736,7 +718,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "admin-email",
         "type": "string",
         "required": false,
-        "description": "Superuser login for the new instance. Defaults to your account email."
+        "description": "Superuser login; defaults to your account email."
       },
       {
         "name": "admin-password",
@@ -748,7 +730,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "pb-version",
         "type": "string",
         "required": false,
-        "description": "PocketBase release to install. Defaults to pocketbaseVersion in pbc.json."
+        "description": "PocketBase release; defaults to pocketbaseVersion in pbc.json."
       },
       {
         "name": "dev",
@@ -777,9 +759,9 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ]
   },
   "pocketbase deploy": {
-    "usage": "pbc pocketbase deploy [--name <name>] [--new <name>] [--location <loc>] [--compute <id>] [--admin-email <e>] [--admin-password <p>] [--pb-version <v>] [--skip-env] [--env <name>]",
+    "usage": "pbc pocketbase deploy [--name <name>|--new <name>] [flags]",
     "summary": "Create or redeploy a PocketBase instance.",
-    "details": "Packages pb_public, pb_hooks, and pb_migrations and ships them with the\ninstance. Their locations come from the \"build\" block in pbc.json, which\nis inferred from the directory and written there on the first deploy.\n\nA redeploy ships them too: the .js and .json files in pb_hooks go through the\nhooks route (which keeps the portal's editor in sync), and the archive's\npb_migrations and pb_public are installed on the running instance — migrations\nmerged with the ones already there, pb_public replaced wholesale. New\nmigrations are applied by the restart that follows.\n\nHooks are stored as flat files, so a subdirectory of pb_hooks is not uploaded\nand the deploy says which ones it skipped.\n\nNone of the three directories is required. A directory that holds none of them\nstill deploys: no archive is sent at all, a new instance is created empty, and\nthe deploy says so rather than reporting a silent success. `pbc pocketbase create`\ndoes the same thing without involving a directory.\n\nA new instance gets a superuser account: your account email, and a generated\npassword printed once when the deploy finishes (and readable afterwards with\n`pbc pocketbase info`). Override either with --admin-email/--admin-password.\n\nEach wait — installing, building, packaging, uploading, provisioning, waiting\nfor the domain — is reported as its own step, with a spinner and the elapsed\ntime on a terminal, plain lines when the output is piped, and nothing at all\nunder --json.\n\nEnv vars are pushed only from the file you name — nothing is uploaded by\ndefault. Each environment has its own: the first deploy of an environment asks\nwhich dotenv file it uses (or none) and records the answer as envFile under\nthat environment in pbc.json, so it is asked once. --env-file names one outright\nand is recorded the same way when the environment has none yet. Pushing merges,\nkeeping cloud-only keys; --delete-missing removes them so the file is the whole\ntruth, and --skip-env pushes nothing for this run. A file whose variables are\nunchanged since the last push is not uploaded again — pass --force-env to push\nit anyway, e.g. after editing the variables in the portal.\n\nWith no --name and nothing bound in pbc.json, deploy asks which instance to\nredeploy — or what to call a new one — the way it already asks which project\nto use. Pass --no-input (or --json) to get the usage error instead.\n\nCreating an instance also picks the compute it runs on, whenever there is a\nchoice to make: on Pro, and in a project shared with an organization, where the\ncompute is the owner's. One compute is used without asking, several are offered\nas a menu, and --compute settles it outright. On the free and starter plans the\nplatform picks from the shared pool and the flag is unnecessary. A redeploy\nnever moves an existing instance.",
+    "details": "Packages pb_public, pb_hooks, and pb_migrations and ships them with the\ninstance, at the paths recorded in the \"build\" block of pbc.json. None of the\nthree is required: a directory that holds none still deploys, creating an\nempty instance and saying so.\n\nA redeploy ships them too: supported hook files (subdirectories included) go\nthrough the hooks route, which keeps the portal's editor in sync; pb_migrations\nis merged with the instance's; pb_public is replaced wholesale. New migrations\nare applied by the restart that follows.\n\nA new instance gets a superuser account — your account email and a generated\npassword printed once (readable afterwards with `pbc pocketbase info`).\nOverride either with --admin-email/--admin-password. Env vars are pushed only\nfrom the dotenv file this environment names; `pbc deploy --help` lists the\nmerge and --delete-missing/--skip-env/--force-env rules.",
     "needs": [
       "target:pocketbases",
       {
@@ -792,7 +774,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": false,
-        "description": "Which existing PocketBase to redeploy. Asked for when omitted and pbc.json has no binding."
+        "description": "Which existing instance to redeploy; asked for when unbound."
       },
       {
         "name": "new",
@@ -804,13 +786,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "location",
         "type": "string",
         "required": false,
-        "description": "Region for the deploy, on Starter. Optional — without it the platform picks the region with the most free capacity."
+        "description": "Region for the deploy, on Starter. The platform picks when omitted."
       },
       {
         "name": "compute",
         "type": "string",
         "required": false,
-        "description": "Compute to create the instance on. Asked for when the project owner has more than one; required under --no-input/--json."
+        "description": "Compute to create on; asked for when there is a choice, or required under --no-input/--json."
       },
       {
         "name": "server",
@@ -823,7 +805,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "admin-email",
         "type": "string",
         "required": false,
-        "description": "Superuser login for the new instance. Defaults to your account email."
+        "description": "Superuser login; defaults to your account email."
       },
       {
         "name": "admin-password",
@@ -835,7 +817,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "pb-version",
         "type": "string",
         "required": false,
-        "description": "PocketBase release to install. Defaults to pocketbaseVersion in pbc.json."
+        "description": "PocketBase release; defaults to pocketbaseVersion in pbc.json."
       },
       {
         "name": "skip-build",
@@ -847,37 +829,37 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "skip-env",
         "type": "boolean",
         "required": false,
-        "description": "Push no env vars for this run, whatever pbc.json configures."
+        "description": "Push no env vars this run."
       },
       {
         "name": "env-file",
         "type": "path",
         "required": false,
-        "description": "Dotenv file to push. Recorded in pbc.json for this environment when it has none yet."
+        "description": "Dotenv file to push; recorded in pbc.json for this environment."
       },
       {
         "name": "delete-missing",
         "type": "boolean",
         "required": false,
-        "description": "Remove cloud env vars the pushed file does not list."
+        "description": "Remove cloud vars the file does not list."
       },
       {
         "name": "force-env",
         "type": "boolean",
         "required": false,
-        "description": "Push env vars even when they are unchanged since the last push."
+        "description": "Push even when unchanged since the last push."
       },
       {
         "name": "zip",
         "type": "string",
         "required": false,
-        "description": "Upload this archive instead of packaging the directory."
+        "description": "Deploy this archive instead of building the directory."
       },
       {
         "name": "env",
         "type": "string",
         "required": false,
-        "description": "Which pbc.json environment to target. Defaults to the file's default, or production."
+        "description": "Which pbc.json environment; defaults to the file's default or production."
       },
       {
         "name": "subdomain",
@@ -980,8 +962,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
   },
   "pocketbase hooks push": {
     "usage": "pbc pocketbase hooks push <dir> [--name <instance>]",
-    "summary": "Upload every .js and .json file in <dir> as a hook.",
-    "details": "Hooks belong to one PocketBase instance. Name it with --name/--id, or let\nthe directory's pbc.json binding pick it.\n\nPocketBase itself only runs *.pb.js, but the plain .js and .json files beside\nthem are uploaded too — a hook that requires a helper module or a data file\nneeds it on the instance. Subdirectories are not uploaded: the platform stores\nhooks as flat files. At most 30 files per push — a bigger directory is nearly\nalways the wrong one.",
+    "summary": "Upload every supported hook file in <dir> as a hook.",
+    "details": "Hooks belong to one PocketBase instance. Name it with --name/--id, or let\nthe directory's pbc.json binding pick it.\n\nPocketBase runs only *.pb.js, but every supported text file beside them\n(.pb.js, .js, .mjs, .cjs, .json, .html, .htm, .css, .txt, .md, .csv, .xml, .svg, .yml, .yaml) is uploaded too, subdirectories\nincluded and keeping their relative path, so a required helper module or data\nfile resolves on the instance. At most 500 files per push.",
     "args": [
       {
         "name": "dir",
@@ -1000,7 +982,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "pocketbase hooks ls": {
     "usage": "pbc pocketbase hooks ls [--name <instance>]",
     "summary": "List uploaded hook files.",
-    "details": "Lists hooks uploaded with `pbc pocketbase hooks push`. Hooks shipped\ninside a deploy archive (pb_hooks/ packaged by `pbc pocketbase deploy`)\nrun on the instance but are not recorded here, so this can read empty\nwhile hooks are live. Push them to manage them from the CLI.",
+    "details": "Lists hooks uploaded with `pbc pocketbase hooks push`. Hooks shipped\ninside a deploy archive run but are not recorded here, so this can read\nempty while hooks are live.",
     "args": [],
     "flags": [
       {
@@ -1030,9 +1012,9 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ]
   },
   "frontend deploy": {
-    "usage": "pbc frontend deploy [--name <name>] [--new <name>] [--skip-build] [--zip <file>] [--location <loc>] [--compute <id>] [--env <name>]",
+    "usage": "pbc frontend deploy [--name <name>|--new <name>] [flags]",
     "summary": "Build, package, and deploy a static site.",
-    "details": "Runs the build command, zips the output directory, and uploads it. Both\ncome from the \"build\" block in pbc.json, which is inferred from the directory\n(vite/svelte/angular/next config, package.json build script) and written there\non the first deploy.\n\nA build needs its dependencies, so deploy installs them first when something\npackage.json declares is not installed — with the package manager the lockfile\nnames, at the workspace root when the project is one. A tree that is already\ninstalled is left alone; \"install\" in the build block sets the command outright,\nand \"\" turns the step off.\n\nEach wait — installing, building, packaging, uploading, provisioning, waiting\nfor the domain — is reported as its own step, with a spinner and the elapsed\ntime on a terminal, plain lines when the output is piped, and nothing at all\nunder --json.\n\nFrontends have no cloud env store — build-time variables are baked into the\nbundle, so there is no --env-file flag here.\n\nA site is served from an address the platform assigns and never changes:\n<id>.<compute>.pocketbasecloud.com. To put a domain of your own in front of it,\nuse pbc frontend domain add.\n\nWith no --name and nothing bound in pbc.json, deploy asks which frontend to\nredeploy — or what to call a new one — the way it already asks which project\nto use. Pass --no-input (or --json) to get the usage error instead.\n\nCreating a site also picks the compute it runs on, whenever there is a choice to\nmake: on Pro, and in a project shared with an organization, where the compute is\nthe owner's. One compute is used without asking, several are offered as a menu,\nand --compute settles it outright. On the free and starter plans the platform\npicks from the shared pool and the flag is unnecessary. A redeploy never moves\nan existing site.",
+    "details": "Runs the build command, zips the output directory, and uploads it. Both\ncome from the \"build\" block in pbc.json, inferred from the directory\n(vite/svelte/angular/next config, package.json build script) and written\nthere on the first deploy.\n\nFrontends have no cloud env store — build-time variables are baked into the\nbundle, so there is no --env-file flag here.\n\nA site is served from an address the platform assigns and never changes:\n<id>.<compute>.pocketbasecloud.com. To put a domain of your own in front of\nit, use pbc frontend domain add.",
     "needs": [
       "target:frontends",
       {
@@ -1045,7 +1027,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": false,
-        "description": "Which existing frontend to redeploy. Asked for when omitted and pbc.json has no binding."
+        "description": "Which existing frontend to redeploy; asked for when unbound."
       },
       {
         "name": "new",
@@ -1057,7 +1039,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "zip",
         "type": "string",
         "required": false,
-        "description": "Upload this archive instead of packaging the directory."
+        "description": "Deploy this archive instead of building the directory."
       },
       {
         "name": "skip-build",
@@ -1069,13 +1051,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "location",
         "type": "string",
         "required": false,
-        "description": "Region for the deploy. Optional — without it the platform picks the region with the most free capacity."
+        "description": "Region for the deploy. The platform picks when omitted."
       },
       {
         "name": "compute",
         "type": "string",
         "required": false,
-        "description": "Compute to create the site on. Asked for when the project owner has more than one; required under --no-input/--json."
+        "description": "Compute to create on; asked for when there is a choice, or required under --no-input/--json."
       },
       {
         "name": "server",
@@ -1088,7 +1070,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "env",
         "type": "string",
         "required": false,
-        "description": "Which pbc.json environment to target. Defaults to the file's default, or production."
+        "description": "Which pbc.json environment; defaults to the file's default or production."
       },
       {
         "name": "subdomain",
@@ -1103,9 +1085,9 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ]
   },
   "backend deploy": {
-    "usage": "pbc backend deploy [--name <name>] [--new <name>] [--runtime <deno|bun|nodejs|nextjs>] [--start <cmd>] [--compute <id>] [--skip-env] [--zip <file>] [--env <name>]",
+    "usage": "pbc backend deploy [--name <name>|--new <name>] [flags]",
     "summary": "Build, package, and deploy a backend.",
-    "details": "Runs the build command and uploads the result. The runtime, build command,\nand output directory come from the \"build\" block in pbc.json, inferred from the\ndirectory (deno.json, bun.lockb, next.config.*, package.json) and written there\non the first deploy.\n\ndeno, bun, and nodejs ship their source — the platform installs dependencies on\nstart, so node_modules is excluded.\n\nWhere there is a build command, it needs its dependencies, so deploy installs\nthem first when something package.json declares is not installed — with the\npackage manager the lockfile names, at the workspace root when the project is\none. This is what keeps a Next.js deploy from a fresh clone or a CI runner from\ndying on \"next: not found\". A tree that is already installed is left alone;\n\"install\" in the build block sets the command outright, and \"\" turns the step\noff.\n\nnextjs ships a prebuilt bundle: the platform does not run next build (it\nexhausts memory on a shared host). That bundle only exists when the build asks\nfor it, so deploy adds output: \"standalone\" to next.config.* before building\n(creating the file if the project has none) and says so — the CLI then\nassembles .next/standalone, .next/static, and public into the layout the\nruntime expects, defaulting the start command to \"node server.js\". A config\nthat already sets output is left alone; output: \"export\" is a static site, so\ndeploy it with \"pbc frontend deploy\" instead.\n\nEach wait — installing, building, packaging, uploading, provisioning, waiting\nfor the domain — is reported as its own step, with a spinner and the elapsed\ntime on a terminal, plain lines when the output is piped, and nothing at all\nunder --json.\n\nEnv vars are pushed only from the file you name — nothing is uploaded by\ndefault. Each environment has its own: the first deploy of an environment asks\nwhich dotenv file it uses (or none) and records the answer as envFile under\nthat environment in pbc.json, so it is asked once. --env-file names one outright\nand is recorded the same way when the environment has none yet. Pushing merges,\nkeeping cloud-only keys; --delete-missing removes them so the file is the whole\ntruth, and --skip-env pushes nothing for this run. A file whose variables are\nunchanged since the last push is not uploaded again — pass --force-env to push\nit anyway, e.g. after editing the variables in the portal.\n\nWith no --name and nothing bound in pbc.json, deploy asks which backend to\nredeploy — or what to call a new one — the way it already asks which project\nto use. Pass --no-input (or --json) to get the usage error instead.\n\nCreating a backend also picks the compute it runs on: the project owner's, so\na developer in a shared organization project deploys onto the owner's Pro\ncompute (and against the owner's plan) without needing to see it. A single\ncompute is used, several are offered as a menu, and --compute settles it\noutright. A redeploy never moves an existing backend.\n\nBackends run on a Pro organization's compute. When the project the deploy\nresolves to is on the free or starter plan, deploy lists your other projects\nso you can send the backend to one that qualifies; under --no-input or --json\nit asks for --project instead.",
+    "details": "Runs the build command and uploads the result. The runtime, build command,\nand output directory come from the \"build\" block in pbc.json, inferred from the\ndirectory (deno.json, bun.lockb, next.config.*, package.json) and written there\non the first deploy.\n\ndeno, bun, and nodejs ship their source — the platform installs dependencies\non start, so node_modules is excluded. Where there is a build command, deploy\ninstalls its dependencies first when they are missing, with the package\nmanager the lockfile names.\n\nnextjs ships a prebuilt bundle: deploy adds output: \"standalone\" to\nnext.config.* before building (and says so) unless the config already sets\noutput, then assembles .next/standalone, .next/static, and public, starting\nwith node server.js. output: \"export\" is a static site — deploy it with\npbc frontend deploy instead.",
     "needs": [
       "target:backends",
       {
@@ -1118,7 +1100,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": false,
-        "description": "Which existing backend to redeploy. Asked for when omitted and pbc.json has no binding."
+        "description": "Which existing backend to redeploy; asked for when unbound."
       },
       {
         "name": "new",
@@ -1142,13 +1124,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "start",
         "type": "string",
         "required": false,
-        "description": "Command to run. Defaults to build.startCommand, then inference."
+        "description": "Command to run; defaults to build.startCommand."
       },
       {
         "name": "compute",
         "type": "string",
         "required": false,
-        "description": "Compute to create the backend on. Asked for when the project owner has more than one; required under --no-input/--json."
+        "description": "Compute to create on; asked for when there is a choice, or required under --no-input/--json."
       },
       {
         "name": "server",
@@ -1161,7 +1143,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "zip",
         "type": "string",
         "required": false,
-        "description": "Upload this archive instead of packaging the directory."
+        "description": "Deploy this archive instead of building the directory."
       },
       {
         "name": "skip-build",
@@ -1173,38 +1155,38 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "skip-env",
         "type": "boolean",
         "required": false,
-        "description": "Push no env vars for this run, whatever pbc.json configures."
+        "description": "Push no env vars this run."
       },
       {
         "name": "env-file",
         "type": "path",
         "required": false,
-        "description": "Dotenv file to push. Recorded in pbc.json for this environment when it has none yet."
+        "description": "Dotenv file to push; recorded in pbc.json for this environment."
       },
       {
         "name": "delete-missing",
         "type": "boolean",
         "required": false,
-        "description": "Remove cloud env vars the pushed file does not list."
+        "description": "Remove cloud vars the file does not list."
       },
       {
         "name": "force-env",
         "type": "boolean",
         "required": false,
-        "description": "Push env vars even when they are unchanged since the last push."
+        "description": "Push even when unchanged since the last push."
       },
       {
         "name": "env",
         "type": "string",
         "required": false,
-        "description": "Which pbc.json environment to target. Defaults to the file's default, or production."
+        "description": "Which pbc.json environment; defaults to the file's default or production."
       }
     ]
   },
   "deploy": {
-    "usage": "pbc deploy [pocketbase|frontend|backend] [<name>] [<deploy flags>]",
+    "usage": "pbc deploy [pocketbase|frontend|backend] [<name>] [flags]",
     "summary": "Deploy this directory, detecting what kind of resource it is.",
-    "details": "Works out whether the directory holds a PocketBase instance, a static\nsite, or a backend, then runs that kind's deploy — `pbc pocketbase deploy`,\n`pbc frontend deploy`, or `pbc backend deploy`. Every flag those\ncommands accept works here and is passed straight through, and the deploy\nitself is identical: this command only makes the choice.\n\nThe answer comes from the first of these that applies:\n\n  1. The \"kind\" recorded in pbc.json, which a previous deploy wrote. A\n     deployed directory is never re-guessed.\n  2. A pb_hooks, pb_migrations, or pb_public directory — a PocketBase project.\n  3. next.config.*, read for its \"output\": \"export\" builds a static site,\n     anything else runs a Next.js server.\n  4. vite / svelte / vue config, or angular.json — a frontend.\n  5. deno.json(c) — a backend.\n  6. package.json: a server dependency (express, fastify, hono, nest, …) is a\n     backend and a bundler dependency (vite, react-scripts, parcel, …) is a\n     frontend; failing both, a \"start\" script is a backend and a \"build\"\n     script alone is a frontend.\n  7. index.html in the directory or in public/, dist/, build/, or out/ —\n     a frontend.\n\nThe detected kind and the file that decided it are printed before the deploy\nruns, so a wrong guess is visible rather than surprising.\n\nA leading kind word overrides the detection outright:\n\n  pbc deploy backend            # deploy as a backend, whatever is here\n  pbc deploy frontend web       # …and redeploy the existing \"web\"\n\nWhen nothing in the directory points either way, you are asked on a terminal\nand get an error naming the three explicit commands under --no-input or\n--json.",
+    "details": "Works out whether the directory holds a PocketBase instance, a static\nsite, or a backend, then runs that kind's deploy — `pbc pocketbase deploy`,\n`pbc frontend deploy`, or `pbc backend deploy`. Every flag those commands\naccept works here and is passed straight through.\n\nThe first of these that applies decides:\n\n  1. The \"kind\" recorded in pbc.json by a previous deploy — never re-guessed.\n  2. pb_hooks/, pb_migrations/, or pb_public/ — a PocketBase instance.\n  3. next.config.*: \"output\": \"export\" is a static site, anything else a backend.\n  4. vite / svelte / vue config, or angular.json — a frontend.\n  5. deno.json(c) — a backend.\n  6. package.json dependencies, then its scripts: a server dep or a \"start\"\n     script is a backend; a bundler dep or a lone \"build\" script a frontend.\n  7. index.html in the directory or public/, dist/, build/, or out/ — a frontend.\n\nThe detected kind and the file that decided it are printed before the deploy\nruns. A leading kind word overrides the detection outright:\n\n  pbc deploy backend            # deploy as a backend, whatever is here\n  pbc deploy frontend web       # …and redeploy the existing \"web\"\n\nEnv vars are pushed only from the dotenv file each environment names —\nnothing by default. The first deploy of an environment asks which file (or\nnone) and records it in pbc.json. Pushing merges, keeping cloud-only keys;\n--delete-missing makes the file the whole truth, and --skip-env pushes\nnothing this run. An unchanged file is not re-uploaded without --force-env.\n\nWhen nothing in the directory points either way you are asked on a terminal;\nunder --no-input or --json you get an error naming the three explicit\ncommands.",
     "args": [
       {
         "name": "kind",
@@ -1222,7 +1204,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": false,
-        "description": "Which existing PocketBase to redeploy. Asked for when omitted and pbc.json has no binding."
+        "description": "Which existing instance to redeploy; asked for when unbound."
       },
       {
         "name": "new",
@@ -1234,13 +1216,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "location",
         "type": "string",
         "required": false,
-        "description": "Region for the deploy, on Starter. Optional — without it the platform picks the region with the most free capacity."
+        "description": "Region for the deploy, on Starter. The platform picks when omitted."
       },
       {
         "name": "compute",
         "type": "string",
         "required": false,
-        "description": "Compute to create the instance on. Asked for when the project owner has more than one; required under --no-input/--json."
+        "description": "Compute to create on; asked for when there is a choice, or required under --no-input/--json."
       },
       {
         "name": "server",
@@ -1253,7 +1235,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "admin-email",
         "type": "string",
         "required": false,
-        "description": "Superuser login for the new instance. Defaults to your account email."
+        "description": "Superuser login; defaults to your account email."
       },
       {
         "name": "admin-password",
@@ -1265,7 +1247,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "pb-version",
         "type": "string",
         "required": false,
-        "description": "PocketBase release to install. Defaults to pocketbaseVersion in pbc.json."
+        "description": "PocketBase release; defaults to pocketbaseVersion in pbc.json."
       },
       {
         "name": "skip-build",
@@ -1277,37 +1259,37 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "skip-env",
         "type": "boolean",
         "required": false,
-        "description": "Push no env vars for this run, whatever pbc.json configures."
+        "description": "Push no env vars this run."
       },
       {
         "name": "env-file",
         "type": "path",
         "required": false,
-        "description": "Dotenv file to push. Recorded in pbc.json for this environment when it has none yet."
+        "description": "Dotenv file to push; recorded in pbc.json for this environment."
       },
       {
         "name": "delete-missing",
         "type": "boolean",
         "required": false,
-        "description": "Remove cloud env vars the pushed file does not list."
+        "description": "Remove cloud vars the file does not list."
       },
       {
         "name": "force-env",
         "type": "boolean",
         "required": false,
-        "description": "Push env vars even when they are unchanged since the last push."
+        "description": "Push even when unchanged since the last push."
       },
       {
         "name": "zip",
         "type": "string",
         "required": false,
-        "description": "Upload this archive instead of packaging the directory."
+        "description": "Deploy this archive instead of building the directory."
       },
       {
         "name": "env",
         "type": "string",
         "required": false,
-        "description": "Which pbc.json environment to target. Defaults to the file's default, or production."
+        "description": "Which pbc.json environment; defaults to the file's default or production."
       },
       {
         "name": "subdomain",
@@ -1335,7 +1317,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "start",
         "type": "string",
         "required": false,
-        "description": "Command to run. Defaults to build.startCommand, then inference."
+        "description": "Command to run; defaults to build.startCommand."
       }
     ]
   },
@@ -1381,7 +1363,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "compute ls": {
     "usage": "pbc compute ls",
     "summary": "List the compute your account can deploy to.",
-    "details": "Compute is provisioned by the platform, not the CLI. This lists your\naccount's own dedicated compute — the ids `--compute <id>` accepts on a\ndeploy. The shared pool is not listed: on every plan except Pro the\nplatform picks from it by capacity and the flag is unnecessary.\n\n`pbc server ls` is the same command under its former name.",
+    "details": "Compute is provisioned by the platform, not the CLI. This lists your\naccount's own dedicated compute — the ids `--compute <id>` accepts on a\ndeploy. The shared pool is not listed: on every plan except Pro the\nplatform picks from it by capacity and the flag is unnecessary.",
     "args": [],
     "flags": []
   },
@@ -1437,7 +1419,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "env set": {
     "usage": "pbc env set KEY=VALUE --target pocketbase|backend --name <n> [--env <name>]",
     "summary": "Set an environment variable.",
-    "details": "Without --name/--id, a terminal offers a picker.",
     "args": [
       {
         "name": "KEY=VALUE",
@@ -1478,7 +1459,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "env rm": {
     "usage": "pbc env rm KEY --target pocketbase|backend --name <n> [--env <name>]",
     "summary": "Remove an environment variable.",
-    "details": "Without --name/--id, a terminal offers a picker.",
     "args": [
       {
         "name": "KEY",
@@ -1519,7 +1499,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "env import": {
     "usage": "pbc env import <.env> --target pocketbase|backend --name <n> [--delete-missing] [--env <name>]",
     "summary": "Bulk-import variables from a .env file.",
-    "details": "Merges by default: keys in the file are written, keys only in the cloud\nare left alone. Pass --delete-missing to make the file the whole truth — cloud\nvariables it does not list are removed from the instance too, which asks for\nconfirmation unless --yes is given. --no-input does not waive it: without a way\nto ask, the import stops and names --yes.\n\nWithout --name/--id, a terminal offers a picker.",
+    "details": "Merges: keys in the file are written, cloud-only keys are left alone.\n--delete-missing makes the file the whole truth — cloud variables it does not\nlist are removed too, after a confirmation that --no-input does not waive\n(without a way to ask, the import stops and names --yes).",
     "args": [
       {
         "name": ".env",
@@ -1573,7 +1553,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "logs": {
     "usage": "pbc logs <pocketbase|backend> --name <n> [-f] [--lines <n>] [--env <name>]",
     "summary": "Stream logs for a PocketBase instance or backend.",
-    "details": "Prints the last --lines entries (50 by default, 1000 max) and stops. With\n--follow it keeps printing until interrupted, since the platform tails the\ncontainer for as long as the connection is open.\n\nWithout --name/--id, a terminal offers a picker.",
+    "details": "Prints the last --lines entries (50 by default, 1000 max) and stops; with\n--follow it keeps printing until interrupted.",
     "args": [
       {
         "name": "pocketbase|backend",
@@ -1616,7 +1596,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "init": {
     "usage": "pbc init [pocketbase|frontend|backend] [--force] [--env <name>]",
     "summary": "Write this directory's build config into pbc.json.",
-    "details": "Inspects the directory and records how it should be built and packaged:\nthe build command, the output directory, the backend runtime, or a\nPocketBase project's pb_public / pb_hooks / pb_migrations paths.\n\nDeploy infers the same block when pbc.json has none, so this command is\noptional — it just lets you see and edit the guess before anything ships.\nNothing in the cloud is touched, and no login is needed.\n\nThe kind comes from the argument, or from the directory's existing resource\nbinding. An existing block is left alone unless --force is passed.\n\nOn a terminal it also asks which environment this directory deploys to, and\nrecords it as the default, so the first deploy has nothing left to ask.",
+    "details": "Inspects the directory and records how it should be built and packaged: the\nbuild command, output directory, backend runtime, or a PocketBase project's\npb_public / pb_hooks / pb_migrations paths. Nothing in the cloud is touched,\nand no login is needed.\n\nDeploy infers the same block when pbc.json has none, so this command is\noptional — it lets you see and edit the guess before anything ships. An\nexisting block is left alone unless --force is passed.\n\nOn a terminal it also asks which environment this directory deploys to and\nrecords it as the default.",
     "args": [
       {
         "name": "kind",
@@ -1640,9 +1620,9 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ]
   },
   "ci init": {
-    "usage": "pbc ci init [pb|frontend|backend] [--out <path>] [--branch <name>] [--force] [--env <name>]",
+    "usage": "pbc ci init [pb|frontend|backend] [flags]",
     "summary": "Write a GitHub Actions workflow that deploys this directory.",
-    "details": "Writes .github/workflows/deploy.yml (or deploy-<path>.yml, when this\ndirectory is not the repo root — nested folders become deploy-apps-web.yml),\nusing the official pocketbasecloud/cli/action. Nothing in the cloud is\ntouched, and no login is needed — like `pbc init`, it only inspects the\ndirectory and the surrounding git repo.\n\nThe kind comes from the argument, or from pbc.json's existing binding. The\nbranch defaults to the one currently checked out; --branch overrides it.\n--out picks a different file path. An existing file is left alone unless\n--force is passed.\n\nPrints the two remaining one-time steps: copying an access token from the\nportal's Account page, and adding it as a repository secret named PBC_TOKEN.",
+    "details": "Writes .github/workflows/deploy.yml (or deploy-<path>.yml for a nested\ndirectory) using the official pocketbasecloud/cli/action. Nothing in the cloud\nis touched, and no login is needed — like `pbc init`, it only inspects the\ndirectory and the surrounding git repo.\n\nThe kind comes from the argument or pbc.json's binding; the branch from the\none checked out. An existing file is left alone unless --force is passed.\n\nIt then prints the remaining one-time step: a CLI access token from the\nportal's Account page, saved as the repository secret PBC_TOKEN.",
     "args": [
       {
         "name": "kind",
@@ -1703,7 +1683,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ]
   },
   "admin login": {
-    "usage": "pbc admin login [--url <url>] [--name <profile>] [--email <e>] [--password <p>]",
+    "usage": "pbc admin login [--url <url>] [flags]",
     "summary": "Log in as the instance superuser. --url creates the profile in one step.",
     "args": [],
     "flags": [
@@ -1809,7 +1789,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ]
   },
   "local install": {
-    "usage": "pbc local install [<version>] [--dir <d>] [--force] [--os <o>] [--arch <a>]",
+    "usage": "pbc local install [<version>] [flags]",
     "summary": "Download a PocketBase binary and record the version pin.",
     "details": "Like `pbc local init` without the scaffolding. --os/--arch override platform\ndetection to fetch a build for another machine.\n\nStart the instance afterwards with `./pocketbase serve`.",
     "args": [
@@ -1859,7 +1839,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ]
   },
   "local versions": {
-    "usage": "pbc local versions [--all] [--pre] [--json]",
+    "usage": "pbc local versions [--all] [--pre]",
     "summary": "List available PocketBase versions.",
     "details": "Reads the live GitHub releases. Shows the 20 newest by semver; --all\nlists every release and --pre includes prereleases. Falls back to a\nbuilt-in list, clearly labelled, when GitHub is unreachable.",
     "args": [],
@@ -1916,9 +1896,9 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ]
   },
   "self upgrade": {
-    "usage": "pbc self upgrade [<version>] [--check] [--force] [--json]",
+    "usage": "pbc self upgrade [<version>] [--check] [--force]",
     "summary": "Update pbc itself to the latest release.",
-    "details": "Downloads the release archive for this OS and CPU, verifies its\nSHA-256 against the release's checksums.txt, and replaces the running\nbinary. Nothing is changed unless the checksum matches. This is the same\npackage the install script fetches:\n\n  curl -fsSL https://raw.githubusercontent.com/pocketbasecloud/cli/main/scripts/install.sh | sh\n\nPass a <version> to install a specific release, including an older one\nto roll back. --check reports what is available without installing;\n--force reinstalls the version you already have.\n\nOnly a standalone binary (the `curl | sh` installer, or a release\narchive) can be replaced in place. npm installs are deprecated: reinstall\nonce from the script above, then `pbc self upgrade` works in place.\nA from-source install is updated by updating its clone instead.\n\npbc also looks for a newer release once a day on its own and mentions\none on stderr after a command finishes. Set PBC_NO_UPDATE_CHECK to turn\nthat off; it is already skipped under --json, CI, and redirected\noutput.\n\nTo change your plan, see `pbc plan` instead.",
+    "details": "Downloads the release archive for this OS and CPU, verifies its\nSHA-256 against the release's checksums.txt, and replaces the running\nbinary. Nothing is changed unless the checksum matches.\n\nPass a <version> to install a specific release, including an older one\nto roll back. --check reports what is available without installing;\n--force reinstalls the version you already have.\n\nOnly a standalone binary (the installer, or a release archive) can be\nreplaced in place; a from-source install is updated by updating its clone.\n\npbc also mentions a newer release on stderr at most once a day;\nPBC_NO_UPDATE_CHECK=1 disables that. To change your plan, see `pbc plan`.",
     "args": [
       {
         "name": "version",
@@ -2221,7 +2201,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "admin auth": {
     "usage": "pbc admin auth <collection> config [--set '<field>=<json>']",
     "summary": "View or edit an auth collection's auth-related settings.",
-    "details": "Without --set, prints the current value of: authRule, manageRule, authAlert,\noauth2, passwordAuth, mfa, otp, verificationTemplate, resetPasswordTemplate.\n\nWith --set '<field>=<json>', replaces that one field's value entirely — run\nwithout --set first if the field (e.g. oauth2.providers) already has content\nyou need to keep, and include it in the json you send.\n\nExamples:\n  pbc admin auth users config\n  pbc admin auth users config --set 'passwordAuth={\"enabled\":true,\"identityFields\":[\"email\"]}'\n\n  Enable Google sign-in on the \"users\" collection (get clientId/clientSecret\n  from a Google Cloud OAuth 2.0 Client ID, with authorized redirect URI\n  <your-instance-url>/api/oauth2-redirect):\n    pbc admin auth users config --set 'oauth2={\"enabled\":true,\"providers\":[{\"name\":\"google\",\"clientId\":\"<GOOGLE_CLIENT_ID>.apps.googleusercontent.com\",\"clientSecret\":\"<GOOGLE_CLIENT_SECRET>\"}]}'\n\n  Add Google alongside an existing provider — include every provider you\n  want to keep, since the json replaces the whole oauth2 field:\n    pbc admin auth users config --set 'oauth2={\"enabled\":true,\"providers\":[{\"name\":\"github\",\"clientId\":\"<GITHUB_CLIENT_ID>\",\"clientSecret\":\"<GITHUB_CLIENT_SECRET>\"},{\"name\":\"google\",\"clientId\":\"<GOOGLE_CLIENT_ID>.apps.googleusercontent.com\",\"clientSecret\":\"<GOOGLE_CLIENT_SECRET>\"}]}'",
+    "details": "Without --set, prints the current value of: authRule, manageRule, authAlert,\noauth2, passwordAuth, mfa, otp, verificationTemplate, resetPasswordTemplate.\n\n--set '<field>=<json>' replaces that field entirely, so run without --set\nfirst when the field already has content you need to keep (e.g.\noauth2.providers) and include it in the json. Collection and field names as\nin the admin UI.\n\n  pbc admin auth users config\n  pbc admin auth users config --set 'passwordAuth={\"enabled\":true,\"identityFields\":[\"email\"]}'",
     "args": [
       {
         "name": "collection",
@@ -2377,7 +2357,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     "flags": []
   },
   "admin requests": {
-    "usage": "pbc admin requests [--filter <expr>] [--page <n>] [--per-page <n>] [-f]",
+    "usage": "pbc admin requests [flags]",
     "summary": "Show instance request logs. -f follows new entries.",
     "args": [],
     "flags": [

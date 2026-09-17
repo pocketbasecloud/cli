@@ -124,11 +124,8 @@ export function makeLogsCommands(deps: CloudCmdDeps): Record<string, Command> {
       usage:
         `pbc logs <${LOG_ARG}> --name <n> [-f] [--lines <n>] [--env <name>]`,
       summary: "Stream logs for a PocketBase instance or backend.",
-      details: `Prints the last --lines entries (50 by default, 1000 max) and stops. With
---follow it keeps printing until interrupted, since the platform tails the
-container for as long as the connection is open.
-
-Without --name/--id, a terminal offers a picker.`,
+      details: `Prints the last --lines entries (50 by default, 1000 max) and stops; with
+--follow it keeps printing until interrupted.`,
       args: [{ name: LOG_ARG, required: true }],
       flags: {
         name: str({

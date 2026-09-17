@@ -102,17 +102,25 @@ Deno.test({
 Deno.test({
   name: "e2e: pb deploy — edge cases",
   fn: async (t) => {
-    await t.step("nested hook file is rejected before deploy", async () => {
+    await t.step("nested hook file deploys", async () => {
       const name = testName("nested");
       const dir = scaffold({
-        "pb_hooks/lib/helpers.js": "// nested — should be rejected",
+        "pb_hooks/main.pb.js":
+          `// e2e nested smoke test\nonRecordAfterCreateSuccess((e) => { console.log("ok"); });`,
+        "pb_hooks/lib/helpers.js": "module.exports = { ok: true };",
       });
       const r = await pb([
         "cloud", "pb", "deploy", "--compute", COMPUTE, "--name", name, "--skip-build",
         "--project", projectId, "--json",
-      ], { env: ENV, cwd: dir, timeout: 60_000 });
-      assert(r.code !== 0, "Should fail on nested hook file");
-      assertStringIncludes(r.stderr, "subdirectory");
+      ], { env: ENV, cwd: dir, timeout: 180_000 });
+      assertExitOk(r);
+      assertJson(r);
+      const id = r.json!.id as string;
+      assert(r.json!.status === "running", `Expected running, got ${r.json!.status}`);
+      await pb(
+        ["cloud", "pb", "rm", "--id", id, "--yes", "--project", projectId],
+        { env: ENV, timeout: 30_000 },
+      );
     });
 
     await t.step("--name required when --no-input is set", async () => {

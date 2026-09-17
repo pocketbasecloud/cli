@@ -15,7 +15,7 @@ export function makeInstanceLogsCommands(
   return {
     "admin requests": defineCommand({
       path: ["admin", "requests"],
-      usage: "pbc admin requests [--filter <expr>] [--page <n>] [--per-page <n>] [-f]",
+      usage: "pbc admin requests [flags]",
       summary: "Show instance request logs. -f follows new entries.",
       args: [],
       flags: {

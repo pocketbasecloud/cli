@@ -68,8 +68,7 @@ export function makeInstanceAuthCommands(
 
     "admin login": defineCommand({
       path: ["admin", "login"],
-      usage:
-        "pbc admin login [--url <url>] [--name <profile>] [--email <e>] [--password <p>]",
+      usage: "pbc admin login [--url <url>] [flags]",
       summary:
         "Log in as the instance superuser. --url creates the profile in one step.",
       args: [],

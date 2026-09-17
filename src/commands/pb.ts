@@ -57,9 +57,25 @@ import { reportDeploymentLogs } from "./logs.ts";
 import { makeResourceResolver } from "./resource.ts";
 import { KINDS } from "../kinds.ts";
 
-const HOOK_EXTENSIONS = [".js", ".json"];
+const HOOK_EXTENSIONS = [
+  ".pb.js",
+  ".js",
+  ".mjs",
+  ".cjs",
+  ".json",
+  ".html",
+  ".htm",
+  ".css",
+  ".txt",
+  ".md",
+  ".csv",
+  ".xml",
+  ".svg",
+  ".yml",
+  ".yaml",
+];
 
-const MAX_HOOKS_PER_PUSH = 30;
+const MAX_HOOKS_PER_PUSH = 500;
 const RUNTIME_DEFAULTS: Record<string, boolean | number | string> = {
   automigrate: true,
   dev: false,
@@ -144,24 +160,28 @@ async function uploadBackup(
   return body.data.key;
 }
 
-async function findNestedHooks(dir: string): Promise<string[]> {
-  const nested: string[] = [];
-  try {
-    for await (const entry of Deno.readDir(dir)) {
-      if (!entry.isDirectory) continue;
-      try {
-        for await (const sub of Deno.readDir(join(dir, entry.name))) {
-          if (!sub.isFile) continue;
-          if (HOOK_EXTENSIONS.some((ext) => sub.name.endsWith(ext))) {
-            nested.push(`${entry.name}/${sub.name}`);
-          }
-        }
-      } catch { /* subdir unreadable, skip */ }
+const MAX_HOOK_PATH_SEGMENTS = 6;
+
+async function collectHookFiles(
+  dir: string,
+  relPrefix: string,
+  names: string[],
+  tooDeep: string[],
+): Promise<void> {
+  for await (const entry of Deno.readDir(join(dir, relPrefix))) {
+    const rel = relPrefix ? `${relPrefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory) {
+      await collectHookFiles(dir, rel, names, tooDeep);
+      continue;
     }
-  } catch {
-    // Directory doesn't exist — not a validation failure, just nothing to check.
+    if (!entry.isFile) continue;
+    if (!HOOK_EXTENSIONS.some((ext) => entry.name.endsWith(ext))) continue;
+    if (rel.split("/").length > MAX_HOOK_PATH_SEGMENTS) {
+      tooDeep.push(rel);
+      continue;
+    }
+    names.push(rel);
   }
-  return nested;
 }
 
 const MAX_HOOK_CONTENT_CHARS = 300_000;
@@ -210,24 +230,17 @@ export async function pushHooks(
   log: (msg: string) => void = () => {},
 ): Promise<{ sent: number; stored: number }> {
   const names: string[] = [];
-  const subdirs: string[] = [];
+  const tooDeep: string[] = [];
   try {
-    for await (const entry of Deno.readDir(dir)) {
-      if (entry.isDirectory) {
-        subdirs.push(entry.name);
-        continue;
-      }
-      if (!entry.isFile) continue;
-      if (!HOOK_EXTENSIONS.some((ext) => entry.name.endsWith(ext))) continue;
-      names.push(entry.name);
-    }
+    await collectHookFiles(dir, "", names, tooDeep);
   } catch {
     throw new CliError(`Hooks directory not found: ${dir}`, { code: "USAGE" });
   }
-  for (const name of subdirs) {
+  for (const name of tooDeep) {
     log(
-      `Skipped ${name}/ — the platform stores hooks as flat files, so ` +
-        `subdirectories are not uploaded.`,
+      `Skipped ${name} — nested more than ${
+        MAX_HOOK_PATH_SEGMENTS - 1
+      } directories deep, which pb_hooks does not support.`,
     );
   }
   if (names.length === 0) return { sent: 0, stored: 0 };
@@ -393,50 +406,24 @@ export function makePbCommands(deps: CloudCmdDeps): Record<string, Command> {
   return {
     "pocketbase create": defineCommand({
       path: ["pocketbase", "create"],
-      usage:
-        "pbc pocketbase create [<name>] [--env <name>] [--location <loc>] [--compute <id>] [--admin-email <e>] [--admin-password <p>] [--pb-version <v>] [--backup <zip>]",
+      usage: "pbc pocketbase create [<name>] [flags]",
       summary: "Create a PocketBase instance.",
       details: `Provisions a running instance with nothing deployed to it — no
-pb_public, pb_hooks or pb_migrations — and waits until it answers.
+pb_public, pb_hooks or pb_migrations — and waits until it answers. Use it to
+get a database before there is anything to deploy.
 
-Nothing is built, packaged, or uploaded, and no env file is asked about. Use it
-to get a database from a script, from a directory that holds no project, or
-before there is anything to deploy.
+The instance is recorded in this directory's pbc.json under the target
+environment, exactly as a deploy would record it, so the next
+\`pbc pocketbase deploy\` here needs no --name. A directory bound to another
+kind, or an environment that already names an instance, is refused.
 
-The new instance is recorded in this directory's pbc.json, under the environment
-this command targets, exactly as a deploy would record it — so the next
-\`pbc pocketbase deploy\` here needs no --name:
+It gets a superuser account — your account email, and a generated password
+printed once (readable afterwards with \`pbc pocketbase info\`). Override
+either with --admin-email/--admin-password. --backup restores a PocketBase
+backup ZIP instead and preserves its existing superusers.
 
-  pbc pocketbase create my-app-db
-  pbc pocketbase deploy              # ships this directory to it
-
---env names the environment (default: production, or the file's own default).
-A directory bound to frontends or backends is refused, and so is an environment
-that already names an instance: repointing it would leave the old one with
-nothing pointing at it. Pass --env <other>, or run this somewhere else.
-
-\`pbc pocketbase deploy\` also creates an instance when there is none yet, and
-creates it bare when the directory holds none of the three directories — so
-this command is the explicit way to do the same thing when there is nothing to
-package.
-
-The name comes from the argument or --name, and is asked for on a terminal
-(defaulting to the directory's name) when neither is given. A name already used
-by an instance in this project is refused rather than duplicated: redeploy that
-one with \`pbc pocketbase deploy --name <name>\` instead.
-
-The instance gets a superuser account — your account email, and a generated
-password printed once when it finishes (and readable afterwards with
-\`pbc pocketbase info\`). Override either with --admin-email/--admin-password.
-
-The compute is chosen exactly as a deploy chooses it: on Pro, and in a project
-shared with an organization, the owner's compute is used, asked about when
-there is more than one, and settled outright by --compute. On the free and
-starter plans the platform picks from its shared pool.
-
-Advanced configuration: --dev, --hooks-pool, and --query-timeout adjust the
-runtime. --backup restores a PocketBase backup ZIP during creation. Existing
-superusers are preserved, so --backup cannot be combined with the admin flags.`,
+\`pbc pocketbase deploy\` also creates an instance when there is none, so this
+is the explicit form for when there is nothing to package.`,
       args: [{
         name: "name",
         required: false,
@@ -454,20 +441,18 @@ superusers are preserved, so --backup cannot be combined with the admin flags.`,
         }),
         location: str({
           description:
-            "Region for the instance, on Starter. Optional — without it the " +
-            "platform picks the region with the most free capacity.",
+            "Region for the instance, on Starter. The platform picks when omitted.",
         }),
         compute: str({
           description:
-            "Compute to create the instance on. Asked for when the project owner " +
-            "has more than one; required under --no-input/--json.",
+            "Compute to create on; asked for when there is a choice, or required " +
+            "under --no-input/--json.",
         }),
         server: renamed("compute", {
           description: "Old name for --compute; scripts may keep using it.",
         }),
         adminEmail: str({
-          description:
-            "Superuser login for the new instance. Defaults to your account email.",
+          description: "Superuser login; defaults to your account email.",
         }),
         adminPassword: str({
           description:
@@ -475,7 +460,7 @@ superusers are preserved, so --backup cannot be combined with the admin flags.`,
         }),
         pbVersion: str({
           description:
-            "PocketBase release to install. Defaults to pocketbaseVersion in pbc.json.",
+            "PocketBase release; defaults to pocketbaseVersion in pbc.json.",
         }),
         dev: str({ description: "Enable PocketBase dev mode: true or false." }),
         hooksPool: str({ description: "Hooks runtime pool size, 1-100." }),
@@ -615,62 +600,29 @@ superusers are preserved, so --backup cannot be combined with the admin flags.`,
     "pocketbase deploy": defineCommand({
       path: ["pocketbase", "deploy"],
       needs: ["target:pocketbases", { explicit: true }],
-      usage:
-        "pbc pocketbase deploy [--name <name>] [--new <name>] [--location <loc>] [--compute <id>] [--admin-email <e>] [--admin-password <p>] [--pb-version <v>] [--skip-env] [--env <name>]",
+      usage: "pbc pocketbase deploy [--name <name>|--new <name>] [flags]",
       summary: "Create or redeploy a PocketBase instance.",
       details:
         `Packages pb_public, pb_hooks, and pb_migrations and ships them with the
-instance. Their locations come from the "build" block in pbc.json, which
-is inferred from the directory and written there on the first deploy.
+instance, at the paths recorded in the "build" block of pbc.json. None of the
+three is required: a directory that holds none still deploys, creating an
+empty instance and saying so.
 
-A redeploy ships them too: the .js and .json files in pb_hooks go through the
-hooks route (which keeps the portal's editor in sync), and the archive's
-pb_migrations and pb_public are installed on the running instance — migrations
-merged with the ones already there, pb_public replaced wholesale. New
-migrations are applied by the restart that follows.
+A redeploy ships them too: supported hook files (subdirectories included) go
+through the hooks route, which keeps the portal's editor in sync; pb_migrations
+is merged with the instance's; pb_public is replaced wholesale. New migrations
+are applied by the restart that follows.
 
-Hooks are stored as flat files, so a subdirectory of pb_hooks is not uploaded
-and the deploy says which ones it skipped.
-
-None of the three directories is required. A directory that holds none of them
-still deploys: no archive is sent at all, a new instance is created empty, and
-the deploy says so rather than reporting a silent success. \`pbc pocketbase create\`
-does the same thing without involving a directory.
-
-A new instance gets a superuser account: your account email, and a generated
-password printed once when the deploy finishes (and readable afterwards with
-\`pbc pocketbase info\`). Override either with --admin-email/--admin-password.
-
-Each wait — installing, building, packaging, uploading, provisioning, waiting
-for the domain — is reported as its own step, with a spinner and the elapsed
-time on a terminal, plain lines when the output is piped, and nothing at all
-under --json.
-
-Env vars are pushed only from the file you name — nothing is uploaded by
-default. Each environment has its own: the first deploy of an environment asks
-which dotenv file it uses (or none) and records the answer as envFile under
-that environment in pbc.json, so it is asked once. --env-file names one outright
-and is recorded the same way when the environment has none yet. Pushing merges,
-keeping cloud-only keys; --delete-missing removes them so the file is the whole
-truth, and --skip-env pushes nothing for this run. A file whose variables are
-unchanged since the last push is not uploaded again — pass --force-env to push
-it anyway, e.g. after editing the variables in the portal.
-
-With no --name and nothing bound in pbc.json, deploy asks which instance to
-redeploy — or what to call a new one — the way it already asks which project
-to use. Pass --no-input (or --json) to get the usage error instead.
-
-Creating an instance also picks the compute it runs on, whenever there is a
-choice to make: on Pro, and in a project shared with an organization, where the
-compute is the owner's. One compute is used without asking, several are offered
-as a menu, and --compute settles it outright. On the free and starter plans the
-platform picks from the shared pool and the flag is unnecessary. A redeploy
-never moves an existing instance.`,
+A new instance gets a superuser account — your account email and a generated
+password printed once (readable afterwards with \`pbc pocketbase info\`).
+Override either with --admin-email/--admin-password. Env vars are pushed only
+from the dotenv file this environment names; \`pbc deploy --help\` lists the
+merge and --delete-missing/--skip-env/--force-env rules.`,
       args: [],
       flags: {
         name: str({
           description:
-            "Which existing PocketBase to redeploy. Asked for when omitted and pbc.json has no binding.",
+            "Which existing instance to redeploy; asked for when unbound.",
           conflicts: ["new"],
         }),
         new: str({
@@ -680,20 +632,18 @@ never moves an existing instance.`,
         }),
         location: str({
           description:
-            "Region for the deploy, on Starter. Optional — without it the " +
-            "platform picks the region with the most free capacity.",
+            "Region for the deploy, on Starter. The platform picks when omitted.",
         }),
         compute: str({
           description:
-            "Compute to create the instance on. Asked for when the project owner " +
-            "has more than one; required under --no-input/--json.",
+            "Compute to create on; asked for when there is a choice, or required " +
+            "under --no-input/--json.",
         }),
         server: renamed("compute", {
           description: "Old name for --compute; scripts may keep using it.",
         }),
         adminEmail: str({
-          description:
-            "Superuser login for the new instance. Defaults to your account email.",
+          description: "Superuser login; defaults to your account email.",
         }),
         adminPassword: str({
           description:
@@ -701,35 +651,32 @@ never moves an existing instance.`,
         }),
         pbVersion: str({
           description:
-            "PocketBase release to install. Defaults to pocketbaseVersion in pbc.json.",
+            "PocketBase release; defaults to pocketbaseVersion in pbc.json.",
         }),
         skipBuild: bool({
           description: "Package without running the build command.",
         }),
         skipEnv: bool({
-          description:
-            "Push no env vars for this run, whatever pbc.json configures.",
+          description: "Push no env vars this run.",
         }),
         envFile: path({
           description:
-            "Dotenv file to push. Recorded in pbc.json for this environment " +
-            "when it has none yet.",
+            "Dotenv file to push; recorded in pbc.json for this environment.",
         }),
         deleteMissing: bool({
-          description: "Remove cloud env vars the pushed file does not list.",
+          description: "Remove cloud vars the file does not list.",
         }),
         forceEnv: bool({
-          description:
-            "Push env vars even when they are unchanged since the last push.",
+          description: "Push even when unchanged since the last push.",
         }),
         zip: str({
           description:
-            "Upload this archive instead of packaging the directory.",
+            "Deploy this archive instead of building the directory.",
         }),
         env: str({
           description:
-            "Which pbc.json environment to target. Defaults to the file's " +
-            "default, or production.",
+            "Which pbc.json environment; defaults to the file's default or " +
+            "production.",
         }),
         subdomain: retired({
           description: "",
@@ -776,25 +723,6 @@ never moves an existing instance.`,
           noInput: ctx.flags.noInput || ctx.flags.json,
           log,
         });
-
-        if (!input.zip) {
-          const own = await readOwnLinkFile(cwd);
-          const hooksDir = join(cwd, own.build?.pbHooks ?? "pb_hooks");
-          try {
-            const nested = await findNestedHooks(hooksDir);
-            if (nested.length > 0) {
-              throw new CliError(
-                nested.map((f) =>
-                  `pb_hooks/${f} is inside a subdirectory and cannot be installed. ` +
-                  `Move it to pb_hooks/ directly.`
-                ).join("\n"),
-                { code: "USAGE" },
-              );
-            }
-          } catch (e) {
-            if (e instanceof CliError) throw e;
-          }
-        }
 
         const bundle = await buildBundle({
           cwd,
@@ -1064,16 +992,15 @@ never moves an existing instance.`,
     "pocketbase hooks push": defineCommand({
       path: ["pocketbase", "hooks", "push"],
       usage: "pbc pocketbase hooks push <dir> [--name <instance>]",
-      summary: "Upload every .js and .json file in <dir> as a hook.",
+      summary: "Upload every supported hook file in <dir> as a hook.",
       details:
         `Hooks belong to one PocketBase instance. Name it with --name/--id, or let
 the directory's pbc.json binding pick it.
 
-PocketBase itself only runs *.pb.js, but the plain .js and .json files beside
-them are uploaded too — a hook that requires a helper module or a data file
-needs it on the instance. Subdirectories are not uploaded: the platform stores
-hooks as flat files. At most 30 files per push — a bigger directory is nearly
-always the wrong one.`,
+PocketBase runs only *.pb.js, but every supported text file beside them
+(${HOOK_EXTENSIONS.join(", ")}) is uploaded too, subdirectories
+included and keeping their relative path, so a required helper module or data
+file resolves on the instance. At most ${MAX_HOOKS_PER_PUSH} files per push.`,
       args: [{ name: "dir", required: true }],
       flags: {
         name: str({
@@ -1095,7 +1022,9 @@ always the wrong one.`,
         const { sent, stored } = await pushHooks(client, found.id, dir, log);
         if (sent === 0) {
           throw new CliError(
-            `No ${HOOK_EXTENSIONS.join(" or ")} files in ${dir}.`,
+            `No supported hook files (${
+              HOOK_EXTENSIONS.join(", ")
+            }) in ${dir}.`,
             { code: "USAGE" },
           );
         }
@@ -1114,9 +1043,8 @@ always the wrong one.`,
       summary: "List uploaded hook files.",
       details:
         "Lists hooks uploaded with `pbc pocketbase hooks push`. Hooks shipped\n" +
-        "inside a deploy archive (pb_hooks/ packaged by `pbc pocketbase deploy`)\n" +
-        "run on the instance but are not recorded here, so this can read empty\n" +
-        "while hooks are live. Push them to manage them from the CLI.",
+        "inside a deploy archive run but are not recorded here, so this can read\n" +
+        "empty while hooks are live.",
       args: [],
       flags: {
         name: str({
