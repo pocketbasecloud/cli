@@ -47,6 +47,23 @@ Deno.test("compareSemverDesc orders numerically, not lexically", () => {
   assertEquals(sorted, ["0.39.10", "0.39.9", "0.22.50", "0.9.1"]);
 });
 
+Deno.test("compareSemverDesc orders prereleases by semver rules", () => {
+  const sorted = [
+    "0.40.0-beta.2",
+    "0.40.0",
+    "0.40.0-rc.1",
+    "0.40.0-beta.10",
+  ].sort(compareSemverDesc);
+  assertEquals(sorted, [
+    "0.40.0",
+    "0.40.0-rc.1",
+    "0.40.0-beta.10",
+    "0.40.0-beta.2",
+  ]);
+  assertEquals(compareSemverDesc("0.40.0-beta.10", "0.40.0-beta.2"), -1);
+  assertEquals(compareSemverDesc("0.40.0-rc.1", "0.40.0-beta.9"), -1);
+});
+
 Deno.test("listVersions sorts interleaved release lines by semver", async () => {
   const { fn } = stubFetch(releasesResponse(INTERLEAVED));
   const got = await listVersions({ fetch: fn, env: () => undefined });

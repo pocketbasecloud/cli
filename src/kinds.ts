@@ -1,5 +1,6 @@
 import type { Resource, ResourceKind } from "./clients/types.ts";
 import type { Column, Field } from "./ui/output.ts";
+import { resourceLocationLabel } from "./ui/compute.ts";
 
 export type Capability = "domains" | "env" | "logs" | "admin";
 
@@ -45,6 +46,7 @@ export const KINDS: Record<ResourceKind, KindSpec> = {
       { header: "NAME", get: (r) => r.name },
       { header: "STATUS", get: (r) => r.status },
       { header: "DOMAIN", get: (r) => r.domain ?? r.subdomain ?? "-" },
+      { header: "LOCATION", get: (r) => resourceLocationLabel(r) },
       { header: "CREATED BY", get: (r) => r.createdBy },
     ],
     fields: [
@@ -53,7 +55,7 @@ export const KINDS: Record<ResourceKind, KindSpec> = {
       { label: "STATUS", get: (r) => r.status },
       { label: "URL", get: (r) => extra(r, "baseUrl") },
       { label: "VERSION", get: (r) => extra(r, "version") },
-      { label: "COMPUTE", get: (r) => extra(r, "server") },
+      { label: "LOCATION", get: (r) => resourceLocationLabel(r) },
       { label: "PROJECT", get: (r) => r.project },
       { label: "ADMIN", get: (r) => extra(r, "adminUsername") },
       { label: "PASSWORD", get: (r) => extra(r, "adminPassword") },
@@ -78,6 +80,7 @@ export const KINDS: Record<ResourceKind, KindSpec> = {
       { header: "NAME", get: (r) => r.name },
       { header: "STATUS", get: (r) => r.status },
       { header: "DOMAIN", get: (r) => r.domain ?? "-" },
+      { header: "LOCATION", get: (r) => resourceLocationLabel(r) },
       { header: "CREATED BY", get: (r) => r.createdBy },
     ],
     fields: [
@@ -87,6 +90,7 @@ export const KINDS: Record<ResourceKind, KindSpec> = {
       { label: "URL", get: (r) => extra(r, "baseUrl") },
       { label: "DOMAIN", get: (r) => r.domain },
       { label: "CUSTOM DOMAIN", get: (r) => r.custom_domain },
+      { label: "LOCATION", get: (r) => resourceLocationLabel(r) },
       { label: "PROJECT", get: (r) => r.project },
       { label: "CREATED", get: (r) => extra(r, "created") },
     ],
@@ -109,6 +113,7 @@ export const KINDS: Record<ResourceKind, KindSpec> = {
       { header: "ID", get: (r) => r.id },
       { header: "NAME", get: (r) => r.name },
       { header: "STATUS", get: (r) => r.status },
+      { header: "LOCATION", get: (r) => resourceLocationLabel(r) },
       { header: "CREATED BY", get: (r) => r.createdBy },
     ],
     fields: [
@@ -118,6 +123,7 @@ export const KINDS: Record<ResourceKind, KindSpec> = {
       { label: "URL", get: (r) => extra(r, "baseUrl") },
       { label: "DOMAIN", get: (r) => r.domain },
       { label: "CUSTOM DOMAIN", get: (r) => r.custom_domain },
+      { label: "LOCATION", get: (r) => resourceLocationLabel(r) },
       { label: "PROJECT", get: (r) => r.project },
       { label: "CREATED", get: (r) => extra(r, "created") },
     ],

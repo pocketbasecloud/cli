@@ -23,6 +23,9 @@ export type Resource = {
   custom_domain?: string;
   custom_domain_status?: string;
   runtimeFlags?: Record<string, boolean | number | string>;
+  location?: string;
+  computeLocation?: string;
+  computeShared?: boolean;
 };
 
 export type Org = {

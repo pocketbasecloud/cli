@@ -27,21 +27,53 @@ export function normalizeVersion(v: string): string {
   return v.replace(/^v/, "");
 }
 
+type ParsedVersion = { nums: number[]; pre: string };
+
+function parseVersion(version: string): ParsedVersion {
+  const [core, ...rest] = normalizeVersion(version).split("-");
+  const nums = core.split(".").map((part) => {
+    const parsed = parseInt(part, 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  });
+  return { nums, pre: rest.join("-") };
+}
+
+function comparePrerelease(a: string, b: string): number {
+  const as = a.split(".");
+  const bs = b.split(".");
+  const length = Math.max(as.length, bs.length);
+  for (let i = 0; i < length; i++) {
+    const ai = as[i];
+    const bi = bs[i];
+    if (ai === undefined) return -1;
+    if (bi === undefined) return 1;
+    const aNumeric = /^\d+$/.test(ai);
+    const bNumeric = /^\d+$/.test(bi);
+    if (aNumeric && bNumeric) {
+      const diff = Number(ai) - Number(bi);
+      if (diff !== 0) return diff < 0 ? -1 : 1;
+    } else if (aNumeric !== bNumeric) {
+      return aNumeric ? -1 : 1;
+    } else {
+      const diff = ai.localeCompare(bi);
+      if (diff !== 0) return diff < 0 ? -1 : 1;
+    }
+  }
+  return 0;
+}
+
 export function compareSemverDesc(a: string, b: string): number {
-  const parse = (v: string) => {
-    const [core, pre] = v.split("-", 2);
-    const nums = core.split(".").map((n) => parseInt(n, 10) || 0);
-    return { nums, pre };
-  };
-  const pa = parse(a);
-  const pb = parse(b);
-  for (let i = 0; i < 3; i++) {
+  const pa = parseVersion(a);
+  const pb = parseVersion(b);
+  const length = Math.max(pa.nums.length, pb.nums.length);
+  for (let i = 0; i < length; i++) {
     const diff = (pb.nums[i] ?? 0) - (pa.nums[i] ?? 0);
     if (diff !== 0) return diff;
   }
   if (pa.pre && !pb.pre) return 1;
   if (!pa.pre && pb.pre) return -1;
-  return (pb.pre ?? "").localeCompare(pa.pre ?? "");
+  if (!pa.pre) return 0;
+  return -comparePrerelease(pa.pre, pb.pre);
 }
 
 export function assetUrl(version: string, assetName: string): string {

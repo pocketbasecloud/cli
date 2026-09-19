@@ -50,3 +50,15 @@ export function computeLabel(
   const withLocation = location ? `${base} — ${locationCity(location)}` : base;
   return shortKey ? `${withLocation} (${shortKey})` : withLocation;
 }
+
+const SHARED_CLUSTER_LABEL = "Shared Cluster";
+
+export function resourceLocationLabel(
+  r: { computeLocation?: string; computeShared?: boolean } | undefined,
+): string {
+  if (!r?.computeLocation) {
+    return r?.computeShared ? SHARED_CLUSTER_LABEL : "-";
+  }
+  const city = locationCity(r.computeLocation);
+  return r.computeShared ? `${SHARED_CLUSTER_LABEL} — ${city}` : city;
+}

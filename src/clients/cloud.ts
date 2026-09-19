@@ -121,6 +121,18 @@ export function mapPbError(e: unknown): CliError {
 
 const NOT_DELETED = 'status != "deleted"';
 
+function withComputeInfo(
+  r: Resource & { expand?: { server?: Server } },
+): Resource {
+  const server = r.expand?.server;
+  const { expand: _expand, ...rest } = r;
+  return {
+    ...rest,
+    computeLocation: r.location || server?.location,
+    computeShared: server ? server.ownership !== "user" : undefined,
+  };
+}
+
 function generateTraceId(): string {
   try {
     return crypto.randomUUID();
@@ -225,12 +237,14 @@ export class PocketBaseCloudClient implements ICloudClient {
       opts.project ? `project = "${opts.project}"` : "",
       NOT_DELETED,
     ].filter(Boolean).join(" && ");
-    return this.guard(async () =>
-      await this.pb.collection(kind).getFullList({
+    return this.guard(async () => {
+      const recs = await this.pb.collection(kind).getFullList({
         filter,
         sort: "-updated",
-      }) as unknown as Resource[]
-    );
+        expand: "server",
+      }) as unknown as (Resource & { expand?: { server?: Server } })[];
+      return recs.map(withComputeInfo);
+    });
   }
 
   createResource(

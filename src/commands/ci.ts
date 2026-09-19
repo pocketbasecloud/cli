@@ -90,10 +90,15 @@ function toPosix(path: string): string {
 }
 
 const YAML_PLAIN = /^[A-Za-z0-9_][A-Za-z0-9 ._/@+-]*$/;
+const YAML_RESERVED = /^(?:true|false|yes|no|on|off|null|nan|inf)$/i;
+const YAML_NUMBER =
+  /^(?:0[xX][0-9a-fA-F_]+|0[oO][0-7_]+|0[bB][01_]+|\d[\d_]*(?:\.\d*)?(?:[eE][-+]?\d+)?)$/;
+const YAML_DATE = /^\d{4}-\d{1,2}-\d{1,2}/;
 export function yamlScalar(value: string): string {
-  return YAML_PLAIN.test(value) && !value.endsWith(" ")
-    ? value
-    : JSON.stringify(value);
+  const plain = YAML_PLAIN.test(value) && !value.endsWith(" ");
+  const ambiguous = YAML_RESERVED.test(value) || YAML_NUMBER.test(value) ||
+    YAML_DATE.test(value);
+  return plain && !ambiguous ? value : JSON.stringify(value);
 }
 
 export type WorkflowOptions = {

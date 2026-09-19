@@ -37,14 +37,98 @@ export function prunedKeysOf(body: unknown): string[] {
   return Array.isArray(pruned) ? pruned.map(String) : [];
 }
 
+const DOUBLE_QUOTE_ESCAPES: Record<string, string> = {
+  n: "\n",
+  r: "\r",
+  t: "\t",
+  "\\": "\\",
+  '"': '"',
+  "'": "'",
+};
+
+function unescapeDoubleQuoted(value: string): string {
+  return value.replace(
+    /\\([nrt\\"'])/g,
+    (_, char: string) => DOUBLE_QUOTE_ESCAPES[char],
+  );
+}
+
+function closingQuoteIndex(value: string, quote: string): number {
+  for (let i = 0; i < value.length; i++) {
+    if (quote === '"' && value[i] === "\\") {
+      i++;
+      continue;
+    }
+    if (value[i] === quote) return i;
+  }
+  return -1;
+}
+
+function readQuotedValue(
+  valueText: string,
+  lines: string[],
+  startIndex: number,
+  quote: string,
+): { value: string; lastLine: number } {
+  let line = startIndex;
+  const parts = [valueText.slice(1)];
+  while (true) {
+    const close = closingQuoteIndex(parts[parts.length - 1], quote);
+    if (close !== -1) {
+      parts[parts.length - 1] = parts[parts.length - 1].slice(0, close);
+      const raw = parts.join("\n");
+      return {
+        value: quote === '"' ? unescapeDoubleQuoted(raw) : raw,
+        lastLine: line,
+      };
+    }
+    if (quote !== '"') {
+      return { value: parts.join("\n"), lastLine: line };
+    }
+    line++;
+    if (line >= lines.length) {
+      const raw = parts.join("\n");
+      return {
+        value: quote === '"' ? unescapeDoubleQuoted(raw) : raw,
+        lastLine: lines.length - 1,
+      };
+    }
+    parts.push(lines[line]);
+  }
+}
+
+function stripInlineComment(value: string): string {
+  let end = value.length;
+  for (let i = 0; i < value.length; i++) {
+    if (value[i] === "#" && (i === 0 || /\s/.test(value[i - 1]))) {
+      end = i;
+      break;
+    }
+  }
+  return value.slice(0, end).trim();
+}
+
 export function parseDotenv(text: string): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const line of text.split("\n")) {
-    const trimmed = line.trim();
+  const lines = text.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
-    const eq = trimmed.indexOf("=");
-    if (eq === -1) continue;
-    out[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim();
+    const statement = trimmed.startsWith("export ")
+      ? trimmed.slice("export ".length).trim()
+      : trimmed;
+    const eq = statement.indexOf("=");
+    if (eq <= 0) continue;
+    const key = statement.slice(0, eq).trim();
+    if (!key) continue;
+    const rest = statement.slice(eq + 1).trim();
+    if (rest[0] === '"' || rest[0] === "'") {
+      const parsed = readQuotedValue(rest, lines, i, rest[0]);
+      out[key] = parsed.value;
+      i = parsed.lastLine;
+    } else {
+      out[key] = stripInlineComment(rest);
+    }
   }
   return out;
 }

@@ -17,6 +17,42 @@ Deno.test("parseDotenv ignores comments and blanks", () => {
   });
 });
 
+Deno.test("parseDotenv handles quotes, exports, escapes and inline comments", () => {
+  assertEquals(
+    parseDotenv(
+      [
+        'A="a b "',
+        "export B='c d'",
+        'C="line1\\nline2"',
+        "D=plain # trailing comment",
+        "E=abc#def",
+        'F=""',
+        'G="say \\"hi\\""',
+      ].join("\n"),
+    ),
+    {
+      A: "a b ",
+      B: "c d",
+      C: "line1\nline2",
+      D: "plain",
+      E: "abc#def",
+      F: "",
+      G: 'say "hi"',
+    },
+  );
+});
+
+Deno.test("parseDotenv reads multi-line double-quoted values", () => {
+  assertEquals(
+    parseDotenv('KEY="-----BEGIN\nPRIVATE KEY-----"\nNEXT=1\n'),
+    { KEY: "-----BEGIN\nPRIVATE KEY-----", NEXT: "1" },
+  );
+});
+
+Deno.test("parseDotenv does not swallow lines after an unclosed single quote", () => {
+  assertEquals(parseDotenv("A='oops\nB=1\n"), { A: "oops", B: "1" });
+});
+
 Deno.test("env import posts bulk-set with parsed vars", async () => {
   const dir = await Deno.makeTempDir();
   await Deno.writeTextFile(join(dir, ".env"), "A=1\nB=2\n");

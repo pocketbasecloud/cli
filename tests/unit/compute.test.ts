@@ -3,6 +3,7 @@ import {
   computeLabel,
   humanizeLocationCode,
   locationCity,
+  resourceLocationLabel,
 } from "../../src/ui/compute.ts";
 
 Deno.test("computeLabel numbers from one and names the city", () => {
@@ -29,6 +30,39 @@ Deno.test("an unknown datacenter code is humanized rather than hidden", () => {
   assertEquals(locationCity("xyz"), "XYZ");
   assertEquals(humanizeLocationCode("new-region"), "NEW Region");
   assertEquals(computeLabel(0, "waw2"), "Compute 1 — Waw2");
+});
+
+Deno.test("resourceLocationLabel names the city for a dedicated compute", () => {
+  assertEquals(
+    resourceLocationLabel({ computeLocation: "GRA", computeShared: false }),
+    "Gravelines",
+  );
+});
+
+Deno.test("resourceLocationLabel shows the shared cluster's real location", () => {
+  assertEquals(
+    resourceLocationLabel({ computeLocation: "fsn1", computeShared: true }),
+    "Shared Cluster — Falkenstein",
+  );
+});
+
+Deno.test("resourceLocationLabel falls back to a bare shared-cluster label without a location", () => {
+  assertEquals(
+    resourceLocationLabel({ computeShared: true }),
+    "Shared Cluster",
+  );
+});
+
+Deno.test("resourceLocationLabel shows a dash, not shared cluster, for a dedicated compute with no known location", () => {
+  assertEquals(
+    resourceLocationLabel({ computeShared: false }),
+    "-",
+  );
+});
+
+Deno.test("resourceLocationLabel shows a dash when nothing is known", () => {
+  assertEquals(resourceLocationLabel(undefined), "-");
+  assertEquals(resourceLocationLabel({}), "-");
 });
 
 Deno.test("every provider and custom location code names a real city", () => {

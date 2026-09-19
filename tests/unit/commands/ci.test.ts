@@ -4,6 +4,7 @@ import {
   type GitRunner,
   makeCiCommands,
   renderWorkflow,
+  yamlScalar,
 } from "../../../src/commands/ci.ts";
 import { readOwnLinkFile } from "../../../src/config.ts";
 import { VERSION } from "../../../src/version.ts";
@@ -77,6 +78,36 @@ function captureLog() {
   console.log = (...args: unknown[]) => lines.push(args.map(String).join(" "));
   return { lines, restore: () => console.log = original };
 }
+
+Deno.test("yamlScalar leaves ordinary plain scalars unquoted", () => {
+  assertEquals(yamlScalar("apps/web"), "apps/web");
+  assertEquals(yamlScalar("main"), "main");
+  assertEquals(yamlScalar("deploy-web-production"), "deploy-web-production");
+});
+
+Deno.test("yamlScalar quotes values that YAML would type-coerce", () => {
+  for (
+    const value of [
+      "true",
+      "False",
+      "no",
+      "on",
+      "null",
+      "2024",
+      "1.5",
+      "1e3",
+      "0x1A",
+      "2024-01-01",
+      "",
+      "has: colon",
+      "trailing ",
+    ]
+  ) {
+    const quoted = yamlScalar(value);
+    assertEquals(quoted.startsWith('"'), true, value);
+    assertEquals(JSON.parse(quoted), value, value);
+  }
+});
 
 Deno.test("renderWorkflow at the repo root omits working-directory and paths", () => {
   const yaml = renderWorkflow({
