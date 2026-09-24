@@ -15,14 +15,18 @@ Deno.test("the table declares exactly the capabilities the platform serves", () 
     "frontends",
     "backends",
   ]);
-  assertEquals(kindsWith("env").map((k) => k.kind), ["pocketbases", "backends"]);
+  assertEquals(kindsWith("env").map((k) => k.kind), [
+    "pocketbases",
+    "frontends",
+    "backends",
+  ]);
   assertEquals(kindsWith("logs").map((k) => k.kind), ["pocketbases", "backends"]);
   assertEquals(kindsWith("admin").map((k) => k.kind), ["pocketbases"]);
 });
 
-Deno.test("every kind that declares env or logs names the type the platform expects", () => {
+Deno.test("every kind served by the env and log routes names the type they expect", () => {
   for (const spec of ALL_KINDS) {
-    if (spec.env || spec.logs) {
+    if (spec.logs || (spec.env && spec.kind !== "frontends")) {
       assertEquals(
         typeof spec.apiType,
         "string",
@@ -32,6 +36,7 @@ Deno.test("every kind that declares env or logs names the type the platform expe
   }
   assertEquals(KINDS.pocketbases.apiType, "pocketbase");
   assertEquals(KINDS.backends.apiType, "backend");
+  assertEquals(KINDS.frontends.apiType, undefined);
 });
 
 Deno.test("every kind's custom-domain id field matches its route family", () => {

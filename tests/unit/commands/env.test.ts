@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
+import { CliError } from "../../../src/errors.ts";
 import {
   envKeysOf,
   makeEnvCommands,
@@ -379,4 +380,131 @@ Deno.test("env ls does not announce the project when --project names it", async 
   } finally {
     console.error = origErr;
   }
+});
+
+async function frontendEnvFixture(buildEnv?: Record<string, string>) {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const fe = await client.createResource("frontends", {
+    name: "site",
+    project: p.id,
+  });
+  if (buildEnv) {
+    await client.updateResource("frontends", fe.id, { buildEnv });
+    client.calls.updateResource.length = 0;
+  }
+  const config: Config = {
+    ...defaultConfig(),
+    cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
+    currentProject: p.id,
+  };
+  const cmds = makeEnvCommands({
+    requireAuth: () => Promise.resolve({ client, config, auth: config.cloud! }),
+    loadConfig: () => Promise.resolve(config),
+    saveConfig: () => Promise.resolve(),
+    cwd: () => "/tmp",
+    envStatePath: tempStatePath(),
+  });
+  const flags = {
+    json: true,
+    yes: true,
+    noInput: true,
+    interactive: false,
+    project: p.id,
+  };
+  return { client, cmds, fe, flags };
+}
+
+Deno.test("env set --target frontend merges into the frontend's buildEnv", async () => {
+  const { client, cmds, fe, flags } = await frontendEnvFixture({ VITE_A: "1" });
+  const code = await cmds["env set"].run(
+    { target: "frontend", name: "site" },
+    { args: ["VITE_B=https://api.example.com?x=1"], flags },
+  );
+  assertEquals(code, 0);
+  assertEquals(client.calls.updateResource, [[
+    "frontends",
+    fe.id,
+    { buildEnv: { VITE_A: "1", VITE_B: "https://api.example.com?x=1" } },
+  ]]);
+  assertEquals(client.calls.pbApi, []);
+  assertEquals(client.calls.ext, []);
+});
+
+Deno.test("env rm --target frontend drops the key and clears an empty buildEnv", async () => {
+  const { client, cmds, fe, flags } = await frontendEnvFixture({ VITE_A: "1" });
+  await cmds["env rm"].run(
+    { target: "frontend", name: "site" },
+    { args: ["VITE_A"], flags },
+  );
+  assertEquals(client.calls.updateResource, [["frontends", fe.id, {
+    buildEnv: null,
+  }]]);
+});
+
+Deno.test("env ls --target frontend lists buildEnv names", async () => {
+  const { cmds, flags } = await frontendEnvFixture({ VITE_B: "2", VITE_A: "1" });
+  const logs: string[] = [];
+  const origLog = console.log;
+  console.log = (s: string) => logs.push(s);
+  try {
+    await cmds["env ls"].run({ target: "frontend", name: "site" }, {
+      args: [],
+      flags,
+    });
+  } finally {
+    console.log = origLog;
+  }
+  assertEquals(JSON.parse(logs[0]).data, [{ key: "VITE_A" }, { key: "VITE_B" }]);
+});
+
+Deno.test("env import --target frontend writes every variable, secrets included", async () => {
+  const dir = await Deno.makeTempDir();
+  await Deno.writeTextFile(
+    join(dir, ".env"),
+    "VITE_A=1\nCMS_TOKEN=tok_x\n",
+  );
+  const { client, cmds, fe, flags } = await frontendEnvFixture();
+  await cmds["env import"].run({ target: "frontend", name: "site" }, {
+    args: [join(dir, ".env")],
+    flags,
+  });
+  assertEquals(client.calls.updateResource, [[
+    "frontends",
+    fe.id,
+    { buildEnv: { VITE_A: "1", CMS_TOKEN: "tok_x" } },
+  ]]);
+  assertEquals(client.calls.ext, []);
+  await Deno.remove(dir, { recursive: true });
+});
+
+Deno.test("env import --target frontend merges, or replaces with --delete-missing", async () => {
+  const dir = await Deno.makeTempDir();
+  await Deno.writeTextFile(join(dir, ".env"), "VITE_B=2\n");
+  const { client, cmds, fe, flags } = await frontendEnvFixture({ VITE_A: "1" });
+  await cmds["env import"].run({ target: "frontend", name: "site" }, {
+    args: [join(dir, ".env")],
+    flags,
+  });
+  await cmds["env import"].run(
+    { target: "frontend", name: "site", deleteMissing: true },
+    { args: [join(dir, ".env")], flags },
+  );
+  assertEquals(client.calls.updateResource, [
+    ["frontends", fe.id, { buildEnv: { VITE_A: "1", VITE_B: "2" } }],
+    ["frontends", fe.id, { buildEnv: { VITE_B: "2" } }],
+  ]);
+  await Deno.remove(dir, { recursive: true });
+});
+
+Deno.test("env rm --target frontend on a variable that is not set fails without a write", async () => {
+  const { client, cmds, flags } = await frontendEnvFixture({ VITE_A: "1" });
+  const err = await assertRejects(() =>
+    cmds["env rm"].run(
+      { target: "frontend", name: "site" },
+      { args: ["VITE_MISSING"], flags },
+    )
+  );
+  assertEquals((err as CliError).code, "NOT_FOUND");
+  assertEquals(client.calls.updateResource, []);
 });

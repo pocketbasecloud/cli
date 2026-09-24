@@ -39,6 +39,10 @@ export type User = {
   email: string;
   plan: string;
   role?: string;
+  /** Self-driving pull requests are allowed on the account. */
+  selfDriving?: boolean;
+  /** The TypeSafe judge runs on self-driving runs. */
+  selfDrivingJudge?: boolean;
 };
 
 export type DeployContext = {

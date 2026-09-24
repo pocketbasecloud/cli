@@ -121,6 +121,9 @@ async function inferFrontend(dir: string): Promise<BuildConfig> {
   if (await exists(join(dir, "svelte.config.js"))) {
     return { command, outputDir: "build" };
   }
+  if (await hasConfig(dir, "astro.config")) {
+    return { command, outputDir: "dist" };
+  }
   if (await exists(join(dir, "angular.json"))) {
     return { command, outputDir: "dist" };
   }

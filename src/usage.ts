@@ -929,6 +929,64 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
+  "pocketbase continuous-backup status": {
+    "usage": "pbc pocketbase continuous-backup status [--name <instance>]",
+    "summary": "Show whether continuous backup is on for an instance.",
+    "details": "Continuous backup streams every database change off-site and\nallows a restore to any point in time. A paid plan is required to enable it.",
+    "needs": [
+      "target:pocketbases",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which instance. Defaults to the directory binding."
+      }
+    ]
+  },
+  "pocketbase continuous-backup enable": {
+    "usage": "pbc pocketbase continuous-backup enable [--name <instance>]",
+    "summary": "Turn on continuous backup for an instance.",
+    "needs": [
+      "target:pocketbases",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which instance. Defaults to the directory binding."
+      }
+    ]
+  },
+  "pocketbase continuous-backup disable": {
+    "usage": "pbc pocketbase continuous-backup disable [--name <instance>]",
+    "summary": "Turn off continuous backup for an instance and delete its restore points.",
+    "needs": [
+      "target:pocketbases",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which instance. Defaults to the directory binding."
+      }
+    ]
+  },
   "pocketbase superuser sync": {
     "usage": "pbc pocketbase superuser sync --email <email> --password <password> [--name <instance>]",
     "summary": "Add or update the managed PocketBase superuser.",
@@ -1381,9 +1439,9 @@ export const COMMANDS: Record<string, CommandSpec> = {
     "flags": []
   },
   "env ls": {
-    "usage": "pbc env ls --target pocketbase|backend --name <n> [--env <name>]",
+    "usage": "pbc env ls --target pocketbase|frontend|backend --name <n> [--env <name>]",
     "summary": "List environment variables.",
-    "details": "Names only. The platform stores values encrypted and its list endpoint\nnever returns plaintext, so there is nothing for the CLI to show —\nread a value from the app itself, or overwrite it with `env set`.\nWithout --name/--id, a terminal offers a picker.",
+    "details": "Names only. The platform stores values encrypted and its list endpoint\nnever returns plaintext, so there is nothing for the CLI to show —\nread a value from the app itself, or overwrite it with `env set`.\nWithout --name/--id, a terminal offers a picker.\n--target frontend manages build variables: they are set while the\nplatform builds the frontend from source (GitHub pushes, templates);\n`pbc deploy` builds locally with your own shell environment instead.\nThey are stored unencrypted, limited to 10 KB in total, and names your\nframework exposes to the browser (VITE_, NEXT_PUBLIC_, …) end up in\nthe public bundle.",
     "args": [],
     "flags": [
       {
@@ -1392,9 +1450,10 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "required": true,
         "choices": [
           "pocketbase",
+          "frontend",
           "backend"
         ],
-        "description": "pocketbase or backend — which kind's variables."
+        "description": "pocketbase or frontend or backend — which kind's variables."
       },
       {
         "name": "name",
@@ -1417,7 +1476,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ]
   },
   "env set": {
-    "usage": "pbc env set KEY=VALUE --target pocketbase|backend --name <n> [--env <name>]",
+    "usage": "pbc env set KEY=VALUE --target pocketbase|frontend|backend --name <n> [--env <name>]",
     "summary": "Set an environment variable.",
     "args": [
       {
@@ -1432,9 +1491,10 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "required": true,
         "choices": [
           "pocketbase",
+          "frontend",
           "backend"
         ],
-        "description": "pocketbase or backend — which kind's variables."
+        "description": "pocketbase or frontend or backend — which kind's variables."
       },
       {
         "name": "name",
@@ -1457,7 +1517,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ]
   },
   "env rm": {
-    "usage": "pbc env rm KEY --target pocketbase|backend --name <n> [--env <name>]",
+    "usage": "pbc env rm KEY --target pocketbase|frontend|backend --name <n> [--env <name>]",
     "summary": "Remove an environment variable.",
     "args": [
       {
@@ -1472,9 +1532,10 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "required": true,
         "choices": [
           "pocketbase",
+          "frontend",
           "backend"
         ],
-        "description": "pocketbase or backend — which kind's variables."
+        "description": "pocketbase or frontend or backend — which kind's variables."
       },
       {
         "name": "name",
@@ -1497,7 +1558,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ]
   },
   "env import": {
-    "usage": "pbc env import <.env> --target pocketbase|backend --name <n> [--delete-missing] [--env <name>]",
+    "usage": "pbc env import <.env> --target pocketbase|frontend|backend --name <n> [--delete-missing] [--env <name>]",
     "summary": "Bulk-import variables from a .env file.",
     "details": "Merges: keys in the file are written, cloud-only keys are left alone.\n--delete-missing makes the file the whole truth — cloud variables it does not\nlist are removed too, after a confirmation that --no-input does not waive\n(without a way to ask, the import stops and names --yes).",
     "args": [
@@ -1513,9 +1574,10 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "required": true,
         "choices": [
           "pocketbase",
+          "frontend",
           "backend"
         ],
-        "description": "pocketbase or backend — which kind's variables."
+        "description": "pocketbase or frontend or backend — which kind's variables."
       },
       {
         "name": "name",
@@ -1661,6 +1723,25 @@ export const COMMANDS: Record<string, CommandSpec> = {
     "usage": "pbc plan",
     "summary": "Show the current plan and the upgrade link.",
     "details": "Upgrades your account's plan. To update the pbc binary itself, see `pbc self upgrade`.",
+    "args": [],
+    "flags": []
+  },
+  "self-driving status": {
+    "usage": "pbc self-driving status",
+    "summary": "Show whether self-driving pull requests are enabled.",
+    "details": "Self-driving reads a firing finding's evidence, works in an\nisolated sandbox and opens a pull request on the connected repository. It never\nmerges or deploys on its own.\n\nIt is off until you enable it; `pbc self-driving enable` allows it on every\nproject of the account. Runs count toward your plan's daily and monthly\nlimits.",
+    "args": [],
+    "flags": []
+  },
+  "self-driving enable": {
+    "usage": "pbc self-driving enable",
+    "summary": "Allow self-driving pull requests on your account.",
+    "args": [],
+    "flags": []
+  },
+  "self-driving disable": {
+    "usage": "pbc self-driving disable",
+    "summary": "Stop self-driving pull requests on your account.",
     "args": [],
     "flags": []
   },

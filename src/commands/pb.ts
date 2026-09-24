@@ -953,6 +953,97 @@ merge and --delete-missing/--skip-env/--force-env rules.`,
       },
     }),
 
+    "pocketbase continuous-backup status": defineCommand({
+      path: ["pocketbase", "continuous-backup", "status"],
+      needs: ["target:pocketbases", { explicit: true }],
+      usage: "pbc pocketbase continuous-backup status [--name <instance>]",
+      summary: "Show whether continuous backup is on for an instance.",
+      details: `Continuous backup streams every database change off-site and
+allows a restore to any point in time. A paid plan is required to enable it.`,
+      args: [],
+      flags: {
+        name: str({
+          description: "Which instance. Defaults to the directory binding.",
+        }),
+      },
+      run: async (input, ctx) => {
+        const { client, found } = await resolveOne(ctx, input);
+        const res = await client.ext(
+          "/api/pocketbases/continuous-backup/status",
+          { pocketbaseId: found.id },
+        );
+        if (!res.ok) throw await httpError(res, "Continuous backup status");
+        const body = await res.json().catch(() => ({})) as {
+          data?: { enabled?: boolean; running?: boolean; restorable?: boolean };
+        };
+        const status = body.data ?? {};
+        const enabled = status.enabled === true;
+        const running = status.running === true;
+        const restorable = status.restorable === true;
+        emit(
+          ctx.flags.json,
+          { enabled, running, restorable },
+          [
+            `Enabled: ${enabled ? "yes" : "no"}`,
+            `Running: ${running ? "yes" : "no"}`,
+            `Restorable: ${restorable ? "yes" : "no"}`,
+          ].join("\n"),
+        );
+        return 0;
+      },
+    }),
+
+    "pocketbase continuous-backup enable": defineCommand({
+      path: ["pocketbase", "continuous-backup", "enable"],
+      needs: ["target:pocketbases", { explicit: true }],
+      usage: "pbc pocketbase continuous-backup enable [--name <instance>]",
+      summary: "Turn on continuous backup for an instance.",
+      args: [],
+      flags: {
+        name: str({
+          description: "Which instance. Defaults to the directory binding.",
+        }),
+      },
+      run: async (input, ctx) => {
+        const { client, found } = await resolveOne(ctx, input);
+        const res = await client.ext(
+          "/api/pocketbases/continuous-backup/enable",
+          { pocketbaseId: found.id },
+        );
+        if (!res.ok) throw await httpError(res, "Continuous backup enable");
+        emit(ctx.flags.json, { enabled: true }, "Continuous backup enabled.");
+        return 0;
+      },
+    }),
+
+    "pocketbase continuous-backup disable": defineCommand({
+      path: ["pocketbase", "continuous-backup", "disable"],
+      needs: ["target:pocketbases", { explicit: true }],
+      usage: "pbc pocketbase continuous-backup disable [--name <instance>]",
+      summary:
+        "Turn off continuous backup for an instance and delete its restore points.",
+      args: [],
+      flags: {
+        name: str({
+          description: "Which instance. Defaults to the directory binding.",
+        }),
+      },
+      run: async (input, ctx) => {
+        const { client, found } = await resolveOne(ctx, input);
+        const res = await client.ext(
+          "/api/pocketbases/continuous-backup/disable",
+          { pocketbaseId: found.id },
+        );
+        if (!res.ok) throw await httpError(res, "Continuous backup disable");
+        emit(
+          ctx.flags.json,
+          { enabled: false },
+          "Continuous backup disabled. All restore points were deleted.",
+        );
+        return 0;
+      },
+    }),
+
     "pocketbase superuser sync": defineCommand({
       path: ["pocketbase", "superuser", "sync"],
       needs: ["target:pocketbases", { explicit: true }],

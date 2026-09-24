@@ -41,6 +41,10 @@ Deno.test("frontend inference maps each framework to its output directory", asyn
       "build",
     ],
     [
+      { "astro.config.mjs": "", "package.json": pkg({ build: "astro build" }) },
+      "dist",
+    ],
+    [
       { "angular.json": "", "package.json": pkg({ build: "ng build" }) },
       "dist",
     ],

@@ -6,6 +6,7 @@ import {
   str,
 } from "../command.ts";
 import type { CloudCmdDeps } from "./project.ts";
+import type { ICloudClient } from "../clients/cloud.ts";
 import { CliError, httpError } from "../errors.ts";
 import { emit } from "../envelope.ts";
 import { type KindSpec, kindByAlias, kindsWith } from "../kinds.ts";
@@ -133,6 +134,33 @@ export function parseDotenv(text: string): Record<string, string> {
   return out;
 }
 
+export function buildEnvOf(resource: unknown): Record<string, string> {
+  const raw = (resource as { buildEnv?: unknown } | null)?.buildEnv;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  return Object.fromEntries(
+    Object.entries(raw).filter((entry): entry is [string, string] =>
+      typeof entry[1] === "string"
+    ),
+  );
+}
+
+async function readBuildEnv(
+  client: ICloudClient,
+  frontendId: string,
+): Promise<Record<string, string>> {
+  return buildEnvOf(await client.getResource("frontends", frontendId));
+}
+
+async function writeBuildEnv(
+  client: ICloudClient,
+  frontendId: string,
+  env: Record<string, string>,
+): Promise<void> {
+  await client.updateResource("frontends", frontendId, {
+    buildEnv: Object.keys(env).length > 0 ? env : null,
+  });
+}
+
 const ENV_KINDS = kindsWith("env");
 const ENV_NOUNS = ENV_KINDS.map((k) => k.noun);
 
@@ -172,6 +200,7 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Command> {
     return {
       client,
       targetId: resource.id,
+      isFrontend: spec.kind === "frontends",
       type: spec.apiType as "pocketbase" | "backend",
     };
   }
@@ -201,7 +230,13 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Command> {
         "Names only. The platform stores values encrypted and its list endpoint\n" +
         "never returns plaintext, so there is nothing for the CLI to show —\n" +
         "read a value from the app itself, or overwrite it with `env set`.\n" +
-        "Without --name/--id, a terminal offers a picker.",
+        "Without --name/--id, a terminal offers a picker.\n" +
+        "--target frontend manages build variables: they are set while the\n" +
+        "platform builds the frontend from source (GitHub pushes, templates);\n" +
+        "`pbc deploy` builds locally with your own shell environment instead.\n" +
+        "They are stored unencrypted, limited to 10 KB in total, and names your\n" +
+        "framework exposes to the browser (VITE_, NEXT_PUBLIC_, …) end up in\n" +
+        "the public bundle.",
       args: [],
       flags: {
         target: targetFlag,
@@ -210,13 +245,22 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Command> {
         env: envFlag,
       },
       run: async (input, ctx) => {
-        const { client, targetId, type } = await resolveVarTarget(ctx, input, false);
-        const res = await client.pbApi("/api/env/list", {
-          target_id: targetId,
-          type,
-        });
-        if (!res.ok) throw await httpError(res, "List");
-        const keys = envKeysOf(await res.json());
+        const { client, targetId, isFrontend, type } = await resolveVarTarget(
+          ctx,
+          input,
+          false,
+        );
+        let keys: string[];
+        if (isFrontend) {
+          keys = Object.keys(await readBuildEnv(client, targetId)).sort();
+        } else {
+          const res = await client.pbApi("/api/env/list", {
+            target_id: targetId,
+            type,
+          });
+          if (!res.ok) throw await httpError(res, "List");
+          keys = envKeysOf(await res.json());
+        }
         printResult(
           keys.map((key) => ({ key })),
           [{ header: "KEY", get: (r) => r.key }],
@@ -246,7 +290,17 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Command> {
         }
         const key = kv.slice(0, kv.indexOf("="));
         const value = kv.slice(kv.indexOf("=") + 1);
-        const { client, targetId, type } = await resolveVarTarget(ctx, input, true);
+        const { client, targetId, isFrontend, type } = await resolveVarTarget(
+          ctx,
+          input,
+          true,
+        );
+        if (isFrontend) {
+          const env = await readBuildEnv(client, targetId);
+          await writeBuildEnv(client, targetId, { ...env, [key]: value });
+          emit(ctx.flags.json, { ok: true }, `Set ${key}.`);
+          return 0;
+        }
         const res = await client.pbApi("/api/env/set", {
           target_id: targetId,
           type,
@@ -278,7 +332,25 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Command> {
             `Usage: pbc env rm KEY --target ${ENV_NOUNS.join("|")} --name <n>`,
             { code: "USAGE" });
         }
-        const { client, targetId, type } = await resolveVarTarget(ctx, input, true);
+        const { client, targetId, isFrontend, type } = await resolveVarTarget(
+          ctx,
+          input,
+          true,
+        );
+        if (isFrontend) {
+          const { [key]: removed, ...rest } = await readBuildEnv(
+            client,
+            targetId,
+          );
+          if (removed === undefined) {
+            throw new CliError(`${key} is not set on this frontend.`, {
+              code: "NOT_FOUND",
+            });
+          }
+          await writeBuildEnv(client, targetId, rest);
+          emit(ctx.flags.json, { ok: true }, `Removed ${key}.`);
+          return 0;
+        }
         const res = await client.pbApi("/api/env/delete", {
           target_id: targetId,
           type,
@@ -329,7 +401,35 @@ list are removed too, after a confirmation that --no-input does not waive
             return 0;
           }
         }
-        const { client, targetId, type } = await resolveVarTarget(ctx, input, true);
+        const { client, targetId, isFrontend, type } = await resolveVarTarget(
+          ctx,
+          input,
+          true,
+        );
+        if (isFrontend) {
+          const current = await readBuildEnv(client, targetId);
+          const removed = deleteMissing
+            ? Object.keys(current).filter((key) => !(key in vars))
+            : [];
+          await writeBuildEnv(
+            client,
+            targetId,
+            deleteMissing ? vars : { ...current, ...vars },
+          );
+          const imported = Object.keys(vars).length;
+          emit(
+            ctx.flags.json,
+            { imported, removed },
+            () =>
+              [
+                `Imported ${imported} vars.`,
+                ...(removed.length > 0
+                  ? [`Removed ${removed.length}: ${removed.join(", ")}.`]
+                  : []),
+              ].join("\n"),
+          );
+          return 0;
+        }
         const res = await client.ext("/api/env/bulk-set", {
           target_id: targetId,
           type,

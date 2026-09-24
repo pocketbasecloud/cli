@@ -18,6 +18,7 @@ import { makeCloudInitCommands } from "./init.ts";
 import { makeCiCommands } from "./ci.ts";
 import { makeLocalCommands } from "./local.ts";
 import { makeSelfCommands } from "./self.ts";
+import { makeSelfDrivingCommands } from "./self-driving.ts";
 import type { LocalDeps } from "../local/deps.ts";
 import type { SelfDeps } from "../self/upgrade.ts";
 import { hostKey } from "../../scripts/targets.ts";
@@ -158,6 +159,7 @@ export function registerCommands(registry: CommandRegistry): void {
     ...makeCloudInitCommands({ cwd: cloud.cwd }),
     ...makeCiCommands({ cwd: cloud.cwd }),
     ...makeUpgradeCommands(cloud, PORTAL_BASE),
+    ...makeSelfDrivingCommands(cloud),
     ...makeInstanceAuthCommands(admin),
     ...makeLocalCommands(buildLocalDeps()),
     ...makeSelfCommands(buildSelfDeps()),

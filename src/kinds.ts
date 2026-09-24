@@ -72,7 +72,7 @@ export const KINDS: Record<ResourceKind, KindSpec> = {
     idField: "frontend_id",
     deploy: "static | source",
     domains: true,
-    env: false,
+    env: true,
     logs: false,
     admin: false,
     columns: [

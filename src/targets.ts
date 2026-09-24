@@ -29,6 +29,7 @@ const BY_FAMILY: Record<string, readonly CommandTarget[]> = {
   login: CLOUD,
   logout: CLOUD,
   whoami: CLOUD,
+  "self-driving": CLOUD,
 };
 
 export function targetsOf(command: Command): readonly CommandTarget[] {

@@ -580,6 +580,110 @@ Deno.test("pb config set returns only supported fields and preserves the rest", 
   });
 });
 
+Deno.test("pb continuous-backup status maps the instance state", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const resource = await client.createResource("pocketbases", {
+    name: "db1",
+    project: p.id,
+  });
+  client.ext = (path, body) => {
+    client.calls.ext.push([path, body]);
+    return Promise.resolve(
+      Response.json({
+        success: true,
+        data: { enabled: true, running: false, restorable: true },
+      }),
+    );
+  };
+  const { d } = deps(client);
+  const log = captureLog();
+  try {
+    const code = await makePbCommands(d)["pocketbase continuous-backup status"]
+      .run({ name: "db1" }, {
+        args: [],
+        flags: flags({ project: p.id }),
+      });
+    assertEquals(code, 0);
+  } finally {
+    log.restore();
+  }
+  assertEquals(client.calls.ext.at(-1), [
+    "/api/pocketbases/continuous-backup/status",
+    { pocketbaseId: resource.id },
+  ]);
+  assertEquals(JSON.parse(log.lines.at(-1)!).data, {
+    enabled: true,
+    running: false,
+    restorable: true,
+  });
+});
+
+Deno.test("pb continuous-backup enable posts the instance id", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const resource = await client.createResource("pocketbases", {
+    name: "db1",
+    project: p.id,
+  });
+  const { d } = deps(client);
+  await makePbCommands(d)["pocketbase continuous-backup enable"].run({
+    name: "db1",
+  }, {
+    args: [],
+    flags: flags({ project: p.id }),
+  });
+  assertEquals(client.calls.ext.at(-1), [
+    "/api/pocketbases/continuous-backup/enable",
+    { pocketbaseId: resource.id },
+  ]);
+});
+
+Deno.test("pb continuous-backup disable posts the instance id", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const resource = await client.createResource("pocketbases", {
+    name: "db1",
+    project: p.id,
+  });
+  const { d } = deps(client);
+  await makePbCommands(d)["pocketbase continuous-backup disable"].run({
+    name: "db1",
+  }, {
+    args: [],
+    flags: flags({ project: p.id }),
+  });
+  assertEquals(client.calls.ext.at(-1), [
+    "/api/pocketbases/continuous-backup/disable",
+    { pocketbaseId: resource.id },
+  ]);
+});
+
+Deno.test("pb continuous-backup enable surfaces a plan refusal", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  await client.createResource("pocketbases", { name: "db1", project: p.id });
+  client.ext = () =>
+    Promise.resolve(
+      Response.json(
+        { success: false, error: "Continuous backup requires a paid plan" },
+        { status: 400 },
+      ),
+    );
+  const { d } = deps(client);
+  await assertRejects(
+    () =>
+      makePbCommands(d)["pocketbase continuous-backup enable"].run({
+        name: "db1",
+      }, {
+        args: [],
+        flags: flags({ project: p.id }),
+      }),
+    CliError,
+    "paid plan",
+  );
+});
+
 Deno.test("pb create keeps backup restore available as a create flag", () => {
   const command = makePbCommands(deps().d)["pocketbase create"];
   assertEquals(command.summary, "Create a PocketBase instance.");

@@ -182,12 +182,16 @@ export class PocketBaseCloudClient implements ICloudClient {
         email: string;
         plan: string;
         role?: string;
+        agentPlatformKeyAcknowledgedAt?: string;
+        agentJudgeEnabled?: boolean;
       };
       return {
         id: u.id,
         email: u.email,
         plan: u.plan ?? "free",
         role: u.role || undefined,
+        selfDriving: Boolean(u.agentPlatformKeyAcknowledgedAt),
+        selfDrivingJudge: u.agentJudgeEnabled === true,
       };
     });
   }

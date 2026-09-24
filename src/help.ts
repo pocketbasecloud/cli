@@ -6,7 +6,7 @@ import { manifestEntry, type ManifestEntry } from "./router.ts";
 export const CLOUD_FAMILIES = new Set([
   "pocketbase", "frontend", "backend", "env", "environments", "locations",
   "project", "compute", "server", "deploy", "init", "plan", "cloud",
-  "logs", "ci", "login", "logout", "whoami",
+  "logs", "ci", "login", "logout", "whoami", "self-driving",
 ]);
 export const LOCAL_FAMILIES = new Set(["local", "self"]);
 
