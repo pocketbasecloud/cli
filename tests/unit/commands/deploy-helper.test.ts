@@ -813,15 +813,20 @@ Deno.test("reportUrl says nothing for a resource with no domain yet", () => {
   assertEquals(out, []);
 });
 
+function reachabilityResponse(reachable: boolean): Response {
+  return new Response(
+    JSON.stringify({ success: true, data: { reachable } }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
+  );
+}
+
 Deno.test("awaitReachable stops once the domain answers", async () => {
   const client = createMockCloudClient();
   let probes = 0;
   client.ext = (path, body) => {
     client.calls.ext.push([path, body]);
     probes++;
-    return Promise.resolve(
-      new Response(null, { status: probes < 3 ? 503 : 200 }),
-    );
+    return Promise.resolve(reachabilityResponse(probes >= 3));
   };
   const out: string[] = [];
   const reachable = await awaitReachable(client, {
@@ -838,9 +843,9 @@ Deno.test("awaitReachable stops once the domain answers", async () => {
   assertEquals(body, { type: "pocketbase", id: "r1" });
 });
 
-Deno.test("awaitReachable gives up without failing the deploy", async () => {
+Deno.test("awaitReachable reads reachable:false from a 200 answer", async () => {
   const client = createMockCloudClient();
-  client.ext = () => Promise.resolve(new Response(null, { status: 503 }));
+  client.ext = () => Promise.resolve(reachabilityResponse(false));
   const out: string[] = [];
   const reachable = await awaitReachable(client, {
     type: "frontend",

@@ -273,8 +273,8 @@ export async function chooseCompute(
     if (isPro) {
       throw new CliError(
         context.isOwner
-          ? "No running compute on this account yet. A new Pro compute takes " +
-            "a few minutes to provision — check `pbc compute ls`."
+          ? "No running compute on this account yet. A new Pro compute can take " +
+            "up to 48 hours to provision — check `pbc compute ls`."
           : "The project owner has no running compute yet. Ask them to check " +
             "their Pro compute, then deploy again.",
         { code: "NOT_FOUND", hint: "pbc compute ls" },
@@ -762,8 +762,9 @@ async function isReachable(
       type,
       id,
     });
-    await res.body?.cancel();
-    return res.ok;
+    if (!res.ok) return false;
+    const body = await res.json() as { data?: { reachable?: boolean } };
+    return body.data?.reachable === true;
   } catch {
     return false;
   }
