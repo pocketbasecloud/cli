@@ -9,7 +9,8 @@ import type { CloudCmdDeps } from "./project.ts";
 import type { ICloudClient } from "../clients/cloud.ts";
 import { CliError, httpError } from "../errors.ts";
 import { emit } from "../envelope.ts";
-import { type KindSpec, kindByAlias, kindsWith } from "../kinds.ts";
+import { KINDS, type KindSpec, kindByAlias, kindsWith } from "../kinds.ts";
+import { readLinkFile } from "../config.ts";
 import { resolveResourceTarget } from "../resolve/target.ts";
 import {
   envDigest,
@@ -164,8 +165,14 @@ async function writeBuildEnv(
 const ENV_KINDS = kindsWith("env");
 const ENV_NOUNS = ENV_KINDS.map((k) => k.noun);
 
-function targetOf(input: { target?: string }): KindSpec {
-  const spec = kindByAlias(input.target ?? ENV_NOUNS[0]);
+async function targetOf(
+  input: { target?: string },
+  cwd: string,
+): Promise<KindSpec> {
+  const bound = (await readLinkFile(cwd))?.kind;
+  const spec = input.target
+    ? kindByAlias(input.target)
+    : KINDS[bound ?? ENV_KINDS[0].kind];
   if (!spec || !spec.env) {
     throw new CliError(
       `--target must be ${ENV_NOUNS.join(" or ")}.`,
@@ -182,7 +189,7 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Command> {
     explicit: boolean,
   ) {
     const { client, config } = await deps.requireAuth();
-    const spec = targetOf(input);
+    const spec = await targetOf(input, deps.cwd());
     const { resource } = await resolveResourceTarget({
       client,
       spec,
@@ -206,7 +213,8 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Command> {
   }
 
   const targetFlag = str({
-    description: `${ENV_NOUNS.join(" or ")} — which kind's variables.`,
+    description: `${ENV_NOUNS.join(" or ")} — which kind's variables. ` +
+      "Defaults to the kind pbc.json is bound to.",
     choices: ENV_NOUNS,
     required: true,
   });

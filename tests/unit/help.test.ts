@@ -1,5 +1,9 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { buildHelpText, buildManifest } from "../../src/help.ts";
+import {
+  buildCommandHelpText,
+  buildHelpText,
+  buildManifest,
+} from "../../src/help.ts";
 import { COMMANDS } from "../../src/usage.ts";
 import {
   camelCase,
@@ -8,6 +12,7 @@ import {
   type FlagSpec,
 } from "../../src/command.ts";
 import { GLOBAL_FLAGS, GLOBAL_FLAG_NAMES } from "../../src/globals.ts";
+import { registerCommands } from "../../src/commands/index.ts";
 
 function cmd(path: string[]): Command {
   const key = path.join(" ");
@@ -42,10 +47,10 @@ Deno.test("buildHelpText groups cloud and instance commands", () => {
   assertStringIncludes(text, "Usage: pbc <command> [args] [flags]");
   const instanceStart = text.indexOf("Instance commands");
   const cloudStart = text.indexOf("Cloud commands");
-  assertEquals(instanceStart < cloudStart, true);
-  assertEquals(text.indexOf("  pocketbase ls") > cloudStart, true);
-  assertEquals(text.indexOf("  plan") > cloudStart, true);
-  assertEquals(text.indexOf("  init") > cloudStart, true);
+  assertEquals(cloudStart < instanceStart, true);
+  assertEquals(text.indexOf("  pocketbase ls") < instanceStart, true);
+  assertEquals(text.indexOf("  plan") < instanceStart, true);
+  assertEquals(text.indexOf("  init") < instanceStart, true);
   assertEquals(text.indexOf("  admin collections ls") > instanceStart, true);
   assertStringIncludes(text, "List PocketBase instances in a project.");
   assertStringIncludes(text, "List collections.");
@@ -144,7 +149,9 @@ Deno.test("the rendered global flag block matches the globals object", () => {
   const text = buildHelpText(registry);
   const block = text.slice(
     text.indexOf("Global flags:"),
-    text.indexOf("Instance commands"),
+    text.indexOf("Instance commands") >= 0
+      ? text.indexOf("Instance commands")
+      : text.indexOf("Cloud commands"),
   );
   const rendered = new Set(
     [...block.matchAll(/^ {2}--([a-z][a-z0-9-]*)/gm)].map((m) => m[1]),
@@ -160,4 +167,47 @@ Deno.test("the rendered global flag block matches the globals object", () => {
       throw new Error(`help.ts does not show -${f.short} beside --${f.name}`);
     }
   }
+});
+
+Deno.test("buildCommandHelpText lists every live flag after the prose", () => {
+  const text = buildCommandHelpText({
+    path: ["logs"],
+    usage: "pbc logs [pocketbase|backend]",
+    summary: "Stream logs.",
+    details: "More words.",
+    args: [],
+    flags: {
+      name: { type: "string", description: "Which instance.", required: true },
+      follow: { type: "boolean", description: "Keep printing.", short: "f" },
+      legacyName: { type: "string", description: "old", renamedTo: "name" },
+      gone: {
+        type: "boolean",
+        description: "old",
+        retired: { since: "0.9.0", note: "gone" },
+      },
+    },
+    run: () => Promise.resolve(0),
+  });
+  assertEquals(
+    text,
+    [
+      "pbc logs [pocketbase|backend]",
+      "",
+      "Stream logs.",
+      "",
+      "More words.",
+      "",
+      "Flags:",
+      "  --name <value>  Which instance.",
+      "  --follow, -f    Keep printing.",
+    ].join("\n"),
+  );
+});
+
+Deno.test("the top-level help lists no alias such as server ls", () => {
+  const registry: CommandRegistry = {};
+  registerCommands(registry);
+  const text = buildHelpText(registry);
+  assertEquals(text.includes("  server ls"), false);
+  assertEquals(registry["server ls"]?.path.join(" "), "compute ls");
 });

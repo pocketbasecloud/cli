@@ -1425,12 +1425,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
     "args": [],
     "flags": []
   },
-  "server ls": {
-    "usage": "pbc server ls",
-    "summary": "List the compute your account can deploy to (alias of compute ls).",
-    "args": [],
-    "flags": []
-  },
   "locations": {
     "usage": "pbc locations",
     "summary": "List the regions a deploy can actually land in.",
@@ -1453,7 +1447,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
           "frontend",
           "backend"
         ],
-        "description": "pocketbase or frontend or backend — which kind's variables."
+        "description": "pocketbase or frontend or backend — which kind's variables. Defaults to the kind pbc.json is bound to."
       },
       {
         "name": "name",
@@ -1494,7 +1488,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
           "frontend",
           "backend"
         ],
-        "description": "pocketbase or frontend or backend — which kind's variables."
+        "description": "pocketbase or frontend or backend — which kind's variables. Defaults to the kind pbc.json is bound to."
       },
       {
         "name": "name",
@@ -1535,7 +1529,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
           "frontend",
           "backend"
         ],
-        "description": "pocketbase or frontend or backend — which kind's variables."
+        "description": "pocketbase or frontend or backend — which kind's variables. Defaults to the kind pbc.json is bound to."
       },
       {
         "name": "name",
@@ -1577,7 +1571,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
           "frontend",
           "backend"
         ],
-        "description": "pocketbase or frontend or backend — which kind's variables."
+        "description": "pocketbase or frontend or backend — which kind's variables. Defaults to the kind pbc.json is bound to."
       },
       {
         "name": "name",
@@ -1613,13 +1607,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
     "flags": []
   },
   "logs": {
-    "usage": "pbc logs <pocketbase|backend> --name <n> [-f] [--lines <n>] [--env <name>]",
+    "usage": "pbc logs [pocketbase|backend] --name <n> [-f] [--lines <n>] [--env <name>]",
     "summary": "Stream logs for a PocketBase instance or backend.",
-    "details": "Prints the last --lines entries (50 by default, 1000 max) and stops; with\n--follow it keeps printing until interrupted.",
+    "details": "Prints the last --lines entries (50 by default, 1000 max) and stops; with\n--follow it keeps printing until interrupted. The kind defaults to the one\npbc.json is bound to.",
     "args": [
       {
         "name": "pocketbase|backend",
-        "required": true
+        "required": false
       }
     ],
     "flags": [

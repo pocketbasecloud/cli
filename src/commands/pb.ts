@@ -39,6 +39,7 @@ import {
   computeChooser,
   deployProgress,
   deployResource,
+  deployTargetLine,
   envFileEntry,
   findExisting,
   pushEnvFile,
@@ -481,6 +482,10 @@ is the explicit form for when there is nothing to package.`,
         const noInput = ctx.flags.noInput || ctx.flags.json;
         const name = await newInstanceName(ctx, input.name);
         const environment = await environmentToRecord(ctx, cwd, input.env);
+        log(deployTargetLine(
+          { create: true, name, environment },
+          KINDS.pocketbases.label,
+        ));
 
         const existing = findExisting(
           await client.listResources("pocketbases", { project: p.id }),
@@ -554,26 +559,22 @@ is the explicit form for when there is nothing to package.`,
         const final = await awaitDeployment(client, "pocketbases", resource, {
           progress,
           created: true,
-          environment,
           label: "PocketBase",
           checkCommand: "pocketbase",
         });
-        if (final.status === "running") {
-          reportUrl(final, { log, paths: [{ path: "/_/", label: "admin" }] });
-        }
-        const reachable = final.status === "running"
-          ? await awaitReachable(client, {
-            type: "pocketbase",
-            resource: final,
-            log,
-            progress,
-          })
-          : undefined;
+        reportUrl(final, { log, paths: [{ path: "/_/", label: "admin" }] });
+        const reachable = await awaitReachable(client, {
+          type: "pocketbase",
+          resource: final,
+          created: true,
+          log,
+          progress,
+        });
         if (ctx.flags.json) {
           emit(true, {
             ...final,
             environment,
-            ...(reachable === undefined ? {} : { reachable }),
+            reachable,
             ...(credentials ?? {}),
           }, "");
         } else {
@@ -586,14 +587,12 @@ is the explicit form for when there is nothing to package.`,
               "Admin login: preserved from backup; credentials are not available to PocketBase Cloud.",
             );
           }
-          if (final.status === "running") {
-            console.log(
-              `Recorded in pbc.json as environment "${environment}" — ` +
-                `\`pbc pocketbase deploy\` here needs no --name.`,
-            );
-          }
+          console.log(
+            `Recorded in pbc.json as environment "${environment}" — ` +
+              `\`pbc pocketbase deploy\` here needs no --name.`,
+          );
         }
-        return final.status === "running" ? 0 : 6;
+        return 0;
       },
     }),
 
@@ -714,6 +713,7 @@ merge and --delete-missing/--skip-env/--force-env rules.`,
           onStale: () => removeEnvironment(cwd, envTarget.environment),
         });
         const log = (m: string) => progress.log(m);
+        log(deployTargetLine(target, KINDS.pocketbases.label));
         const zipPath = input.zip;
         const data: Record<string, unknown> = { project: p.id };
         if (input.location) data.location = input.location;
@@ -796,6 +796,7 @@ merge and --delete-missing/--skip-env/--force-env rules.`,
               token: auth.userToken,
               fetchFn: deps.fetch,
             });
+            step.update("Uploaded — waiting for the platform to start it");
             const dep = await waitForDeployment(deploymentId, {
               baseUrl: auth.backendUrl,
               token: auth.userToken,
@@ -809,6 +810,7 @@ merge and --delete-missing/--skip-env/--force-env rules.`,
             if (dep.status === "failed") {
               throw new CliError(dep.statusMessage, { code: "PLATFORM_ERROR" });
             }
+            step.done(`Uploaded ${bundle.fileName}`);
             return out;
           },
         );
@@ -851,29 +853,25 @@ merge and --delete-missing/--skip-env/--force-env rules.`,
         const final = await awaitDeployment(client, "pocketbases", resource, {
           progress,
           created,
-          environment: target.environment,
           label: "PocketBase",
           checkCommand: "pocketbase",
         });
         const admin = credentials as
           | { adminUsername: string; adminPassword: string }
           | null;
-        if (final.status === "running") {
-          reportUrl(final, { log, paths: [{ path: "/_/", label: "admin" }] });
-        }
-        const reachable = created && final.status === "running"
-          ? await awaitReachable(client, {
-            type: "pocketbase",
-            resource: final,
-            log,
-            progress,
-          })
-          : undefined;
+        reportUrl(final, { log, paths: [{ path: "/_/", label: "admin" }] });
+        const reachable = await awaitReachable(client, {
+          type: "pocketbase",
+          resource: final,
+          created,
+          log,
+          progress,
+        });
         if (ctx.flags.json) {
           emit(true, {
             ...final,
             environment: target.environment,
-            ...(reachable === undefined ? {} : { reachable }),
+            reachable,
             ...(admin ?? {}),
           }, "");
         }
@@ -882,7 +880,7 @@ merge and --delete-missing/--skip-env/--force-env rules.`,
             `Admin login: ${admin.adminUsername} / ${admin.adminPassword}`,
           );
         }
-        return final.status === "running" ? 0 : 6;
+        return 0;
       },
     }),
 

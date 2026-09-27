@@ -11,6 +11,7 @@ import {
   chooseCompute,
   computeChooser,
   deployResource,
+  deployTargetLine,
   ensureBackendProject,
   findExisting,
   MAX_ARCHIVE_BYTES,
@@ -20,6 +21,7 @@ import {
   resolveEnvironmentTarget,
   resolveOwnerId,
   suggestName,
+  uploadLabel,
   validateLocationChoice,
 } from "../../../src/commands/deploy-helper.ts";
 import type {
@@ -706,13 +708,12 @@ Deno.test("awaitDeployment follows the platform's status in one step", async () 
   const final = await awaitDeployment(client, "backends", r, {
     progress: plainProgress((m) => lines.push(m)),
     created: true,
-    environment: "production",
     label: "backend",
     checkCommand: "backend",
     intervalMs: 0,
   });
   assertEquals(final.status, "running");
-  assertStringIncludes(lines[0], "Creating api (environment: production)");
+  assertEquals(lines[0], "→ Creating api…");
   assertStringIncludes(lines.join("\n"), "— creating");
   assertEquals(lines[lines.length - 1], "✓ api is running");
 });
@@ -727,17 +728,67 @@ Deno.test("awaitDeployment marks the step failed when the deploy does not run", 
   });
   client.getResource = (_k, id) =>
     Promise.resolve({ id, name: "api", status: "failed" } as never);
-  const final = await awaitDeployment(client, "backends", r, {
-    progress: plainProgress((m) => lines.push(m)),
-    created: false,
-    environment: "production",
-    label: "backend",
-    checkCommand: "backend",
-    intervalMs: 0,
-  });
-  assertEquals(final.status, "failed");
+  const err = await assertRejects(
+    () =>
+      awaitDeployment(client, "backends", r, {
+        progress: plainProgress((m) => lines.push(m)),
+        created: false,
+        label: "backend",
+        checkCommand: "backend",
+        intervalMs: 0,
+      }),
+    CliError,
+  );
+  assertEquals(err.code, "PLATFORM_ERROR");
+  assertEquals(err.message, "api failed to deploy (status: failed)");
+  assertEquals(err.hint, "pbc logs backend --name api");
   assertStringIncludes(lines[0], "Redeploying api");
-  assertEquals(lines[lines.length - 1], "✗ api is failed");
+  assertEquals(lines[lines.length - 1], "✗ api failed to deploy (status: failed)");
+});
+
+Deno.test("awaitDeployment points a frontend without logs at its info", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const r = await client.createResource("frontends", {
+    name: "web",
+    project: p.id,
+  });
+  client.getResource = (_k, id) =>
+    Promise.resolve({ id, name: "web", status: "error" } as never);
+  const err = await assertRejects(
+    () =>
+      awaitDeployment(client, "frontends", r, {
+        progress: plainProgress(() => {}),
+        created: false,
+        label: "frontend",
+        checkCommand: "frontend",
+        intervalMs: 0,
+      }),
+    CliError,
+  );
+  assertEquals(err.hint, "pbc frontend info --name web");
+});
+
+Deno.test("deployTargetLine names the environment and the resource it redeploys", () => {
+  assertEquals(
+    deployTargetLine({
+      create: false,
+      resource: R("r1", "api"),
+      environment: "staging",
+    }, "backend"),
+    "Environment: staging — backend api (r1)",
+  );
+});
+
+Deno.test("deployTargetLine names the environment of a resource it creates", () => {
+  assertEquals(
+    deployTargetLine({
+      create: true,
+      name: "web",
+      environment: "production",
+    }, "frontend"),
+    "Environment: production — new frontend web",
+  );
 });
 
 Deno.test("reportUrl names the resource URL and any extra path", () => {
@@ -832,6 +883,7 @@ Deno.test("awaitReachable stops once the domain answers", async () => {
   const reachable = await awaitReachable(client, {
     type: "pocketbase",
     resource: { ...R("r1", "db"), baseUrl: "https://db.example.com" } as never,
+    created: true,
     log: (m) => out.push(m),
     intervalMs: 0,
   });
@@ -850,6 +902,7 @@ Deno.test("awaitReachable reads reachable:false from a 200 answer", async () => 
   const reachable = await awaitReachable(client, {
     type: "frontend",
     resource: { ...R("r2", "web"), domain: "web.example.com" } as never,
+    created: true,
     log: (m) => out.push(m),
     timeoutMs: -1,
     intervalMs: 0,
@@ -858,12 +911,29 @@ Deno.test("awaitReachable reads reachable:false from a 200 answer", async () => 
   assertStringIncludes(out.join("\n"), "Not reachable yet");
 });
 
+Deno.test("awaitReachable reports a redeploy whose URL does not answer", async () => {
+  const client = createMockCloudClient();
+  client.ext = () => Promise.resolve(reachabilityResponse(false));
+  const out: string[] = [];
+  const reachable = await awaitReachable(client, {
+    type: "backend",
+    resource: { ...R("r4", "api"), domain: "api.example.com" } as never,
+    created: false,
+    log: (m) => out.push(m),
+    timeoutMs: -1,
+    intervalMs: 0,
+  });
+  assertEquals(reachable, false);
+  assertStringIncludes(out.join("\n"), "not answering");
+});
+
 Deno.test("awaitReachable skips a resource that has no domain yet", async () => {
   const client = createMockCloudClient();
   const out: string[] = [];
   const reachable = await awaitReachable(client, {
     type: "backend",
     resource: R("r3", "api"),
+    created: true,
     log: (m) => out.push(m),
     intervalMs: 0,
   });
@@ -969,4 +1039,11 @@ Deno.test("resolveTarget: the refusal names the parent file that binds", async (
   } finally {
     await Deno.remove(root, { recursive: true });
   }
+});
+
+Deno.test("uploadLabel sizes a small archive in bytes, not 0.0 MB", () => {
+  assertEquals(
+    uploadLabel({ fileName: "code.zip", bytes: new Uint8Array(433) }),
+    "Uploading code.zip (433 B)",
+  );
 });

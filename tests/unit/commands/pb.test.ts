@@ -842,11 +842,15 @@ Deno.test("pb create records the binding even when provisioning fails", async ()
     ...(await orig(k, id)),
     status: "error",
   });
-  const code = await makePbCommands(d)["pocketbase create"].run({ name: "db1" }, {
-    args: [],
-    flags: flags({ project: p.id }),
-  });
-  assertEquals(code, 6);
+  const err = await assertRejects(
+    () =>
+      makePbCommands(d)["pocketbase create"].run({ name: "db1" }, {
+        args: [],
+        flags: flags({ project: p.id }),
+      }),
+    CliError,
+  );
+  assertEquals(err.exitCode, 7);
   assertEquals(
     (await readLinkFile(cwd))?.environments?.production?.name,
     "db1",

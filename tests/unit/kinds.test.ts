@@ -70,7 +70,7 @@ Deno.test("env and logs accept exactly the kinds whose capability is true", () =
   assertEquals(COMMANDS["logs"].args[0].name, logNouns.join("|"));
   assertEquals(
     COMMANDS["logs"].usage.startsWith(
-      `pbc logs <${logNouns.join("|")}>`,
+      `pbc logs [${logNouns.join("|")}]`,
     ),
     true,
   );

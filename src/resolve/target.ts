@@ -48,7 +48,7 @@ function lsHint(spec: KindSpec): string {
 function noTargetError(spec: KindSpec): CliError {
   const noun = spec.noun;
   return new CliError(
-    `No ${spec.label} named. Pass --name or --id to name one.\n` +
+    `Which ${spec.label}? Pass --name or --id.\n` +
       `  name one:   pbc ${noun} <verb> <name>\n` +
       `  list them:  pbc ${noun} ls`,
     { code: "NO_TARGET", hint: lsHint(spec) },
@@ -217,7 +217,8 @@ export async function resolveResourceTarget(
     const found = candidates.find((r) => r.id === bound.id);
     if (found) {
       ctx.log?.(
-        `${ctx.spec.label}: ${found.name} (${found.id}) — linked in pbc.json`,
+        `${ctx.spec.label}: ${found.name} (${found.id}) — linked in pbc.json ` +
+          `(environment: ${environment})`,
       );
       return { resource: found, environment };
     }

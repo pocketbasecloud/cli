@@ -3,7 +3,7 @@ import type { ICloudClient } from "../clients/cloud.ts";
 import type { Project, Resource, ResourceKind } from "../clients/types.ts";
 import { describeSubStatus } from "../deploy-status.ts";
 import { CliError, httpError } from "../errors.ts";
-import type { KindSpec } from "../kinds.ts";
+import { KINDS, type KindSpec } from "../kinds.ts";
 import { nearestCommand } from "../parse.ts";
 import { MAX_ARCHIVE_BYTES } from "../limits.ts";
 import type { BuildConfig } from "../config.ts";
@@ -33,7 +33,11 @@ import {
   mergeEnvBuild,
   resolveBuildConfig,
 } from "../build/config.ts";
-import { type CommandRunner, packageResource } from "../build/package.ts";
+import {
+  type CommandRunner,
+  formatSize,
+  packageResource,
+} from "../build/package.ts";
 import {
   envDigest,
   envStateKey,
@@ -229,6 +233,18 @@ export async function resolveDeployIntent(
     opts,
   );
   return { ...base, create: true, name: answer || suggested };
+}
+
+export function deployTargetLine(
+  intent:
+    & { environment: string }
+    & ({ create: true; name: string } | { create: false; resource: Resource }),
+  label: string,
+): string {
+  const target = intent.create
+    ? `new ${label} ${intent.name}`
+    : `${label} ${intent.resource.name} (${intent.resource.id})`;
+  return `Environment: ${intent.environment} — ${target}`;
 }
 
 export function suggestName(cwd: string): string {
@@ -717,11 +733,18 @@ export function customDomainLine(resource: Resource): string | undefined {
   return `https://${domain} (${note})`;
 }
 
+const NEW_DOMAIN_UNREACHABLE =
+  "Not reachable yet — a new domain can take a few more minutes while its " +
+  "certificate is issued.";
+
+const REDEPLOY_UNREACHABLE = "Deployed, but its URL is not answering.";
+
 export async function awaitReachable(
   client: ICloudClient,
   o: {
     type: "pocketbase" | "backend" | "frontend";
     resource: Resource;
+    created: boolean;
     log: (msg: string) => void;
     progress?: Progress;
     timeoutMs?: number;
@@ -740,10 +763,7 @@ export async function awaitReachable(
           return true;
         }
         if (Date.now() > deadline) {
-          step.fail(
-            "Not reachable yet — a new domain can take a few more minutes " +
-              "while its certificate is issued.",
-          );
+          step.fail(o.created ? NEW_DOMAIN_UNREACHABLE : REDEPLOY_UNREACHABLE);
           return false;
         }
         await new Promise((res) => setTimeout(res, o.intervalMs ?? 5_000));
@@ -777,7 +797,7 @@ export function deployProgress(json: boolean): Progress {
 export function uploadLabel(
   bundle: Pick<Bundle, "fileName" | "bytes">,
 ): string {
-  return `Uploading ${bundle.fileName} (${formatMb(bundle.bytes.length)})`;
+  return `Uploading ${bundle.fileName} (${formatSize(bundle.bytes.length)})`;
 }
 
 export async function awaitDeployment(
@@ -787,15 +807,13 @@ export async function awaitDeployment(
   o: {
     progress: Progress;
     created: boolean;
-    environment?: string;
     label: string;
     checkCommand: string;
     timeoutMs?: number;
     intervalMs?: number;
   },
 ): Promise<Resource> {
-  const head = `${o.created ? "Creating" : "Redeploying"} ${resource.name}` +
-    (o.environment ? ` (environment: ${o.environment})` : "");
+  const head = `${o.created ? "Creating" : "Redeploying"} ${resource.name}`;
   return await o.progress.step(head, async (step) => {
     const final = await pollStatus(client, kind, resource.id, {
       terminal: ["running", "error", "failed"],
@@ -806,15 +824,21 @@ export async function awaitDeployment(
       onTick: (s) => step.update(`${head} — ${s}`),
     });
     if (final.status === "running") {
-      step.done(`${final.name} is ${final.status}`);
-    } else {
-      const reason = final.statusMessage?.trim() ||
-        describeSubStatus(final.subStatus);
-      step.fail(
-        `${final.name} is ${final.status}${reason ? ` — ${reason}` : ""}`,
-      );
+      step.done(`${final.name} is running`);
+      return final;
     }
-    return final;
+    const reason = final.statusMessage?.trim() ||
+      describeSubStatus(final.subStatus);
+    const message = `${final.name} failed to deploy (status: ${final.status})` +
+      (reason ? ` — ${reason}` : "");
+    step.fail(message);
+    throw new CliError(message, {
+      code: "PLATFORM_ERROR",
+      retryable: false,
+      hint: KINDS[kind].logs
+        ? `pbc logs ${o.checkCommand} --name ${final.name}`
+        : `pbc ${o.checkCommand} info --name ${final.name}`,
+    });
   });
 }
 

@@ -221,6 +221,11 @@ Deno.test("logs --env streams that environment's instance", async () => {
     (client.calls.ext[1][1] as { target_id: string }).target_id,
     prod.id,
   );
+  await cmds["logs"].run({}, { args: [], flags });
+  assertEquals(
+    (client.calls.ext[2][1] as { target_id: string }).target_id,
+    prod.id,
+  );
   await Deno.remove(cwd, { recursive: true });
 });
 

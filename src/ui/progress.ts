@@ -48,7 +48,7 @@ export function renderLine(
   mark: string,
   text: string,
   elapsedMs: number,
-  columns = 80,
+  columns = Infinity,
 ): string {
   const suffix = elapsedMs >= 1000 ? ` ${formatElapsed(elapsedMs)}` : "";
   const line = `${mark} ${text}${suffix}`;
@@ -161,7 +161,7 @@ export function createProgress(opts: ProgressOptions = {}): Progress {
     let closed = false;
 
     if (!animated) {
-      line(renderLine(marks.pending, `${text}…`, 0, columns()));
+      line(renderLine(marks.pending, `${text}…`, 0));
     }
 
     const state = { text, startedAt, frame: 0, ticker: null as Ticker | null };
@@ -181,7 +181,7 @@ export function createProgress(opts: ProgressOptions = {}): Progress {
         current = null;
         live = null;
       }
-      line(renderLine(mark, state.text, now() - startedAt, columns()));
+      line(renderLine(mark, state.text, now() - startedAt));
     };
 
     return {
@@ -192,9 +192,7 @@ export function createProgress(opts: ProgressOptions = {}): Progress {
         if (animated) {
           if (current === state) draw();
         } else if (changed) {
-          line(
-            renderLine(marks.pending, `${text}…`, now() - startedAt, columns()),
-          );
+          line(renderLine(marks.pending, `${text}…`, now() - startedAt));
         }
       },
       done: (text?: string) => close(marks.done, text),

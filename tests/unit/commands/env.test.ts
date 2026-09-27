@@ -508,3 +508,46 @@ Deno.test("env rm --target frontend on a variable that is not set fails without 
   assertEquals((err as CliError).code, "NOT_FOUND");
   assertEquals(client.calls.updateResource, []);
 });
+
+Deno.test("env without --target uses the kind pbc.json is bound to", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  await client.createResource("pocketbases", { name: "db", project: p.id });
+  const api = await client.createResource("backends", {
+    name: "api",
+    project: p.id,
+  });
+  const cwd = await Deno.makeTempDir();
+  await Deno.writeTextFile(
+    join(cwd, "pbc.json"),
+    JSON.stringify({
+      projectId: p.id,
+      kind: "backends",
+      defaultEnvironment: "production",
+      environments: { production: { id: api.id, name: "api" } },
+    }),
+  );
+  const config: Config = {
+    ...defaultConfig(),
+    cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
+    currentProject: p.id,
+  };
+  const cmds = makeEnvCommands({
+    requireAuth: () => Promise.resolve({ client, config, auth: config.cloud! }),
+    loadConfig: () => Promise.resolve(config),
+    saveConfig: () => Promise.resolve(),
+    cwd: () => cwd,
+    envStatePath: tempStatePath(),
+  });
+  await cmds["env set"].run({}, {
+    args: ["A=1"],
+    flags: { json: true, yes: true, noInput: true, interactive: false },
+  });
+  assertEquals(client.calls.pbApi[0][1], {
+    target_id: api.id,
+    type: "backend",
+    key: "A",
+    value: "1",
+  });
+  await Deno.remove(cwd, { recursive: true });
+});

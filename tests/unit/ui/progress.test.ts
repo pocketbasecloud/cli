@@ -56,6 +56,24 @@ Deno.test("renderLine truncates rather than wrapping the terminal", () => {
   assertStringIncludes(line, "…");
 });
 
+Deno.test("a closing line keeps its whole text, however narrow the terminal", () => {
+  const h = harness({ columns: () => 30 });
+  const reason = "the compute rejected the deployment — check `pbc logs`";
+  const step = h.progress.start("Redeploying api");
+  step.fail(`api failed to deploy — ${reason}`);
+  assertStringIncludes(h.text(), `✗ api failed to deploy — ${reason}\n`);
+});
+
+Deno.test("a plain line is never cut, since nothing redraws it", async () => {
+  const lines: string[] = [];
+  const text = "x".repeat(200);
+  await plainProgress((m) => lines.push(m)).step(text, (step) => {
+    step.update(`${text} — running`);
+    return Promise.resolve();
+  });
+  assertEquals(lines, [`→ ${text}…`, `→ ${text} — running…`, `✓ ${text} — running`]);
+});
+
 Deno.test("a plain step announces itself and reports when it is done", async () => {
   const lines: string[] = [];
   const progress = plainProgress((m) => lines.push(m));

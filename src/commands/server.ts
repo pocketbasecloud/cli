@@ -38,13 +38,5 @@ export function makeServerCommands(
       flags: {},
       run: ls,
     }),
-    "server ls": defineCommand({
-      path: ["server", "ls"],
-      usage: "pbc server ls",
-      summary: "List the compute your account can deploy to (alias of compute ls).",
-      args: [],
-      flags: {},
-      run: ls,
-    }),
   };
 }

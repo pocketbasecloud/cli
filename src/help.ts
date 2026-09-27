@@ -1,5 +1,5 @@
-import type { ArgSpec, CommandRegistry } from "./command.ts";
-import { canonicalKeys } from "./command.ts";
+import type { ArgSpec, Command, CommandRegistry } from "./command.ts";
+import { canonicalKeys, kebabCase } from "./command.ts";
 import { GLOBAL_FLAGS } from "./globals.ts";
 import { manifestEntry, type ManifestEntry } from "./router.ts";
 
@@ -38,6 +38,30 @@ function formatSection(registry: CommandRegistry, commands: string[]): string[] 
   });
 }
 
+function flagLines(command: Command): string[] {
+  const live = Object.entries(command.flags).filter(([, f]) =>
+    !f.renamedTo && !f.retired
+  );
+  const labels = live.map(([key, f]) =>
+    `--${kebabCase(key)}${f.type === "boolean" ? "" : " <value>"}` +
+    (f.short ? `, -${f.short}` : "")
+  );
+  const width = Math.max(0, ...labels.map((l) => l.length));
+  return live.map(([, f], i) =>
+    `  ${labels[i].padEnd(width)}  ${f.description}`.trimEnd()
+  );
+}
+
+export function buildCommandHelpText(command: Command): string {
+  const flags = flagLines(command);
+  return [
+    command.usage,
+    command.summary,
+    command.details,
+    flags.length > 0 ? ["Flags:", ...flags].join("\n") : undefined,
+  ].filter(Boolean).join("\n\n");
+}
+
 export function buildHelpText(registry: CommandRegistry): string {
   const commands = canonicalKeys(registry).sort();
   const cloud = commands.filter((c) => familyOf(c) === "cloud");
@@ -61,6 +85,9 @@ export function buildHelpText(registry: CommandRegistry): string {
     "  --version, -v      Print version",
     "  --help, -h         Show this help",
     "",
+    "Cloud commands (your PocketBase Cloud account):",
+    ...formatSection(registry, cloud),
+    "",
     ...(local.length > 0
       ? [
         "Local commands (pbc itself, and a PocketBase binary on this machine):",
@@ -70,9 +97,6 @@ export function buildHelpText(registry: CommandRegistry): string {
       : []),
     "Instance commands (a specific PocketBase instance, via `pbc admin use <url>`):",
     ...formatSection(registry, instance),
-    "",
-    "Cloud commands (your PocketBase Cloud account):",
-    ...formatSection(registry, cloud),
     "",
     "Run `pbc <command> --help` for details on a specific command.",
   ].join("\n");

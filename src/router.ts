@@ -12,6 +12,7 @@ import { nearestCommand, parseCommand, resolveCommand } from "./parse.ts";
 import { fillMissing, type PromptIO } from "./ui/prompt.ts";
 import { type CommandTarget, targetsOf } from "./targets.ts";
 import { emit, emitError } from "./envelope.ts";
+import { buildCommandHelpText } from "./help.ts";
 export { nearestCommand };
 
 const PARSE_ERROR_CODE: Record<ParseError["kind"], ErrorCode> = {
@@ -96,9 +97,7 @@ export async function dispatch(
     emit(
       globals.json,
       manifestEntry(command),
-      () =>
-        [command.usage, command.summary, command.details].filter(Boolean)
-          .join("\n\n"),
+      () => buildCommandHelpText(command),
     );
     return 0;
   }

@@ -8,7 +8,8 @@ import type { CloudCmdDeps } from "./project.ts";
 import type { ICloudClient } from "../clients/cloud.ts";
 import { CliError, httpError } from "../errors.ts";
 import { SCHEMA_VERSION } from "../envelope.ts";
-import { kindByAlias, kindsWith } from "../kinds.ts";
+import { KINDS, kindByAlias, kindsWith } from "../kinds.ts";
+import { readLinkFile } from "../config.ts";
 import { resolveResourceTarget } from "../resolve/target.ts";
 
 const LOG_KINDS = kindsWith("logs");
@@ -122,11 +123,12 @@ export function makeLogsCommands(deps: CloudCmdDeps): Record<string, Command> {
     "logs": defineCommand({
       path: ["logs"],
       usage:
-        `pbc logs <${LOG_ARG}> --name <n> [-f] [--lines <n>] [--env <name>]`,
+        `pbc logs [${LOG_ARG}] --name <n> [-f] [--lines <n>] [--env <name>]`,
       summary: "Stream logs for a PocketBase instance or backend.",
       details: `Prints the last --lines entries (50 by default, 1000 max) and stops; with
---follow it keeps printing until interrupted.`,
-      args: [{ name: LOG_ARG, required: true }],
+--follow it keeps printing until interrupted. The kind defaults to the one
+pbc.json is bound to.`,
+      args: [{ name: LOG_ARG, required: false }],
       flags: {
         name: str({
           description: "Which instance's logs. Asked for when omitted.",
@@ -143,7 +145,12 @@ export function makeLogsCommands(deps: CloudCmdDeps): Record<string, Command> {
         }),
       },
       run: async (input, ctx) => {
-        const spec = kindByAlias(ctx.args[0] ?? "");
+        const bound = (await readLinkFile(deps.cwd()))?.kind;
+        const spec = ctx.args[0]
+          ? kindByAlias(ctx.args[0])
+          : bound
+          ? KINDS[bound]
+          : null;
         if (!spec || !spec.logs) {
           throw new CliError(
             `Usage: pbc logs <${LOG_ARG}> --name <n> [-f]`,

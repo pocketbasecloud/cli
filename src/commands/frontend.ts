@@ -23,6 +23,7 @@ import {
   computeChooser,
   deployProgress,
   deployResource,
+  deployTargetLine,
   reportUrl,
   resolveOwnerId,
   resolveDeployIntent,
@@ -137,6 +138,7 @@ it, use pbc frontend domain add.`,
           onStale: () => removeEnvironment(cwd, envTarget.environment),
         });
         const log = (m: string) => progress.log(m);
+        log(deployTargetLine(target, KINDS.frontends.label));
         const bundle = await buildBundle({
           cwd,
           kind: "frontends",
@@ -185,6 +187,7 @@ it, use pbc frontend domain add.`,
               onProgress: (f) =>
                 step.update(`Uploading — ${Math.round(f * 100)}%`),
             }, { baseUrl: auth.extUrl, token: auth.userToken, fetchFn: deps.fetch });
+            step.update("Uploaded — waiting for the platform to start it");
             const dep = await waitForDeployment(deploymentId, {
               baseUrl: auth.backendUrl,
               token: auth.userToken,
@@ -193,6 +196,7 @@ it, use pbc frontend domain add.`,
             if (dep.status === "failed") {
               throw new CliError(dep.statusMessage, { code: "PLATFORM_ERROR" });
             }
+            step.done(`Uploaded ${bundle.fileName}`);
             return out;
           },
         );
@@ -207,27 +211,25 @@ it, use pbc frontend domain add.`,
         const final = await awaitDeployment(client, "frontends", resource, {
           progress,
           created,
-          environment: target.environment,
           label: "frontend",
           checkCommand: "frontend",
         });
-        if (final.status === "running") reportUrl(final, { log });
-        const reachable = created && final.status === "running"
-          ? await awaitReachable(client, {
-            type: "frontend",
-            resource: final,
-            log,
-            progress,
-          })
-          : undefined;
+        reportUrl(final, { log });
+        const reachable = await awaitReachable(client, {
+          type: "frontend",
+          resource: final,
+          created,
+          log,
+          progress,
+        });
         if (ctx.flags.json) {
           emit(true, {
             ...final,
             environment: target.environment,
-            ...(reachable === undefined ? {} : { reachable }),
+            reachable,
           }, "");
         }
-        return final.status === "running" ? 0 : 6;
+        return 0;
       },
     }),
 

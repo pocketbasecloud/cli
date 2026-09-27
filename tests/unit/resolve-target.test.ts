@@ -169,7 +169,10 @@ Deno.test("a pbc.json binding resolves with no prompt and announces on stderr", 
     log: (m: string) => notices.push(m),
   });
   assertEquals(resource.name, "api-db");
-  assertEquals(notices.some((n) => n.includes("api-db")), true);
+  assertEquals(
+    notices.some((n) => n.includes("api-db") && n.includes("production")),
+    true,
+  );
 });
 
 Deno.test("no name, no binding, non-interactive names the ways out", async () => {
@@ -193,6 +196,10 @@ Deno.test("no name, no binding, non-interactive names the ways out", async () =>
   );
   assertEquals(err.code, "NO_TARGET");
   assertEquals(err.message.includes("pbc pocketbase ls"), true);
+  assertEquals(
+    err.message.split("\n")[0],
+    "Which PocketBase? Pass --name or --id.",
+  );
 });
 
 Deno.test("one candidate auto-selects only when the command is not explicit", async () => {

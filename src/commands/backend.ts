@@ -23,6 +23,7 @@ import {
   computeChooser,
   deployProgress,
   deployResource,
+  deployTargetLine,
   ensureBackendProject,
   envFileEntry,
   pushEnvFile,
@@ -171,6 +172,7 @@ pbc frontend deploy instead.`,
             target = await intentFor(deployProject.id);
           }
         }
+        log(deployTargetLine(target, KINDS.backends.label));
         const bundle = await buildBundle({
           cwd,
           kind: "backends",
@@ -247,6 +249,7 @@ pbc frontend deploy instead.`,
               onProgress: (f) =>
                 step.update(`Uploading — ${Math.round(f * 100)}%`),
             }, { baseUrl: auth.extUrl, token: auth.userToken, fetchFn: deps.fetch });
+            step.update("Uploaded — waiting for the platform to start it");
             const dep = await waitForDeployment(deploymentId, {
               baseUrl: auth.backendUrl,
               token: auth.userToken,
@@ -260,6 +263,7 @@ pbc frontend deploy instead.`,
             if (dep.status === "failed") {
               throw new CliError(dep.statusMessage, { code: "PLATFORM_ERROR" });
             }
+            step.done(`Uploaded ${bundle.fileName}`);
             return out;
           },
         );
@@ -289,27 +293,25 @@ pbc frontend deploy instead.`,
         const final = await awaitDeployment(client, "backends", resource, {
           progress,
           created,
-          environment: target.environment,
           label: "backend",
           checkCommand: "backend",
         });
-        if (final.status === "running") reportUrl(final, { log });
-        const reachable = created && final.status === "running"
-          ? await awaitReachable(client, {
-            type: "backend",
-            resource: final,
-            log,
-            progress,
-          })
-          : undefined;
+        reportUrl(final, { log });
+        const reachable = await awaitReachable(client, {
+          type: "backend",
+          resource: final,
+          created,
+          log,
+          progress,
+        });
         if (ctx.flags.json) {
           emit(true, {
             ...final,
             environment: target.environment,
-            ...(reachable === undefined ? {} : { reachable }),
+            reachable,
           }, "");
         }
-        return final.status === "running" ? 0 : 6;
+        return 0;
       },
     }),
 

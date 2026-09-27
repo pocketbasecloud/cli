@@ -372,6 +372,35 @@ Deno.test("backend redeploy never re-picks the compute", async () => {
   assertEquals(client.calls.updateResource[0][2].server, undefined);
 });
 
+Deno.test("backend redeploy checks that the new version answers", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  await client.createResource("backends", { name: "api", project: p.id });
+  const orig = client.getResource.bind(client);
+  client.getResource = async (k, id) => ({
+    ...(await orig(k, id)),
+    status: "running",
+    domain: "api.example.com",
+  });
+  const ext = client.ext;
+  client.ext = (path, body) => {
+    if (path !== "/api/domain/verify-reachability") return ext(path, body);
+    client.calls.ext.push([path, body]);
+    return Promise.resolve(Response.json({ data: { reachable: true } }));
+  };
+  const cwd = seedSource();
+  const cmds = makeBackendCommands(backendDeps(client, cwd, p.id));
+  const code = await cmds["backend deploy"].run(
+    { name: "api", runtime: "deno", start: "deno task start" },
+    { args: [], flags: deployFlags(p.id) },
+  );
+  assertEquals(code, 0);
+  const probes = client.calls.ext.filter(([path]) =>
+    path === "/api/domain/verify-reachability"
+  );
+  assertEquals(probes.length, 1);
+});
+
 Deno.test("backend deploy refuses to guess between two computes under --json", async () => {
   const client = reportRunning(createMockCloudClient());
   const p = await client.createProject("app");
