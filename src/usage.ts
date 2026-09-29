@@ -1145,7 +1145,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "backend deploy": {
     "usage": "pbc backend deploy [--name <name>|--new <name>] [flags]",
     "summary": "Build, package, and deploy a backend.",
-    "details": "Runs the build command and uploads the result. The runtime, build command,\nand output directory come from the \"build\" block in pbc.json, inferred from the\ndirectory (deno.json, bun.lockb, next.config.*, package.json) and written there\non the first deploy.\n\ndeno, bun, and nodejs ship their source — the platform installs dependencies\non start, so node_modules is excluded. Where there is a build command, deploy\ninstalls its dependencies first when they are missing, with the package\nmanager the lockfile names.\n\nnextjs ships a prebuilt bundle: deploy adds output: \"standalone\" to\nnext.config.* before building (and says so) unless the config already sets\noutput, then assembles .next/standalone, .next/static, and public, starting\nwith node server.js. output: \"export\" is a static site — deploy it with\npbc frontend deploy instead.",
+    "details": "Runs the build command and uploads the result. The runtime, build command,\nand output directory come from the \"build\" block in pbc.json, inferred from the\ndirectory (deno.json, bun.lockb, next.config.*, package.json, or a python\nmanifest or script) and written there on the first deploy.\n\ndeno, bun, and nodejs ship their source — the platform installs dependencies\non start, so node_modules is excluded. Where there is a build command, deploy\ninstalls its dependencies first when they are missing, with the package\nmanager the lockfile names. Python ships the same way: the platform installs\ndependencies into a virtualenv on start with the tool the lockfile names (uv.lock,\npoetry.lock, Pipfile, requirements.txt, or pyproject.toml). The start command\ncomes from a Procfile web: line, else from the framework (Django, Flask, FastAPI,\nStarlette, Litestar, Quart, Sanic, Bottle, Falcon, Dash, Streamlit, Gradio,\nCelery) served on $PORT, else python <entry>. The Python version is detected on\nevery deploy (.python-version, runtime.txt, requires-python, Pipfile) unless\n--python-version or build.pythonVersion pins it; Python 2 is refused.\nVirtualenvs and __pycache__ are excluded.\n\nnextjs ships a prebuilt bundle: deploy adds output: \"standalone\" to\nnext.config.* before building (and says so) unless the config already sets\noutput, then assembles .next/standalone, .next/static, and public, starting\nwith node server.js. output: \"export\" is a static site — deploy it with\npbc frontend deploy instead.",
     "needs": [
       "target:backends",
       {
@@ -1174,9 +1174,23 @@ export const COMMANDS: Record<string, CommandSpec> = {
           "deno",
           "bun",
           "nodejs",
-          "nextjs"
+          "nextjs",
+          "python"
         ],
         "description": "Defaults to build.runtime in pbc.json, else inferred."
+      },
+      {
+        "name": "python-version",
+        "type": "string",
+        "required": false,
+        "choices": [
+          "3.10",
+          "3.11",
+          "3.12",
+          "3.13",
+          "3.14"
+        ],
+        "description": "Python version for a python backend. Defaults to build.pythonVersion in pbc.json, else inferred."
       },
       {
         "name": "start",
@@ -1367,9 +1381,23 @@ export const COMMANDS: Record<string, CommandSpec> = {
           "deno",
           "bun",
           "nodejs",
-          "nextjs"
+          "nextjs",
+          "python"
         ],
         "description": "Defaults to build.runtime in pbc.json, else inferred."
+      },
+      {
+        "name": "python-version",
+        "type": "string",
+        "required": false,
+        "choices": [
+          "3.10",
+          "3.11",
+          "3.12",
+          "3.13",
+          "3.14"
+        ],
+        "description": "Python version for a python backend. Defaults to build.pythonVersion in pbc.json, else inferred."
       },
       {
         "name": "start",

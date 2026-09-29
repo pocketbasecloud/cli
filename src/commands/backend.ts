@@ -9,13 +9,11 @@ import {
 } from "../command.ts";
 import type { CloudCmdDeps } from "./project.ts";
 import { CliError } from "../errors.ts";
+import { PYTHON_VERSIONS } from "../build/python-detect.ts";
 import { emit } from "../envelope.ts";
 import { KINDS } from "../kinds.ts";
 import { resolveProject } from "../resolve/project.ts";
-import {
-  removeEnvironment,
-  upsertEnvironment,
-} from "../config.ts";
+import { removeEnvironment, upsertEnvironment } from "../config.ts";
 import {
   awaitDeployment,
   awaitReachable,
@@ -59,15 +57,24 @@ export function makeBackendCommands(
       needs: ["target:backends", { explicit: true }],
       usage: "pbc backend deploy [--name <name>|--new <name>] [flags]",
       summary: "Build, package, and deploy a backend.",
-      details: `Runs the build command and uploads the result. The runtime, build command,
+      details:
+        `Runs the build command and uploads the result. The runtime, build command,
 and output directory come from the "build" block in pbc.json, inferred from the
-directory (deno.json, bun.lockb, next.config.*, package.json) and written there
-on the first deploy.
+directory (deno.json, bun.lockb, next.config.*, package.json, or a python
+manifest or script) and written there on the first deploy.
 
 deno, bun, and nodejs ship their source — the platform installs dependencies
 on start, so node_modules is excluded. Where there is a build command, deploy
 installs its dependencies first when they are missing, with the package
-manager the lockfile names.
+manager the lockfile names. Python ships the same way: the platform installs
+dependencies into a virtualenv on start with the tool the lockfile names (uv.lock,
+poetry.lock, Pipfile, requirements.txt, or pyproject.toml). The start command
+comes from a Procfile web: line, else from the framework (Django, Flask, FastAPI,
+Starlette, Litestar, Quart, Sanic, Bottle, Falcon, Dash, Streamlit, Gradio,
+Celery) served on $PORT, else python <entry>. The Python version is detected on
+every deploy (.python-version, runtime.txt, requires-python, Pipfile) unless
+--python-version or build.pythonVersion pins it; Python 2 is refused.
+Virtualenvs and __pycache__ are excluded.
 
 nextjs ships a prebuilt bundle: deploy adds output: "standalone" to
 next.config.* before building (and says so) unless the config already sets
@@ -88,7 +95,12 @@ pbc frontend deploy instead.`,
         }),
         runtime: str({
           description: "Defaults to build.runtime in pbc.json, else inferred.",
-          choices: ["deno", "bun", "nodejs", "nextjs"],
+          choices: ["deno", "bun", "nodejs", "nextjs", "python"],
+        }),
+        pythonVersion: str({
+          description:
+            "Python version for a python backend. Defaults to build.pythonVersion in pbc.json, else inferred.",
+          choices: [...PYTHON_VERSIONS],
         }),
         start: str({
           description: "Command to run; defaults to build.startCommand.",
@@ -102,8 +114,7 @@ pbc frontend deploy instead.`,
           description: "Old name for --compute; scripts may keep using it.",
         }),
         zip: str({
-          description:
-            "Deploy this archive instead of building the directory.",
+          description: "Deploy this archive instead of building the directory.",
         }),
         skipBuild: bool({
           description: "Package without running the build command.",
@@ -179,6 +190,7 @@ pbc frontend deploy instead.`,
           zipPath: input.zip,
           skipBuild: input.skipBuild === true,
           runtime: input.runtime,
+          pythonVersion: input.pythonVersion,
           envFile: input.envFile,
           environment: target.environment,
           log,
@@ -195,8 +207,16 @@ pbc frontend deploy instead.`,
         const runtime = input.runtime ?? bundle.build.runtime;
         if (!runtime) {
           throw new CliError(
-            "Pass --runtime (deno|bun|nodejs|nextjs) or set build.runtime in pbc.json.",
-            { code: "USAGE" });
+            "Pass --runtime (deno|bun|nodejs|nextjs|python) or set build.runtime in pbc.json.",
+            { code: "USAGE" },
+          );
+        }
+        const pythonVersion = input.pythonVersion ?? bundle.build.pythonVersion;
+        if (pythonVersion && runtime !== "python") {
+          throw new CliError(
+            "--python-version applies to python backends only.",
+            { code: "USAGE" },
+          );
         }
         const data: Record<string, unknown> = {
           project: deployProject.id,
@@ -211,10 +231,15 @@ pbc frontend deploy instead.`,
           throw new CliError(
             `No start command for this ${runtime} backend. Add a "start" ` +
               `${
-                runtime === "deno" ? "task to deno.json" : "script to package.json"
+                runtime === "deno"
+                  ? "task to deno.json"
+                  : runtime === "python"
+                  ? "web: line to a Procfile"
+                  : "script to package.json"
               }, ` +
               `set build.startCommand in pbc.json, or pass --start "<command>".`,
-              { code: "USAGE" });
+            { code: "USAGE" },
+          );
         }
         const askCompute = computeChooser(client, deployProject.id, {
           noInput,
@@ -246,9 +271,14 @@ pbc frontend deploy instead.`,
               kind: "backends",
               resourceId: out.resource.id,
               bytes: bundle.bytes,
+              ...(pythonVersion ? { hints: { pythonVersion } } : {}),
               onProgress: (f) =>
                 step.update(`Uploading — ${Math.round(f * 100)}%`),
-            }, { baseUrl: auth.extUrl, token: auth.userToken, fetchFn: deps.fetch });
+            }, {
+              baseUrl: auth.extUrl,
+              token: auth.userToken,
+              fetchFn: deps.fetch,
+            });
             step.update("Uploaded — waiting for the platform to start it");
             const dep = await waitForDeployment(deploymentId, {
               baseUrl: auth.backendUrl,
@@ -314,6 +344,5 @@ pbc frontend deploy instead.`,
         return 0;
       },
     }),
-
   };
 }

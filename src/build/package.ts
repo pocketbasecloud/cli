@@ -10,8 +10,8 @@ import {
 import { describeInstall, planInstall } from "./install.ts";
 import { plainProgress, type Progress } from "../ui/progress.ts";
 
-const DENY_SEGMENTS = [".git", "pb_data", ".DS_Store"];
-const DENY_FILES = [".env", ".env.*", "*.log"];
+const DENY_SEGMENTS = [".git", "pb_data", ".DS_Store", "__pycache__"];
+const DENY_FILES = [".env", ".env.*", "*.log", "*.pyc"];
 
 export type Strategy = "static" | "source" | "standalone" | "pbdirs";
 
@@ -94,6 +94,7 @@ async function collect(
       if (!stat) continue;
 
       if (stat.isDirectory) {
+        if (await isVirtualenv(abs)) continue;
         await walk(abs, childRel);
         continue;
       }
@@ -104,6 +105,11 @@ async function collect(
 
   await walk(root, "");
   return out;
+}
+
+async function isVirtualenv(dir: string): Promise<boolean> {
+  return (await Deno.stat(join(dir, "pyvenv.cfg")).catch(() => null))
+    ?.isFile ?? false;
 }
 
 function requireDir(path: string, hint: string): Promise<void> {
@@ -150,7 +156,8 @@ async function packStandalone(
     throw new CliError(
       `No server.js at the root of .next/standalone — the bundle cannot ` +
         `start. Check that next.config.* sets output: "standalone".`,
-        { code: "USAGE" });
+      { code: "USAGE" },
+    );
   }
   return { entries, startCommand: "node server.js" };
 }
@@ -213,7 +220,8 @@ export async function packageResource(opts: {
               `in ${plan.cwd}). Install them yourself and deploy again, or ` +
               `set "install" in the build block of ${await linkFileName(
                 plan.cwd,
-              )} to the right command.`);
+              )} to the right command.`,
+          );
         }
         step.done(`Installed dependencies (${plan.command})`);
       }, { animate: false });
@@ -223,7 +231,8 @@ export async function packageResource(opts: {
       const { code } = await run(build.command as string, cwd);
       if (code !== 0) {
         throw new CliError(
-          `Build failed (${build.command} exited ${code}).`);
+          `Build failed (${build.command} exited ${code}).`,
+        );
       }
       step.done(`Built (${build.command})`);
     }, { animate: false });

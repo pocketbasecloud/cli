@@ -68,7 +68,8 @@ export type BuildConfig = {
   command?: string;
   install?: string;
   outputDir?: string;
-  runtime?: "deno" | "bun" | "nodejs" | "nextjs";
+  runtime?: "deno" | "bun" | "nodejs" | "nextjs" | "python";
+  pythonVersion?: string;
   startCommand?: string;
   exclude?: string[];
   envFile?: string;

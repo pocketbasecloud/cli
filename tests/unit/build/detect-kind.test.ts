@@ -147,6 +147,30 @@ Deno.test("a Deno project is a backend", async () => {
   assertEquals(await kindOf({ "deno.jsonc": "{}" }), "backends");
 });
 
+Deno.test("a bare python script is a backend", async () => {
+  const guess = await detectKind(dir({ "main.py": "", "utils.py": "" }));
+  assertEquals(guess?.kind, "backends");
+  assertEquals(guess?.reason, "a python script");
+});
+
+Deno.test("a python dependency file is a backend even beside index.html", async () => {
+  const guess = await detectKind(dir({
+    "requirements.txt": "flask\n",
+    "app.py": "",
+    "index.html": "<html></html>",
+  }));
+  assertEquals(guess?.kind, "backends");
+  assertEquals(guess?.reason, "a python dependency file");
+});
+
+Deno.test("a stray python script does not turn a static site into a backend", async () => {
+  const guess = await detectKind(dir({
+    "build.py": "",
+    "index.html": "<html></html>",
+  }));
+  assertEquals(guess?.kind, "frontends");
+});
+
 Deno.test("a server dependency identifies a backend", async () => {
   for (const dep of ["express", "fastify", "hono", "@nestjs/core"]) {
     const guess = await detectKind(dir({

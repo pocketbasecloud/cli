@@ -61,14 +61,14 @@ Deno.test("a multi-paragraph command (auth) reconstructs identically to the orig
       "oauth2.providers) and include it in the json. Collection and field names as\n" +
       "in the admin UI.\n\n" +
       "  pbc admin auth users config\n" +
-      "  pbc admin auth users config --set 'passwordAuth={\"enabled\":true,\"identityFields\":[\"email\"]}'",
+      '  pbc admin auth users config --set \'passwordAuth={"enabled":true,"identityFields":["email"]}\'',
   );
 });
 
 Deno.test("cloud backend deploy has a choices-constrained runtime flag", () => {
   const spec = COMMANDS["backend deploy"];
   const runtime = spec.flags.find((f) => f.name === "runtime");
-  assertEquals(runtime?.choices, ["deno", "bun", "nodejs", "nextjs"]);
+  assertEquals(runtime?.choices, ["deno", "bun", "nodejs", "nextjs", "python"]);
   assertEquals(runtime?.required, false);
 });
 

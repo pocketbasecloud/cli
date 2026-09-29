@@ -2,7 +2,12 @@ import type { CloudCmdDeps } from "../../src/commands/project.ts";
 
 export type MockDeployFetch = {
   fetchFn: NonNullable<CloudCmdDeps["fetch"]>;
-  calls: { method: string; url: string; bodyBytes?: Uint8Array }[];
+  calls: {
+    method: string;
+    url: string;
+    bodyText?: string;
+    bodyBytes?: Uint8Array;
+  }[];
   setStatus: (status: "success" | "failed", statusMessage?: string) => void;
 };
 
@@ -26,6 +31,7 @@ function json(data: unknown): Response {
 async function bodyBytesOf(
   body: BodyInit | null | undefined,
 ): Promise<Uint8Array | undefined> {
+  if (typeof body === "string") return new TextEncoder().encode(body);
   if (body instanceof Blob) return new Uint8Array(await body.arrayBuffer());
   if (body instanceof Uint8Array) return body;
   return undefined;
@@ -60,6 +66,10 @@ export function createMockDeployFetch(
       });
     }
     if (url.endsWith("/api/deployments")) {
+      const last = calls[calls.length - 1];
+      last.bodyText = new TextDecoder().decode(
+        last.bodyBytes ?? new Uint8Array(),
+      );
       return json({ success: true, data: { deploymentId: "dep_1" } });
     }
     return json({

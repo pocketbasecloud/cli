@@ -1,4 +1,4 @@
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { envFileOf, resolveBuildConfig } from "../../../src/build/config.ts";
 import { readOwnLinkFile } from "../../../src/config.ts";
@@ -86,6 +86,53 @@ Deno.test("flags override the recorded block without rewriting it", async () => 
   const own = await readOwnLinkFile(cwd);
   assertEquals(own.build?.runtime, "nodejs");
   assertEquals(own.build?.envFile, ".env");
+});
+
+Deno.test("a pythonVersion flag overrides the recorded block", async () => {
+  const cwd = seed({
+    "pbc.json": JSON.stringify({
+      projectId: "p1",
+      build: { runtime: "python", pythonVersion: "3.11" },
+    }),
+  });
+  const cfg = await resolveBuildConfig({
+    cwd,
+    kind: "backends",
+    flags: { pythonVersion: "3.13" },
+    log: noop,
+  });
+  assertEquals(cfg.pythonVersion, "3.13");
+  const own = await readOwnLinkFile(cwd);
+  assertEquals(own.build?.pythonVersion, "3.11");
+});
+
+Deno.test("the python version follows the tree on every deploy", async () => {
+  const cwd = seed({ "main.py": "", ".python-version": "3.11\n" });
+  const first = await resolveBuildConfig({
+    cwd,
+    kind: "backends",
+    flags: {},
+    log: noop,
+  });
+  assertEquals(first.pythonVersion, "3.11");
+  assertEquals((await readOwnLinkFile(cwd)).build?.pythonVersion, undefined);
+
+  Deno.writeTextFileSync(join(cwd, ".python-version"), "3.13\n");
+  const second = await resolveBuildConfig({
+    cwd,
+    kind: "backends",
+    flags: {},
+    log: noop,
+  });
+  assertEquals(second.pythonVersion, "3.13");
+});
+
+Deno.test("a Python 2 pin is refused before anything is uploaded", async () => {
+  const cwd = seed({ "main.py": "", ".python-version": "2.7\n" });
+  const error = await assertRejects(() =>
+    resolveBuildConfig({ cwd, kind: "backends", flags: {}, log: noop })
+  );
+  assertStringIncludes((error as Error).message, "Python 2 is not supported");
 });
 
 Deno.test("build config comes from the cwd's own pbc.json, never a parent's", async () => {

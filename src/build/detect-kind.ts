@@ -1,7 +1,12 @@
 import { join } from "@std/path";
 import type { ResourceKind } from "../clients/types.ts";
 import { linkFileName, readLinkFile, readOwnLinkFile } from "../config.ts";
-import { exists, findConfig } from "./detect.ts";
+import {
+  exists,
+  findConfig,
+  hasPythonManifestIn,
+  hasPythonProject,
+} from "./detect.ts";
 import { readNextOutput } from "./next-config.ts";
 import { KINDS } from "../kinds.ts";
 
@@ -142,6 +147,10 @@ export async function detectKind(cwd: string): Promise<KindGuess | null> {
     }
   }
 
+  if (await hasPythonManifestIn(cwd)) {
+    return { kind: "backends", reason: "a python dependency file" };
+  }
+
   for (const dir of INDEX_HTML_DIRS) {
     if (await exists(join(cwd, dir, "index.html"))) {
       return {
@@ -149,6 +158,10 @@ export async function detectKind(cwd: string): Promise<KindGuess | null> {
         reason: dir ? `${dir}/index.html` : "index.html",
       };
     }
+  }
+
+  if (await hasPythonProject(cwd)) {
+    return { kind: "backends", reason: "a python script" };
   }
 
   return null;

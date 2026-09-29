@@ -47,15 +47,19 @@ Deno.test("backend deploy sends runtime and start command", async () => {
     envStatePath: tempStatePath(),
     fetch: deploy.fetchFn,
   });
-  const code = await cmds["backend deploy"].run({ new: "api", runtime: "deno", start: "deno task start" }, {
-      args: [],
-      flags: {
-        json: true,
-        yes: true,
-        noInput: true,
-        interactive: false,
-        project: p.id,
-      },
+  const code = await cmds["backend deploy"].run({
+    new: "api",
+    runtime: "deno",
+    start: "deno task start",
+  }, {
+    args: [],
+    flags: {
+      json: true,
+      yes: true,
+      noInput: true,
+      interactive: false,
+      project: p.id,
+    },
   });
   assertEquals(code, 0);
   const [, data] = client.calls.createResource[0];
@@ -98,15 +102,17 @@ Deno.test("backend rm keeps a binding it did not resolve", async () => {
       environments: { production: { id: bound.id, name: "api" } },
     }),
   );
-  const code = await makeResourceCommands(d, KINDS.backends)["backend rm"].run({ name: "api-old" }, {
-      args: [],
-      flags: {
-        json: true,
-        yes: true,
-        noInput: true,
-        interactive: false,
-        project: p.id,
-      },
+  const code = await makeResourceCommands(d, KINDS.backends)["backend rm"].run({
+    name: "api-old",
+  }, {
+    args: [],
+    flags: {
+      json: true,
+      yes: true,
+      noInput: true,
+      interactive: false,
+      project: p.id,
+    },
   });
   assertEquals(code, 0);
   assertEquals(client.calls.updateResource[0][1], other.id);
@@ -140,19 +146,19 @@ Deno.test("backend deploy forwards --compute, which Pro deploys cannot do withou
     envStatePath: tempStatePath(),
     fetch: deploy.fetchFn,
   })["backend deploy"].run({
-      new: "api",
-      runtime: "deno",
-      compute: "srv1",
-      start: "deno task start"
+    new: "api",
+    runtime: "deno",
+    compute: "srv1",
+    start: "deno task start",
   }, {
-      args: [],
-      flags: {
-        json: true,
-        yes: true,
-        noInput: true,
-        interactive: false,
-        project: p.id,
-      },
+    args: [],
+    flags: {
+      json: true,
+      yes: true,
+      noInput: true,
+      interactive: false,
+      project: p.id,
+    },
   });
   assertEquals(client.calls.createResource[0][1].server, "srv1");
 });
@@ -187,6 +193,50 @@ const deployFlags = (projectId: string) => ({
   project: projectId,
 });
 
+Deno.test("backend deploy passes the python version through as a hint", async () => {
+  const client = reportRunning(createMockCloudClient());
+  const p = await client.createProject("app");
+  withComputes(client, [{ id: "srv1", name: "pro-1", location: "GRA" }]);
+  const cwd = Deno.makeTempDirSync();
+  Deno.writeTextFileSync(`${cwd}/main.py`, "print('hi')\n");
+  Deno.writeTextFileSync(`${cwd}/.python-version`, "3.11.4\n");
+  const deps = backendDeps(client, cwd, p.id);
+  const cmds = makeBackendCommands(deps);
+  const code = await cmds["backend deploy"].run({ new: "api" }, {
+    args: [],
+    flags: deployFlags(p.id),
+  });
+  assertEquals(code, 0);
+  const [, data] = client.calls.createResource[0];
+  assertEquals(data.runtime, "python");
+  const posts = deps.deploy.calls.filter((c) =>
+    c.method === "POST" && c.url.endsWith("/api/deployments")
+  );
+  assertEquals(posts.length, 1);
+  assertEquals(JSON.parse(posts[0].bodyText ?? "{}").hints, {
+    pythonVersion: "3.11",
+  });
+});
+
+Deno.test("backend deploy refuses --python-version on a non-python runtime", async () => {
+  const client = reportRunning(createMockCloudClient());
+  const p = await client.createProject("app");
+  withComputes(client, [{ id: "srv1", name: "pro-1", location: "GRA" }]);
+  const cwd = seedSource();
+  const deps = backendDeps(client, cwd, p.id);
+  const cmds = makeBackendCommands(deps);
+  await assertRejects(
+    () =>
+      cmds["backend deploy"].run(
+        { new: "api", runtime: "deno", pythonVersion: "3.11" },
+        { args: [], flags: deployFlags(p.id) },
+      ),
+    Error,
+    "--python-version applies to python backends only",
+  );
+  assertEquals(client.calls.createResource.length, 0);
+});
+
 Deno.test("backend deploy uses the inferred start command with no --start", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
@@ -203,8 +253,8 @@ Deno.test("backend deploy uses the inferred start command with no --start", asyn
   });
   const cmds = makeBackendCommands(backendDeps(client, cwd, p.id));
   const code = await cmds["backend deploy"].run({ new: "api" }, {
-      args: [],
-      flags: deployFlags(p.id),
+    args: [],
+    flags: deployFlags(p.id),
   });
   assertEquals(code, 0);
   assertEquals(
@@ -244,9 +294,13 @@ Deno.test("backend deploy creates on the owner's compute with no --compute", asy
   withComputes(client, [{ id: "srv9", name: "pro-1", location: "GRA" }]);
   const cwd = seedSource();
   const cmds = makeBackendCommands(backendDeps(client, cwd, p.id));
-  const code = await cmds["backend deploy"].run({ new: "api", runtime: "deno", start: "deno task start" }, {
-      args: [],
-      flags: deployFlags(p.id),
+  const code = await cmds["backend deploy"].run({
+    new: "api",
+    runtime: "deno",
+    start: "deno task start",
+  }, {
+    args: [],
+    flags: deployFlags(p.id),
   });
   assertEquals(code, 0);
   assertEquals(client.calls.createResource[0][1].server, "srv9");
@@ -262,9 +316,13 @@ Deno.test("backend deploy works for an org developer on the owner's Pro compute"
   });
   const cwd = seedSource();
   const cmds = makeBackendCommands(backendDeps(client, cwd, p.id));
-  const code = await cmds["backend deploy"].run({ new: "api", runtime: "deno", start: "deno task start" }, {
-      args: [],
-      flags: deployFlags(p.id),
+  const code = await cmds["backend deploy"].run({
+    new: "api",
+    runtime: "deno",
+    start: "deno task start",
+  }, {
+    args: [],
+    flags: deployFlags(p.id),
   });
   assertEquals(code, 0);
   assertEquals(client.calls.createResource[0][1].server, "owner-srv");
@@ -363,9 +421,13 @@ Deno.test("backend redeploy never re-picks the compute", async () => {
   };
   const cwd = seedSource();
   const cmds = makeBackendCommands(backendDeps(client, cwd, p.id));
-  const code = await cmds["backend deploy"].run({ name: "api", runtime: "deno", start: "deno task start" }, {
-      args: [],
-      flags: deployFlags(p.id),
+  const code = await cmds["backend deploy"].run({
+    name: "api",
+    runtime: "deno",
+    start: "deno task start",
+  }, {
+    args: [],
+    flags: deployFlags(p.id),
   });
   assertEquals(code, 0);
   assertEquals(client.calls.createResource.length, 0);
@@ -412,9 +474,13 @@ Deno.test("backend deploy refuses to guess between two computes under --json", a
   const cmds = makeBackendCommands(backendDeps(client, cwd, p.id));
   await assertRejects(
     () =>
-      cmds["backend deploy"].run({ new: "api", runtime: "deno", start: "deno task start" }, {
-          args: [],
-          flags: deployFlags(p.id),
+      cmds["backend deploy"].run({
+        new: "api",
+        runtime: "deno",
+        start: "deno task start",
+      }, {
+        args: [],
+        flags: deployFlags(p.id),
       }),
     Error,
     "--compute",
@@ -432,8 +498,8 @@ Deno.test("backend deploy refuses to create a backend that cannot start", async 
   await assertRejects(
     () =>
       cmds["backend deploy"].run({ new: "api" }, {
-          args: [],
-          flags: deployFlags(p.id),
+        args: [],
+        flags: deployFlags(p.id),
       }),
     Error,
     "--start",
@@ -453,12 +519,15 @@ Deno.test("backend ls announces the project resolved from config.currentProject"
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   const cwd = seedSource();
-  const cmds = makeResourceCommands(backendDeps(client, cwd, p.id), KINDS.backends);
+  const cmds = makeResourceCommands(
+    backendDeps(client, cwd, p.id),
+    KINDS.backends,
+  );
   const log = captureLog();
   try {
     const code = await cmds["backend ls"].run({}, {
-        args: [],
-        flags: { json: false, yes: true, noInput: true, interactive: false },
+      args: [],
+      flags: { json: false, yes: true, noInput: true, interactive: false },
     });
     assertEquals(code, 0);
     assertEquals(log.lines[0].includes(`Project: ${p.name}`), true);
@@ -472,18 +541,21 @@ Deno.test("backend ls does not announce the project when --project names it", as
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   const cwd = seedSource();
-  const cmds = makeResourceCommands(backendDeps(client, cwd, p.id), KINDS.backends);
+  const cmds = makeResourceCommands(
+    backendDeps(client, cwd, p.id),
+    KINDS.backends,
+  );
   const log = captureLog();
   try {
     await cmds["backend ls"].run({}, {
-        args: [],
-        flags: {
-          json: false,
-          yes: true,
-          noInput: true,
-          interactive: false,
-          project: p.id,
-        },
+      args: [],
+      flags: {
+        json: false,
+        yes: true,
+        noInput: true,
+        interactive: false,
+        project: p.id,
+      },
     });
     assertEquals(log.lines.some((l) => l.startsWith("Project:")), false);
   } finally {

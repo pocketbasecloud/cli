@@ -37,6 +37,7 @@ export function deployArchive(
     kind: ResourceKind;
     resourceId: string;
     bytes: Uint8Array;
+    hints?: { pythonVersion?: string };
     onProgress?: (fraction: number) => void;
   },
   cfg: DeployClientConfig,
@@ -65,6 +66,7 @@ export function deployArchive(
         resourceId: opts.resourceId,
         input: "artifact",
         artifactKey: key,
+        ...(opts.hints ? { hints: opts.hints } : {}),
       },
       cfg,
     );
@@ -101,7 +103,9 @@ export async function waitForDeployment(
     }
     if (Date.now() > deadline) {
       throw new CliError(
-        `Timed out after ${Math.round(timeoutMs / 1000)}s waiting for the deploy to finish.`,
+        `Timed out after ${
+          Math.round(timeoutMs / 1000)
+        }s waiting for the deploy to finish.`,
         { code: "TIMEOUT" },
       );
     }

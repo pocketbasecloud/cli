@@ -104,6 +104,25 @@ Deno.test("source ships the directory and drops node_modules", async () => {
   ]);
 });
 
+Deno.test("source drops python bytecode, caches, and virtualenvs", async () => {
+  const cwd = dir({
+    "main.py": "x",
+    "utils.py": "x",
+    "stale.pyc": "x",
+    "__pycache__/main.pyc": "x",
+    ".venv/pyvenv.cfg": "home = /usr/bin",
+    ".venv/lib/x.py": "x",
+    "env/pyvenv.cfg": "home = /usr/bin",
+    "env/lib/x.py": "x",
+    "venv/models.py": "x",
+  });
+  assertEquals(await names(cwd, "backends", { runtime: "python" }), [
+    "main.py",
+    "utils.py",
+    "venv/models.py",
+  ]);
+});
+
 Deno.test("the denylist drops .git, pb_data, dotenv files, and logs", async () => {
   const cwd = dir({
     "dist/index.html": "x",

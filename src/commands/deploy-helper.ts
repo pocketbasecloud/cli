@@ -75,7 +75,9 @@ export async function resolveEnvironmentTarget(
   if (opts.strictKind && link?.kind && link.kind !== kind) {
     throw new CliError(
       `${await bindingFileName(cwd)} is bound to ${link.kind} — deploy ` +
-        `${kind} from a different directory.`, { code: "USAGE" });
+        `${kind} from a different directory.`,
+      { code: "USAGE" },
+    );
   }
   const base = {
     environment: choice.name,
@@ -164,7 +166,9 @@ export async function resolveDeployIntent(
 
   if (target.fromBinding && target.id) {
     const found = list.find((r) => r.id === target.id);
-    if (found) return { ...base, create: false, resource: found, fromBinding: true };
+    if (found) {
+      return { ...base, create: false, resource: found, fromBinding: true };
+    }
     await o.onStale?.();
     throw new CliError(
       `The ${label} bound to environment "${target.environment}" no longer ` +
@@ -271,7 +275,8 @@ export async function validateLocationChoice(
   throw new CliError(
     `--location "${location}" is not available. ${available} Omit ` +
       `--location and the platform picks the least-loaded one.`,
-      { code: "USAGE" });
+    { code: "USAGE" },
+  );
 }
 
 export async function chooseCompute(
@@ -313,7 +318,8 @@ export async function chooseCompute(
     throw new CliError(
       `This project has ${computes.length} computes — pass --compute <id>:\n` +
         computes.map((s, i) => `  ${label(s, i)}`).join("\n"),
-        { code: "USAGE" });
+      { code: "USAGE" },
+    );
   }
   const picked = await select("Deploy to which compute?", computes, label, {
     noInput: o.noInput,
@@ -391,7 +397,9 @@ export async function resolveAdminCredentials(
   const adminPassword = flags.password ?? generatePassword();
   if (adminPassword.length < 12 || adminPassword.length > 20) {
     throw new CliError(
-      "--admin-password must be 12 to 20 characters.", { code: "USAGE" });
+      "--admin-password must be 12 to 20 characters.",
+      { code: "USAGE" },
+    );
   }
   return {
     adminUsername: flags.username ?? (await client.whoami()).email,
@@ -456,6 +464,7 @@ export type BundleOptions = {
   zipPath?: string;
   skipBuild: boolean;
   runtime?: string;
+  pythonVersion?: string;
   envFile?: string;
   environment?: string;
   log: (msg: string) => void;
@@ -486,7 +495,8 @@ export function assertArchiveWithinLimit(
     `${fileName} is ${formatMb(bytes.length)}, over the ${
       formatMb(MAX_ARCHIVE_BYTES)
     } limit. Trim the build output (or exclude node_modules and source maps) and deploy again.`,
-    { code: "USAGE" });
+    { code: "USAGE" },
+  );
 }
 
 export async function buildBundle(o: BundleOptions): Promise<Bundle> {
@@ -513,7 +523,11 @@ export async function buildBundle(o: BundleOptions): Promise<Bundle> {
   const build = await resolveBuildConfig({
     cwd: o.cwd,
     kind: o.kind,
-    flags: { runtime: o.runtime, envFile: o.envFile },
+    flags: {
+      runtime: o.runtime,
+      pythonVersion: o.pythonVersion,
+      envFile: o.envFile,
+    },
     environment: o.environment,
     log: o.log,
   });
