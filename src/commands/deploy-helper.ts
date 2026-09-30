@@ -45,6 +45,7 @@ import {
   recordEnvDigest,
 } from "../env-state.ts";
 import { parseDotenv, prunedKeysOf } from "./env.ts";
+import { stripOsJunkFromZip } from "../build/os-junk.ts";
 
 export type Target = {
   id?: string;
@@ -509,6 +510,15 @@ export async function buildBundle(o: BundleOptions): Promise<Bundle> {
         `--zip file not found: ${o.zipPath}`,
         { code: "USAGE" },
       );
+    }
+    const stripped = stripOsJunkFromZip(bytes);
+    if (stripped.removed.length > 0) {
+      o.log(
+        `Left out ${stripped.removed.length} system file${
+          stripped.removed.length === 1 ? "" : "s"
+        } (.DS_Store, Thumbs.db and similar) from ${basename(o.zipPath)}.`,
+      );
+      bytes = stripped.bytes;
     }
     assertArchiveWithinLimit(bytes, basename(o.zipPath));
     const own = await readOwnLinkFile(o.cwd);

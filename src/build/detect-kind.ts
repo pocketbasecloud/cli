@@ -97,9 +97,12 @@ async function boundKind(cwd: string): Promise<KindGuess | null> {
 }
 
 export async function detectKind(cwd: string): Promise<KindGuess | null> {
-  const bound = await boundKind(cwd);
-  if (bound) return bound;
+  return await boundKind(cwd) ?? await detectContentKind(cwd);
+}
 
+export async function detectContentKind(
+  cwd: string,
+): Promise<KindGuess | null> {
   for (const dir of PB_DIRS) {
     if (await exists(join(cwd, dir))) {
       return { kind: "pocketbases", reason: `${dir}/` };

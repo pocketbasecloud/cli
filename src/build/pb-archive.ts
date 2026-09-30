@@ -1,3 +1,5 @@
+import { isOsJunkName } from "./os-junk.ts";
+
 export const PB_UPLOADABLE_DIRS = [
   "pb_hooks",
   "pb_migrations",
@@ -8,8 +10,6 @@ const PB_INSTANCE_DIRS = [...PB_UPLOADABLE_DIRS, "pb_data"];
 
 const STRIPPED_AT_ROOT = [
   ".git",
-  "__MACOSX",
-  ".DS_Store",
   "node_modules",
   "pb_data",
 ];
@@ -20,15 +20,18 @@ export type PbArchiveShape = {
 };
 
 export function pbArchiveShape(names: string[]): PbArchiveShape {
-  const atRoot = level(names, "");
-  const shape = classify(atRoot);
-  if (shape.uploadable.length > 0) return shape;
-
-  const [only] = shape.found;
-  if (shape.found.length !== 1 || PB_INSTANCE_DIRS.includes(only)) return shape;
-
-  const nested = classify(level(names, `${only}/`));
-  return nested.uploadable.length > 0 ? nested : shape;
+  const atRoot = classify(level(names, ""));
+  let shape = atRoot;
+  let prefix = "";
+  while (shape.uploadable.length === 0) {
+    const [only] = shape.found;
+    if (shape.found.length !== 1 || PB_INSTANCE_DIRS.includes(only)) {
+      return atRoot;
+    }
+    prefix = `${prefix}${only}/`;
+    shape = classify(level(names, prefix));
+  }
+  return shape;
 }
 
 function level(names: string[], prefix: string): Map<string, boolean> {
@@ -40,7 +43,7 @@ function level(names: string[], prefix: string): Map<string, boolean> {
     const rest = name.slice(prefix.length);
     const slash = rest.indexOf("/");
     const segment = slash < 0 ? rest : rest.slice(0, slash);
-    if (!segment) continue;
+    if (!segment || isOsJunkName(segment)) continue;
     if (prefix === "" && STRIPPED_AT_ROOT.includes(segment)) continue;
 
     const isDirectory = slash >= 0;

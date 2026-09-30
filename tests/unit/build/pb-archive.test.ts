@@ -22,6 +22,29 @@ Deno.test("pbArchiveShape descends into a single wrapper directory", () => {
   );
 });
 
+Deno.test("pbArchiveShape descends through nested wrapper directories", () => {
+  assertEquals(
+    shapeOf([
+      "App/my-app/pb_hooks/main.pb.js",
+      "App/my-app/pb_public/index.html",
+      "App/my-app/README.md",
+    ]),
+    ["pb_hooks", "pb_public"],
+  );
+});
+
+Deno.test("pbArchiveShape sees past OS metadata beside nested wrappers", () => {
+  assertEquals(
+    shapeOf([
+      "App/.DS_Store",
+      "App/desktop.ini",
+      "App/my-app/pb_hooks/main.pb.js",
+      "__MACOSX/App/._my-app",
+    ]),
+    ["pb_hooks"],
+  );
+});
+
 Deno.test("pbArchiveShape accepts a hooks-only archive", () => {
   assertEquals(shapeOf(["pb_hooks/main.pb.js"]), ["pb_hooks"]);
 });

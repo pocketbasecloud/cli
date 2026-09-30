@@ -3,6 +3,7 @@ import { CliError } from "../errors.ts";
 import { type BuildConfig, linkFileName } from "../config.ts";
 import type { ResourceKind } from "../clients/types.ts";
 import { writeZip, type ZipEntry } from "./zip.ts";
+import { isOsJunkName } from "./os-junk.ts";
 import {
   describeStandaloneResult,
   ensureStandaloneOutput,
@@ -10,7 +11,7 @@ import {
 import { describeInstall, planInstall } from "./install.ts";
 import { plainProgress, type Progress } from "../ui/progress.ts";
 
-const DENY_SEGMENTS = [".git", "pb_data", ".DS_Store", "__pycache__"];
+const DENY_SEGMENTS = [".git", "pb_data", "__pycache__"];
 const DENY_FILES = [".env", ".env.*", "*.log", "*.pyc"];
 
 export type Strategy = "static" | "source" | "standalone" | "pbdirs";
@@ -82,7 +83,7 @@ async function collect(
 
     for await (const entry of Deno.readDir(dir)) {
       const name = entry.name;
-      if (DENY_SEGMENTS.includes(name)) continue;
+      if (DENY_SEGMENTS.includes(name) || isOsJunkName(name)) continue;
       if (name === "node_modules" && !opts.keepNodeModules) continue;
 
       const childRel = rel ? `${rel}/${name}` : name;

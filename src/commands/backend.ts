@@ -34,6 +34,7 @@ import {
 } from "./deploy-helper.ts";
 import { deployArchive, waitForDeployment } from "../clients/deployments.ts";
 import { reportDeploymentLogs } from "./logs.ts";
+import { assertDeployableAs } from "../build/misdirected.ts";
 
 export function makeBackendCommands(
   deps: CloudCmdDeps,
@@ -139,6 +140,10 @@ pbc frontend deploy instead.`,
         }),
       },
       run: async (input, ctx) => {
+        await assertDeployableAs(
+          "backends",
+          { cwd: deps.cwd(), zipPath: input.zip, runtime: input.runtime },
+        );
         const progress = deployProgress(ctx.flags.json);
         const { client, project: p, auth } = await progress.step(
           "Connecting to PocketBase Cloud",

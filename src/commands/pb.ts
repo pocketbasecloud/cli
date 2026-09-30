@@ -57,6 +57,7 @@ import { deployArchive, waitForDeployment } from "../clients/deployments.ts";
 import { reportDeploymentLogs } from "./logs.ts";
 import { makeResourceResolver } from "./resource.ts";
 import { KINDS } from "../kinds.ts";
+import { assertDeployableAs } from "../build/misdirected.ts";
 
 const HOOK_EXTENSIONS = [
   ".pb.js",
@@ -684,6 +685,10 @@ merge and --delete-missing/--skip-env/--force-env rules.`,
         }),
       },
       run: async (input, ctx) => {
+        await assertDeployableAs(
+          "pocketbases",
+          { cwd: deps.cwd(), zipPath: input.zip },
+        );
         const progress = deployProgress(ctx.flags.json);
         const { client, project: p, auth } = await progress.step(
           "Connecting to PocketBase Cloud",

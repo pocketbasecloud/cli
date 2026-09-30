@@ -18,6 +18,7 @@ import type { CloudCmdDeps } from "../../../src/commands/project.ts";
 import { CliError } from "../../../src/errors.ts";
 import { extractEntry } from "../../../src/local/unzip.ts";
 import { writeZip } from "../../../src/build/zip.ts";
+import { zipEntryNames } from "../../../src/build/pb-archive.ts";
 
 function seed(files: Record<string, string>): string {
   const root = Deno.makeTempDirSync();
@@ -169,6 +170,32 @@ Deno.test("--zip uploads the given archive and skips packaging", async () => {
     new TextDecoder().decode(uploadedArchive(d)),
     "PK-not-really",
   );
+});
+
+Deno.test("--zip leaves out OS metadata before uploading", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  runningNow(client);
+  const cwd = seed({});
+  await writeZipFile(join(cwd, "site.zip"), [
+    "site/index.html",
+    "site/.DS_Store",
+    "site/assets/Thumbs.db",
+    "__MACOSX/site/._index.html",
+  ]);
+  const d = deps(client, p.id, cwd);
+  const cmds = makeFrontendCommands(d);
+
+  const code = await cmds["frontend deploy"].run({
+    new: "web",
+    zip: join(cwd, "site.zip"),
+  }, {
+    args: [],
+    flags: flags(p.id),
+  });
+
+  assertEquals(code, 0);
+  assertEquals(zipEntryNames(uploadedArchive(d)), ["site/index.html"]);
 });
 
 Deno.test("--zip with a missing path is a usage error", async () => {
@@ -662,7 +689,7 @@ Deno.test("pb redeploy refuses a --zip holding neither pb_migrations nor pb_publ
   await client.createResource("pocketbases", { name: "db", project: p.id });
   runningNow(client);
   const cwd = seed({});
-  await writeZipFile(join(cwd, "site.zip"), ["index.html", "README.txt"]);
+  await writeZipFile(join(cwd, "site.zip"), ["data.csv", "README.txt"]);
   const cmds = makePbCommands(deps(client, p.id, cwd));
 
   const err = await assertRejects(
@@ -675,7 +702,7 @@ Deno.test("pb redeploy refuses a --zip holding neither pb_migrations nor pb_publ
     "pb_migrations",
   );
   assertEquals(err.exitCode, 2);
-  assertEquals(err.message.includes("index.html"), true);
+  assertEquals(err.message.includes("data.csv"), true);
   assertEquals(err.message.includes("pb_public"), true);
   assertEquals(client.calls.updateResource.length, 0);
 });
