@@ -4,7 +4,7 @@ import type { Profile } from "../../config.ts";
 import { CliError } from "../../errors.ts";
 import { emit } from "../../envelope.ts";
 import { printResult } from "../../ui/output.ts";
-import { prompt } from "../../ui/prompt.ts";
+import { prompt, promptSecret } from "../../ui/prompt.ts";
 import { activeProfileName } from "../../resolve/profile.ts";
 
 function selectProfile(
@@ -30,7 +30,7 @@ export function makeInstanceAuthCommands(
       run: async (input, ctx) => {
         const config = await deps.loadConfig();
         const url = ctx.args[0];
-        const requested = input.name;
+        const requested = input.name ?? ctx.flags.profile;
         if (!url) {
           if (!requested) {
             throw new CliError(
@@ -87,7 +87,7 @@ export function makeInstanceAuthCommands(
         const url = input.url;
         let name: string | null;
         if (url) {
-          name = input.name ?? url;
+          name = input.name ?? ctx.flags.profile ?? url;
           config.profiles[name] = selectProfile(config.profiles[name], url);
         } else {
           name = activeProfileName(config, ctx.flags.profile);
@@ -102,7 +102,7 @@ export function makeInstanceAuthCommands(
         const email = input.email ??
           await prompt("Superuser email:", { noInput: ctx.flags.noInput });
         const password = input.password ??
-          await prompt("Superuser password:", { noInput: ctx.flags.noInput });
+          await promptSecret("Superuser password:", { noInput: ctx.flags.noInput });
         const { token } = await deps.makeClient(profile.url).authWithPassword(
           email,
           password,

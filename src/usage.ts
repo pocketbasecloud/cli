@@ -2135,7 +2135,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ]
   },
   "admin records ls": {
-    "usage": "pbc admin records ls <collection> [--filter <expr>] [--sort <expr>] [--page <n>] [--per-page <n>]",
+    "usage": "pbc admin records ls <collection> [--fields <a,b>] [--filter <expr>] [--sort <expr>] [--page <n>] [--per-page <n>]",
     "summary": "List records in a collection.",
     "args": [
       {
@@ -2155,6 +2155,12 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "type": "string",
         "required": false,
         "description": "Sort expression, e.g. -created."
+      },
+      {
+        "name": "fields",
+        "type": "string",
+        "required": false,
+        "description": "Comma-separated columns to show."
       },
       {
         "name": "page",

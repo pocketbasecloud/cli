@@ -38,6 +38,8 @@ export type User = {
   id: string;
   email: string;
   plan: string;
+  /** Set only while the card-free Free trial governs the account. */
+  trialEndsAt?: string;
   role?: string;
   /** Self-driving pull requests are allowed on the account. */
   selfDriving?: boolean;

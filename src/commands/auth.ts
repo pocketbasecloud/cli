@@ -112,7 +112,7 @@ export function makeAuthCommands(deps: AuthDeps): Record<string, Command> {
         emit(
           ctx.flags.json,
           user,
-          `${user.email} — plan: ${describePlan(user.plan)}`,
+          `${user.email} — plan: ${describePlan(user.plan, user.trialEndsAt)}`,
         );
         return 0;
       },

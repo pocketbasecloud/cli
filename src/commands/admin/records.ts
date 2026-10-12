@@ -9,6 +9,68 @@ import { emit } from "../../envelope.ts";
 import { renderTable } from "../../ui/output.ts";
 import { confirm } from "../../ui/prompt.ts";
 
+type RecordRow = Record<string, unknown>;
+
+const HIDDEN_FIELDS = new Set(["id", "collectionId", "collectionName", "expand"]);
+const TRAILING_FIELDS = ["created", "updated"];
+const MAX_CELL_WIDTH = 32;
+const COLUMN_GAP = 2;
+
+export function formatCell(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  const text = (typeof value === "string" ? value : JSON.stringify(value))
+    .replace(/\s+/g, " ");
+  return text.length <= MAX_CELL_WIDTH
+    ? text
+    : `${text.slice(0, MAX_CELL_WIDTH - 1)}…`;
+}
+
+function defaultFields(items: RecordRow[]): string[] {
+  const keys = [...new Set(items.flatMap((r) => Object.keys(r)))]
+    .filter((k) => !HIDDEN_FIELDS.has(k));
+  const trailing = TRAILING_FIELDS.filter((k) => keys.includes(k));
+  return [...keys.filter((k) => !trailing.includes(k)), ...trailing];
+}
+
+function columnWidth(items: RecordRow[], field: string): number {
+  return Math.max(field.length, ...items.map((r) => formatCell(r[field]).length));
+}
+
+export function renderRecordTable(
+  items: RecordRow[],
+  opts: { fields?: string[]; maxWidth: number },
+): string {
+  const candidates = opts.fields ?? defaultFields(items);
+  const shown: string[] = [];
+  let used = columnWidth(items, "id");
+  for (const field of candidates) {
+    const next = used + COLUMN_GAP + columnWidth(items, field);
+    if (!opts.fields && next > opts.maxWidth && shown.length > 0) break;
+    shown.push(field);
+    used = next;
+  }
+  const table = renderTable(items, [
+    { header: "ID", get: (r) => formatCell(r.id) },
+    ...shown.map((field) => ({
+      header: field.toUpperCase(),
+      get: (r: RecordRow) => formatCell(r[field]),
+    })),
+  ]);
+  const hidden = candidates.slice(shown.length);
+  if (hidden.length === 0) return table;
+  return `${table}\n\n${hidden.length} more field(s) not shown: ${
+    hidden.join(", ")
+  }. Pick columns with --fields or see everything with --json.`;
+}
+
+function stdoutColumns(): number {
+  try {
+    return Deno.stdout.isTerminal() ? Deno.consoleSize().columns : Infinity;
+  } catch {
+    return Infinity;
+  }
+}
+
 export function makeRecordsCommands(
   deps: AdminCmdDeps,
 ): Record<string, Command> {
@@ -16,12 +78,13 @@ export function makeRecordsCommands(
     "admin records ls": defineCommand({
       path: ["admin", "records", "ls"],
       usage:
-        "pbc admin records ls <collection> [--filter <expr>] [--sort <expr>] [--page <n>] [--per-page <n>]",
+        "pbc admin records ls <collection> [--fields <a,b>] [--filter <expr>] [--sort <expr>] [--page <n>] [--per-page <n>]",
       summary: "List records in a collection.",
       args: [{ name: "collection", required: true }],
       flags: {
         filter: str({ description: "PocketBase filter expression." }),
         sort: str({ description: "Sort expression, e.g. -created." }),
+        fields: str({ description: "Comma-separated columns to show." }),
         page: str({ description: "Page number." }),
         perPage: str({ description: "Records per page." }),
       },
@@ -41,14 +104,12 @@ export function makeRecordsCommands(
         });
         emit(ctx.flags.json, page, () =>
           [
-            renderTable(page.items, [
-              { header: "ID", get: (r) => r.id },
-              {
-                header: "FIELDS",
-                get: (r) => Object.keys(r).filter((k) => k !== "id").join(","),
-              },
-            ]),
-            `\nPage ${page.page} — ${page.totalItems} total.`,
+            renderRecordTable(page.items, {
+              fields: input.fields?.split(",").map((f) => f.trim())
+                .filter((f) => f && f !== "id"),
+              maxWidth: stdoutColumns(),
+            }),
+            `\nPage ${page.page}/${page.totalPages} — ${page.perPage} per page, ${page.totalItems} total.`,
           ].join("\n"));
         return 0;
       },

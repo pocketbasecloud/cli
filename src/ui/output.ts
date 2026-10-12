@@ -47,6 +47,23 @@ export function printDetail<T>(
   emit(json, value, () => renderDetail(value, fields), write);
 }
 
-export function describePlan(plan: string | undefined): string {
-  return plan && plan.length > 0 ? plan : "none (no active subscription)";
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export function describePlan(
+  plan: string | undefined,
+  trialEndsAt?: string,
+  now: Date = new Date(),
+): string {
+  if (!plan || plan.length === 0) return "none (no active subscription)";
+  const endsAt = trialEndsAt ? new Date(trialEndsAt) : null;
+  if (!endsAt || Number.isNaN(endsAt.getTime())) return plan;
+  const daysLeft = Math.ceil((endsAt.getTime() - now.getTime()) / DAY_MS);
+  if (daysLeft > 0) {
+    return `${plan} (trial, ${daysLeft} ${
+      daysLeft === 1 ? "day" : "days"
+    } left — add a card in the portal to keep it)`;
+  }
+  return `${plan} (trial ended on ${
+    endsAt.toISOString().slice(0, 10)
+  } — subscribe in the portal to deploy)`;
 }

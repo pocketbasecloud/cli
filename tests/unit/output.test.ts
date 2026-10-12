@@ -34,6 +34,23 @@ Deno.test("describePlan names the unsubscribed state instead of printing nothing
   assertEquals(describePlan(undefined), "none (no active subscription)");
 });
 
+Deno.test("describePlan names the trial while it governs the account", () => {
+  const now = new Date("2026-10-10T12:00:00Z");
+  assertEquals(
+    describePlan("free", "2026-10-13T12:00:00Z", now),
+    "free (trial, 3 days left — add a card in the portal to keep it)",
+  );
+  assertEquals(
+    describePlan("free", "2026-10-11T06:00:00Z", now),
+    "free (trial, 1 day left — add a card in the portal to keep it)",
+  );
+  assertEquals(
+    describePlan("free", "2026-10-09T12:00:00Z", now),
+    "free (trial ended on 2026-10-09 — subscribe in the portal to deploy)",
+  );
+  assertEquals(describePlan("free", undefined, now), "free");
+});
+
 Deno.test("renderDetail aligns labels and drops empty fields", () => {
   const out = renderDetail({ a: "1", b: "", c: "3" }, [
     { label: "ALPHA", get: (v) => v.a },

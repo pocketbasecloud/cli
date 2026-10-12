@@ -6,6 +6,7 @@ import { pauseProgress } from "./progress.ts";
 
 export type PromptIO = {
   read: () => Promise<string | null>;
+  readHidden?: () => Promise<string | null>;
   write: (s: string) => void;
   isTTY: boolean;
 };
@@ -21,9 +22,39 @@ function stdinIO(): PromptIO {
         ? null
         : dec.decode(buf.subarray(0, n)).replace(/\r?\n$/, "");
     },
+    readHidden: readStdinHidden,
     write: (s) => Deno.stderr.writeSync(new TextEncoder().encode(s)),
     isTTY: Deno.stdin.isTerminal(),
   };
+}
+
+const ENTER = new Set([0x0a, 0x0d]);
+const BACKSPACE = new Set([0x08, 0x7f]);
+const INTERRUPT = 0x03;
+const END_OF_INPUT = 0x04;
+
+async function readStdinHidden(): Promise<string | null> {
+  const bytes: number[] = [];
+  const chunk = new Uint8Array(64);
+  Deno.stdin.setRaw(true);
+  try {
+    while (true) {
+      const n = await Deno.stdin.read(chunk);
+      if (n === null) return null;
+      for (const byte of chunk.subarray(0, n)) {
+        if (ENTER.has(byte)) return new TextDecoder().decode(new Uint8Array(bytes));
+        if (byte === INTERRUPT) {
+          throw new CliError("Aborted.", { code: "USAGE" });
+        }
+        if (byte === END_OF_INPUT && bytes.length === 0) return null;
+        if (BACKSPACE.has(byte)) bytes.pop();
+        else bytes.push(byte);
+      }
+    }
+  } finally {
+    Deno.stdin.setRaw(false);
+    Deno.stderr.writeSync(new TextEncoder().encode("\n"));
+  }
 }
 
 function resolveIO(opts: PromptOpts): PromptIO {
@@ -54,6 +85,18 @@ export async function prompt(
     io.write(`${question} `);
     const answer = await io.read();
     return (answer ?? "").trim();
+  });
+}
+
+export async function promptSecret(
+  question: string,
+  opts: PromptOpts,
+): Promise<string> {
+  const io = resolveIO(opts);
+  return await ask(async () => {
+    io.write(`${question} `);
+    const answer = await (io.readHidden ?? io.read)();
+    return answer ?? "";
   });
 }
 

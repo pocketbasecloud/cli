@@ -1,4 +1,4 @@
-import { defineCommand, type Command } from "../command.ts";
+import { type Command, defineCommand } from "../command.ts";
 import type { CloudCmdDeps } from "./project.ts";
 import { describePlan } from "../ui/output.ts";
 import { emit } from "../envelope.ts";
@@ -27,7 +27,7 @@ export function makeUpgradeCommands(
           { plan: user.plan, upgradeUrl: link },
           () =>
             [
-              `Current plan: ${describePlan(user.plan)}`,
+              `Current plan: ${describePlan(user.plan, user.trialEndsAt)}`,
               `Manage or upgrade your plan in the portal: ${link}`,
             ].join("\n"),
           write,

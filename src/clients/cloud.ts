@@ -133,11 +133,27 @@ function withComputeInfo(
   };
 }
 
+const SUBSCRIPTION_STATUSES_OUTSIDE_TRIAL = [
+  "active",
+  "trialing",
+  "past_due",
+  "unpaid",
+  "canceled",
+];
+
+function trialGoverns(subscriptionStatus: string | undefined): boolean {
+  return !SUBSCRIPTION_STATUSES_OUTSIDE_TRIAL.includes(
+    subscriptionStatus ?? "",
+  );
+}
+
 function generateTraceId(): string {
   try {
     return crypto.randomUUID();
   } catch {
-    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    return `${Date.now().toString(36)}-${
+      Math.random().toString(36).slice(2, 10)
+    }`;
   }
 }
 
@@ -181,6 +197,8 @@ export class PocketBaseCloudClient implements ICloudClient {
         id: string;
         email: string;
         plan: string;
+        trialEndsAt?: string;
+        stripeSubscriptionStatus?: string;
         role?: string;
         agentPlatformKeyAcknowledgedAt?: string;
         agentJudgeEnabled?: boolean;
@@ -189,6 +207,9 @@ export class PocketBaseCloudClient implements ICloudClient {
         id: u.id,
         email: u.email,
         plan: u.plan ?? "free",
+        trialEndsAt: trialGoverns(u.stripeSubscriptionStatus)
+          ? u.trialEndsAt || undefined
+          : undefined,
         role: u.role || undefined,
         selfDriving: Boolean(u.agentPlatformKeyAcknowledgedAt),
         selfDrivingJudge: u.agentJudgeEnabled === true,
@@ -227,7 +248,8 @@ export class PocketBaseCloudClient implements ICloudClient {
       if (live.length > 0) {
         throw new CliError(
           `Project still has ${live.join(", ")}. Delete them first.`,
-          { code: "USAGE" });
+          { code: "USAGE" },
+        );
       }
       await this.pb.collection("projects").update(id, { status: "deleted" });
     });
@@ -300,7 +322,8 @@ export class PocketBaseCloudClient implements ICloudClient {
         await res.body?.cancel();
         throw new CliError(
           `Could not read this project's compute (deploy-context: ` +
-            `${res.status}). Pass --compute <id> to name it.`);
+            `${res.status}). Pass --compute <id> to name it.`,
+        );
       }
       return await res.json() as DeployContext;
     });

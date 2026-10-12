@@ -174,3 +174,48 @@ Deno.test("whoami survives a profile with no superuserToken key", async () => {
   });
   assertEquals(code, 0);
 });
+
+Deno.test("login --url --profile names the new profile", async () => {
+  const config = defaultConfig();
+  const cmds = makeInstanceAuthCommands(deps(config).d);
+  const code = await cmds["admin login"].run(
+    { email: "a@b.co", password: "secret", url: "https://db.example.com" },
+    {
+      args: [],
+      flags: {
+        json: true,
+        yes: true,
+        noInput: true,
+        interactive: false,
+        profile: "telemetry-prod",
+      },
+    },
+  );
+  assertEquals(code, 0);
+  assertEquals(config.defaultProfile, "telemetry-prod");
+  assertEquals(
+    config.profiles["telemetry-prod"].superuserToken,
+    "mock-superuser-token",
+  );
+  assertEquals(config.profiles["https://db.example.com"], undefined);
+});
+
+Deno.test("use <url> --profile names the new profile", async () => {
+  const config = defaultConfig();
+  const cmds = makeInstanceAuthCommands(deps(config).d);
+  await cmds["admin use"].run({}, {
+    args: ["https://db.example.com"],
+    flags: {
+      json: true,
+      yes: true,
+      noInput: true,
+      interactive: false,
+      profile: "telemetry-prod",
+    },
+  });
+  assertEquals(config.defaultProfile, "telemetry-prod");
+  assertEquals(
+    config.profiles["telemetry-prod"].url,
+    "https://db.example.com",
+  );
+});
