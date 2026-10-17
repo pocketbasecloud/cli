@@ -208,13 +208,21 @@ async function inferFrontend(dir: string): Promise<BuildConfig> {
   if (await exists(join(dir, "angular.json"))) {
     return { command, outputDir: "dist" };
   }
-  if (command) {
-    return {
-      command,
-      outputDir: await firstExisting(dir, ["dist", "build", "out"]) ?? "dist",
-    };
-  }
+  if (command) return { command };
   return { outputDir: "." };
+}
+
+async function isFile(path: string): Promise<boolean> {
+  try {
+    return (await Deno.stat(path)).isFile;
+  } catch {
+    return false;
+  }
+}
+
+export async function builtOutputDir(dir: string): Promise<string> {
+  return await firstExisting(dir, ["dist", "build", "out"]) ??
+    (await isFile(join(dir, "index.html")) ? "." : "dist");
 }
 
 async function inferBackend(dir: string): Promise<BuildConfig> {

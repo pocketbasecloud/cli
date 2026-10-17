@@ -92,6 +92,25 @@ Deno.test("static errors when the output directory is missing", async () => {
   );
 });
 
+Deno.test("static serves the root when the build made no output dir and index.html is at the root", async () => {
+  const cwd = dir({ "index.html": "<h1>hi</h1>", "publish.css": "x" });
+  assertEquals(await names(cwd, "frontends", {}), [
+    "index.html",
+    "publish.css",
+  ]);
+});
+
+Deno.test("static errors when a named outputDir is missing even with a root index.html", async () => {
+  await assertRejects(
+    () =>
+      names(dir({ "index.html": "x" }), "frontends", {
+        outputDir: "public_build",
+      }),
+    CliError,
+    "Build output public_build not found",
+  );
+});
+
 Deno.test("source ships the directory and drops node_modules", async () => {
   const cwd = dir({
     "main.ts": "x",

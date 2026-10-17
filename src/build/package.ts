@@ -3,6 +3,7 @@ import { CliError } from "../errors.ts";
 import { type BuildConfig, linkFileName } from "../config.ts";
 import type { ResourceKind } from "../clients/types.ts";
 import { writeZip, type ZipEntry } from "./zip.ts";
+import { builtOutputDir } from "./detect.ts";
 import { isOsJunkName } from "./os-junk.ts";
 import {
   describeStandaloneResult,
@@ -254,7 +255,8 @@ export async function packageResource(opts: {
     } else if (strategy === "pbdirs") {
       entries = await packPbDirs(cwd, build, extra);
     } else {
-      const dir = build.outputDir ?? (strategy === "static" ? "dist" : ".");
+      const dir = build.outputDir ??
+        (strategy === "static" ? await builtOutputDir(cwd) : ".");
       const abs = join(cwd, dir);
       const name = await linkFileName(cwd);
       await requireDir(

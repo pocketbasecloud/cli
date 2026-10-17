@@ -1,6 +1,7 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { join } from "@std/path";
 import {
+  builtOutputDir,
   detectPackageManager,
   detectPythonVersion,
   inferBuild,
@@ -65,10 +66,29 @@ Deno.test("frontend inference maps each framework to its output directory", asyn
   }
 });
 
-Deno.test("frontend inference picks an existing dist/build/out with no framework config", async () => {
-  const root = dir({ "package.json": pkg({ build: "make" }) });
-  Deno.mkdirSync(join(root, "build"));
-  assertEquals((await inferBuild(root, "frontends")).outputDir, "build");
+Deno.test("frontend inference leaves outputDir to the build when no framework config names it", async () => {
+  const cfg = await inferBuild(
+    dir({ "package.json": pkg({ build: "make" }) }),
+    "frontends",
+  );
+  assertEquals(cfg.command, "npm run build");
+  assertEquals(cfg.outputDir, undefined);
+});
+
+Deno.test("builtOutputDir picks what the build produced", async () => {
+  const cases: [Record<string, string>, string[], string][] = [
+    [{}, ["build"], "build"],
+    [{ "out/index.html": "x" }, [], "out"],
+    [{ "index.html": "x", "dist/index.html": "x" }, [], "dist"],
+    [{ "index.html": "x", "publish.css": "x" }, [], "."],
+    [{ "src/main.ts": "x" }, [], "dist"],
+    [{}, ["index.html"], "dist"],
+  ];
+  for (const [files, dirs, expected] of cases) {
+    const root = dir(files);
+    for (const d of dirs) Deno.mkdirSync(join(root, d));
+    assertEquals(await builtOutputDir(root), expected);
+  }
 });
 
 Deno.test("frontend inference yields no command when package.json has no build script", async () => {
