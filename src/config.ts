@@ -63,6 +63,7 @@ export type EnvEntry = {
   id: string;
   name: string;
   build?: BuildConfig;
+  revision?: number;
 };
 export type BuildConfig = {
   command?: string;
@@ -146,13 +147,26 @@ export async function saveConfig(c: Config): Promise<void> {
   await Deno.chmod(path, 0o600).catch(() => {});
 }
 
+export function tokenUserId(token: string): string {
+  const payload = token.split(".")[1];
+  if (!payload) return "";
+  try {
+    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
+    const id = JSON.parse(atob(padded)).id;
+    return typeof id === "string" ? id : "";
+  } catch {
+    return "";
+  }
+}
+
 export function resolveCloudAuth(
   c: Config,
   env: Record<string, string | undefined> = Deno.env.toObject(),
 ): CloudAuth | null {
   const hosts = { backendUrl: backendUrl(), extUrl: backendExtUrl() };
   const token = envVar("TOKEN", env);
-  if (token) return { ...hosts, userToken: token, userId: "" };
+  if (token) return { ...hosts, userToken: token, userId: tokenUserId(token) };
   if (!c.cloud) return null;
   return { ...c.cloud, ...hosts };
 }
@@ -312,6 +326,32 @@ export async function upsertBuildConfig(
 ): Promise<void> {
   const existing = await readOwnLinkFile(cwd);
   await writeLinkFile(cwd, { ...existing, build });
+}
+
+export async function upsertBuildFields(
+  cwd: string,
+  fields: BuildConfig,
+  environment?: string,
+): Promise<void> {
+  const existing = await readOwnLinkFile(cwd);
+  const entry = environment ? existing.environments?.[environment] : undefined;
+  const envBuild: BuildConfig = { ...entry?.build };
+  const baseBuild: BuildConfig = { ...existing.build };
+  for (const [key, value] of Object.entries(fields)) {
+    Object.assign(key in envBuild ? envBuild : baseBuild, { [key]: value });
+  }
+  await writeLinkFile(cwd, {
+    ...existing,
+    ...(Object.keys(baseBuild).length > 0 ? { build: baseBuild } : {}),
+    ...(entry?.build && environment
+      ? {
+        environments: {
+          ...existing.environments,
+          [environment]: { ...entry, build: envBuild },
+        },
+      }
+      : {}),
+  });
 }
 
 export async function setDefaultEnvironment(

@@ -10,6 +10,7 @@ import {
   awaitReachable,
   chooseCompute,
   computeChooser,
+  deploymentFailure,
   deployResource,
   deployTargetLine,
   ensureBackendProject,
@@ -107,6 +108,59 @@ Deno.test("deployResource updates the resolved resource for an update intent", a
   assertEquals(resource.id, made.id);
 });
 
+Deno.test("deployResource refuses a --compute that differs from where the resource runs", async () => {
+  const c = createMockCloudClient();
+  const intent: DeployIntent = {
+    ...ENV_BASE,
+    create: false,
+    resource: { ...R("pb1", "db1"), server: "s1" },
+    fromBinding: false,
+  };
+  const err = await assertRejects(
+    () =>
+      deployResource(c, "pocketbases", intent, {
+        data: { project: "p1", server: "s2" },
+      }),
+    CliError,
+  );
+  assertEquals(err.code, "USAGE");
+  assertStringIncludes(err.message, "pbc pocketbase move db1 --to s2");
+  assertEquals(c.calls.updateResource.length, 0);
+});
+
+Deno.test("deployResource tells a frontend to drop --compute instead of moving", async () => {
+  const c = createMockCloudClient();
+  const intent: DeployIntent = {
+    ...ENV_BASE,
+    create: false,
+    resource: { ...R("fe1", "web"), server: "s1" },
+    fromBinding: false,
+  };
+  const err = await assertRejects(
+    () =>
+      deployResource(c, "frontends", intent, {
+        data: { project: "p1", server: "s2" },
+      }),
+    CliError,
+  );
+  assertStringIncludes(err.message, "without --compute");
+  assertEquals(c.calls.updateResource.length, 0);
+});
+
+Deno.test("deployResource keeps a --compute that matches the resource's compute", async () => {
+  const c = createMockCloudClient();
+  const intent: DeployIntent = {
+    ...ENV_BASE,
+    create: false,
+    resource: { ...R("pb1", "db1"), server: "s1" },
+    fromBinding: false,
+  };
+  await deployResource(c, "pocketbases", intent, {
+    data: { project: "p1", server: "s1" },
+  });
+  assertEquals(c.calls.updateResource.length, 1);
+});
+
 async function withBinding(bound: boolean): Promise<string> {
   const dir = await Deno.makeTempDir();
   if (bound) {
@@ -129,12 +183,15 @@ async function withBinding(bound: boolean): Promise<string> {
 Deno.test("resolveEnvironmentTarget: an explicit name wins over any binding", async () => {
   const dir = await withBinding(true);
   try {
-    assertEquals(await resolveEnvironmentTarget({ name: "y" }, "frontends", dir), {
-      name: "y",
-      fromBinding: false,
-      environment: "production",
-      hasEnvironments: true,
-    });
+    assertEquals(
+      await resolveEnvironmentTarget({ name: "y" }, "frontends", dir),
+      {
+        name: "y",
+        fromBinding: false,
+        environment: "production",
+        hasEnvironments: true,
+      },
+    );
   } finally {
     await Deno.remove(dir, { recursive: true });
   }
@@ -163,7 +220,9 @@ Deno.test("resolveEnvironmentTarget: --env picks that environment's entry", asyn
   const dir = await withBinding(true);
   try {
     assertEquals(
-      await resolveEnvironmentTarget({}, "frontends", dir, { envFlag: "staging" }),
+      await resolveEnvironmentTarget({}, "frontends", dir, {
+        envFlag: "staging",
+      }),
       {
         id: "fe2",
         fromBinding: true,
@@ -180,7 +239,8 @@ Deno.test("resolveEnvironmentTarget: an unconfigured --env is an error", async (
   const dir = await withBinding(true);
   try {
     await assertRejects(
-      () => resolveEnvironmentTarget({}, "frontends", dir, { envFlag: "preview" }),
+      () =>
+        resolveEnvironmentTarget({}, "frontends", dir, { envFlag: "preview" }),
       Error,
       'Unknown environment "preview". Configured: production, staging.',
     );
@@ -628,7 +688,6 @@ Deno.test("chooseCompute points a developer at the owner when their compute is d
   );
 });
 
-
 Deno.test("pollStatus stops at terminal state", async () => {
   const c = createMockCloudClient();
   const made = await c.createResource("pocketbases", {
@@ -743,7 +802,10 @@ Deno.test("awaitDeployment marks the step failed when the deploy does not run", 
   assertEquals(err.message, "api failed to deploy (status: failed)");
   assertEquals(err.hint, "pbc logs backend --name api");
   assertStringIncludes(lines[0], "Redeploying api");
-  assertEquals(lines[lines.length - 1], "✗ api failed to deploy (status: failed)");
+  assertEquals(
+    lines[lines.length - 1],
+    "✗ api failed to deploy (status: failed)",
+  );
 });
 
 Deno.test("awaitDeployment points a frontend without logs at its info", async () => {
@@ -1046,4 +1108,69 @@ Deno.test("uploadLabel sizes a small archive in bytes, not 0.0 MB", () => {
     uploadLabel({ fileName: "code.zip", bytes: new Uint8Array(433) }),
     "Uploading code.zip (433 B)",
   );
+});
+
+Deno.test("deploymentFailure shows the reason a failed resource records", async () => {
+  const client = createMockCloudClient();
+  client.getResource = (_k, id) =>
+    Promise.resolve({
+      id,
+      name: "db",
+      status: "error",
+      statusMessage: "No free-tier capacity available",
+    } as never);
+  const err = await deploymentFailure(
+    client,
+    "pocketbases",
+    "r1",
+    "This instance did not finish setting up. Contact support.",
+  );
+  assertEquals(err.code, "PLATFORM_ERROR");
+  assertEquals(err.message, "No free-tier capacity available");
+});
+
+Deno.test("deploymentFailure keeps the deployment's message when the record has none", async () => {
+  const client = createMockCloudClient();
+  client.getResource = (_k, id) =>
+    Promise.resolve({ id, name: "db", status: "error" } as never);
+  const err = await deploymentFailure(
+    client,
+    "pocketbases",
+    "r1",
+    "This instance did not finish setting up. Contact support.",
+  );
+  assertEquals(
+    err.message,
+    "This instance did not finish setting up. Contact support.",
+  );
+});
+
+Deno.test("deploymentFailure ignores the message of a resource still running", async () => {
+  const client = createMockCloudClient();
+  client.getResource = (_k, id) =>
+    Promise.resolve({
+      id,
+      name: "api",
+      status: "running",
+      statusMessage: "an older note",
+    } as never);
+  const err = await deploymentFailure(
+    client,
+    "backends",
+    "r1",
+    "A hook file could not be installed.",
+  );
+  assertEquals(err.message, "A hook file could not be installed.");
+});
+
+Deno.test("deploymentFailure keeps the deployment's message when the record is unreadable", async () => {
+  const client = createMockCloudClient();
+  client.getResource = () => Promise.reject(new Error("offline"));
+  const err = await deploymentFailure(
+    client,
+    "frontends",
+    "r1",
+    "Build failed.",
+  );
+  assertEquals(err.message, "Build failed.");
 });

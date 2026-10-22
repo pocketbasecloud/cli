@@ -31,6 +31,7 @@ import {
 import {
   envFileOf,
   mergeEnvBuild,
+  recordBuildFlags,
   resolveBuildConfig,
 } from "../build/config.ts";
 import {
@@ -46,6 +47,8 @@ import {
 } from "../env-state.ts";
 import { parseDotenv, prunedKeysOf } from "./env.ts";
 import { stripOsJunkFromZip } from "../build/os-junk.ts";
+import type { PackedFile } from "../build/package.ts";
+import { writeZip } from "../build/zip.ts";
 
 export type Target = {
   id?: string;
@@ -427,6 +430,24 @@ export function findExisting(
   return null;
 }
 
+function refuseComputeChange(
+  kind: ResourceKind,
+  resource: Resource,
+  requested: unknown,
+): void {
+  if (typeof requested !== "string" || requested === "") return;
+  if (requested === resource.server) return;
+  const instead = kind === "pocketbases"
+    ? `move it with \`pbc pocketbase move ${resource.name} --to ${requested}\`, ` +
+      "or deploy without --compute"
+    : "deploy without --compute, or create one with another name on that compute";
+  throw new CliError(
+    `${resource.name} is already placed; --compute only applies when ` +
+      `creating. Instead, ${instead}.`,
+    { code: "USAGE" },
+  );
+}
+
 export async function deployResource(
   client: ICloudClient,
   kind: ResourceKind,
@@ -439,6 +460,7 @@ export async function deployResource(
   },
 ): Promise<{ resource: Resource; created: boolean }> {
   if (!intent.create) {
+    refuseComputeChange(kind, intent.resource, opts.data.server);
     await opts.beforeUpdate?.();
     return {
       resource: await client.updateResource(kind, intent.resource.id, {
@@ -465,17 +487,20 @@ export type BundleOptions = {
   zipPath?: string;
   skipBuild: boolean;
   runtime?: string;
+  startCommand?: string;
   pythonVersion?: string;
   envFile?: string;
   environment?: string;
   log: (msg: string) => void;
   progress?: Progress;
   run?: CommandRunner;
+  archive?: boolean;
 };
 
 export type Bundle = {
   build: BuildConfig;
   bytes: Uint8Array;
+  files?: PackedFile[];
   fileName: string;
   empty: boolean;
   startCommand?: string;
@@ -521,6 +546,12 @@ export async function buildBundle(o: BundleOptions): Promise<Bundle> {
       bytes = stripped.bytes;
     }
     assertArchiveWithinLimit(bytes, basename(o.zipPath));
+    await recordBuildFlags({
+      cwd: o.cwd,
+      flags: { runtime: o.runtime, startCommand: o.startCommand },
+      environment: o.environment,
+      log: o.log,
+    });
     const own = await readOwnLinkFile(o.cwd);
     return {
       build: mergeEnvBuild(own, o.environment),
@@ -535,6 +566,7 @@ export async function buildBundle(o: BundleOptions): Promise<Bundle> {
     kind: o.kind,
     flags: {
       runtime: o.runtime,
+      startCommand: o.startCommand,
       pythonVersion: o.pythonVersion,
       envFile: o.envFile,
     },
@@ -549,15 +581,28 @@ export async function buildBundle(o: BundleOptions): Promise<Bundle> {
     log: o.log,
     progress: o.progress,
     run: o.run,
+    archive: o.archive,
   });
   assertArchiveWithinLimit(packed.bytes, packed.fileName);
   return {
     build,
     bytes: packed.bytes,
+    files: packed.files,
     fileName: packed.fileName,
     empty: packed.fileCount === 0,
     startCommand: packed.startCommand,
   };
+}
+
+export async function archiveOf(bundle: Bundle): Promise<Uint8Array> {
+  if (bundle.bytes.length > 0 || !bundle.files) return bundle.bytes;
+  const entries = [];
+  for (const file of bundle.files) {
+    entries.push({ name: file.name, body: await file.read() });
+  }
+  const bytes = await writeZip(entries);
+  assertArchiveWithinLimit(bytes, bundle.fileName);
+  return bytes;
 }
 
 const ENV_TEMPLATES = [
@@ -822,6 +867,26 @@ export function uploadLabel(
   bundle: Pick<Bundle, "fileName" | "bytes">,
 ): string {
   return `Uploading ${bundle.fileName} (${formatSize(bundle.bytes.length)})`;
+}
+
+const FAILED_RESOURCE_STATUSES = ["error", "failed"];
+
+export async function deploymentFailure(
+  client: ICloudClient,
+  kind: ResourceKind,
+  resourceId: string,
+  deploymentMessage: string,
+): Promise<CliError> {
+  const resource = await client.getResource(kind, resourceId).catch(() =>
+    undefined
+  );
+  const recordedReason = resource &&
+      FAILED_RESOURCE_STATUSES.includes(resource.status)
+    ? resource.statusMessage?.trim()
+    : undefined;
+  return new CliError(recordedReason || deploymentMessage, {
+    code: "PLATFORM_ERROR",
+  });
 }
 
 export async function awaitDeployment(

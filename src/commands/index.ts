@@ -3,6 +3,9 @@ import { applyLegacyAliases } from "../legacy.ts";
 import { makeAuthCommands } from "./auth.ts";
 import { type CloudCmdDeps, makeProjectCommands } from "./project.ts";
 import { makePbCommands } from "./pb.ts";
+import { makePbMoveCommands } from "./pb-move.ts";
+import { makePbPreviewCommands } from "./pb-preview.ts";
+import { makeRevisionCommands } from "./revisions.ts";
 import { makeResourceCommands } from "./resource.ts";
 import { ALL_KINDS } from "../kinds.ts";
 import { makeFrontendCommands } from "./frontend.ts";
@@ -50,10 +53,12 @@ export function buildCloudDeps(): CloudCmdDeps {
     requireAuth: async () => {
       const config = await loadConfig();
       const auth = resolveCloudAuth(config);
-      if (!auth) throw new CliError(
-        "Not logged in. Run `pbc login`.",
-        { code: "NOT_AUTHENTICATED" },
-      );
+      if (!auth) {
+        throw new CliError(
+          "Not logged in. Run `pbc login`.",
+          { code: "NOT_AUTHENTICATED" },
+        );
+      }
       return { client: new PocketBaseCloudClient(auth), config, auth };
     },
     loadConfig,
@@ -143,6 +148,9 @@ export function registerCommands(registry: CommandRegistry): void {
       ...ALL_KINDS.map((spec) => makeResourceCommands(cloud, spec)),
     ),
     ...pb,
+    ...makeRevisionCommands(cloud),
+    ...makePbMoveCommands(cloud),
+    ...makePbPreviewCommands(cloud),
     ...frontend,
     ...backend,
     ...makeDeployCommands(cloud, {

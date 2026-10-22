@@ -109,6 +109,90 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
+  "pocketbase deployments": {
+    "usage": "pbc pocketbase deployments [<name>|--name <name>|--id <id>] [--env <name>]",
+    "summary": "List a PocketBase instance's recent deployments.",
+    "needs": [
+      "target:pocketbases"
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which PocketBase to list. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The instance's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      }
+    ]
+  },
+  "pocketbase rollback": {
+    "usage": "pbc pocketbase rollback [<name>|--name <name>|--id <id>] [--to <deployment>] [--push-to-git] [--yes] [--env <name>]",
+    "summary": "Roll a PocketBase instance back to an earlier deployment.",
+    "details": "Without --to, goes back to the successful deployment before the live one. The earlier build is deployed again as a new deployment; list candidates with pbc pocketbase deployments. The linked GitHub repository is left alone unless --push-to-git also puts the old source back there, so the next push keeps the rollback. The hooks, migrations and public files of that deployment's revision come back; data and schema are not changed.",
+    "needs": [
+      "target:pocketbases",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which PocketBase to roll back. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The instance's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "to",
+        "type": "string",
+        "required": false,
+        "description": "The deployment id to go back to. Defaults to the one before the live deployment."
+      },
+      {
+        "name": "push-to-git",
+        "type": "boolean",
+        "required": false,
+        "description": "Also commit the old source to the linked GitHub branch (or open a pull request in review mode)."
+      }
+    ]
+  },
   "pocketbase domain add": {
     "usage": "pbc pocketbase domain add <domain> --name <name> [--env <name>]",
     "summary": "Add a custom domain.",
@@ -322,6 +406,90 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
+  "frontend deployments": {
+    "usage": "pbc frontend deployments [<name>|--name <name>|--id <id>] [--env <name>]",
+    "summary": "List a frontend's recent deployments.",
+    "needs": [
+      "target:frontends"
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which frontend to list. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The site's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      }
+    ]
+  },
+  "frontend rollback": {
+    "usage": "pbc frontend rollback [<name>|--name <name>|--id <id>] [--to <deployment>] [--push-to-git] [--yes] [--env <name>]",
+    "summary": "Roll a frontend back to an earlier deployment.",
+    "details": "Without --to, goes back to the successful deployment before the live one. The earlier build is deployed again as a new deployment; list candidates with pbc frontend deployments. The linked GitHub repository is left alone unless --push-to-git also puts the old source back there, so the next push keeps the rollback.",
+    "needs": [
+      "target:frontends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which frontend to roll back. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The site's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "to",
+        "type": "string",
+        "required": false,
+        "description": "The deployment id to go back to. Defaults to the one before the live deployment."
+      },
+      {
+        "name": "push-to-git",
+        "type": "boolean",
+        "required": false,
+        "description": "Also commit the old source to the linked GitHub branch (or open a pull request in review mode)."
+      }
+    ]
+  },
   "frontend domain add": {
     "usage": "pbc frontend domain add <domain> --name <name> [--env <name>]",
     "summary": "Add a custom domain.",
@@ -458,6 +626,173 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
+  "frontend access status": {
+    "usage": "pbc frontend access status [--name <name>] [--env <name>]",
+    "summary": "Show whether it is private and who can open it.",
+    "needs": [
+      "target:frontends"
+    ],
+    "args": [],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which frontend. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The site's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      }
+    ]
+  },
+  "frontend access private": {
+    "usage": "pbc frontend access private [emails] [--name <name>] [--env <name>]",
+    "summary": "Make it private. Emails given replace the list.",
+    "needs": [
+      "target:frontends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "email",
+        "required": false
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which frontend. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The site's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      }
+    ]
+  },
+  "frontend access public": {
+    "usage": "pbc frontend access public [--name <name>] [--env <name>]",
+    "summary": "Make it public. The list is kept.",
+    "needs": [
+      "target:frontends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which frontend. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The site's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      }
+    ]
+  },
+  "frontend access add": {
+    "usage": "pbc frontend access add <emails> [--name <name>] [--env <name>]",
+    "summary": "Add emails or @domains to the list.",
+    "needs": [
+      "target:frontends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "email",
+        "required": true
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which frontend. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The site's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      }
+    ]
+  },
+  "frontend access remove": {
+    "usage": "pbc frontend access remove <emails> [--name <name>] [--env <name>]",
+    "summary": "Remove emails or @domains from the list.",
+    "needs": [
+      "target:frontends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "email",
+        "required": true
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which frontend. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The site's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      }
+    ]
+  },
   "backend ls": {
     "usage": "pbc backend ls",
     "summary": "List backends in a project.",
@@ -532,6 +867,90 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "type": "string",
         "required": false,
         "description": "Which pbc.json environment to target."
+      }
+    ]
+  },
+  "backend deployments": {
+    "usage": "pbc backend deployments [<name>|--name <name>|--id <id>] [--env <name>]",
+    "summary": "List a backend's recent deployments.",
+    "needs": [
+      "target:backends"
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which backend to list. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The backend's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      }
+    ]
+  },
+  "backend rollback": {
+    "usage": "pbc backend rollback [<name>|--name <name>|--id <id>] [--to <deployment>] [--push-to-git] [--yes] [--env <name>]",
+    "summary": "Roll a backend back to an earlier deployment.",
+    "details": "Without --to, goes back to the successful deployment before the live one. The earlier build is deployed again as a new deployment; list candidates with pbc backend deployments. The linked GitHub repository is left alone unless --push-to-git also puts the old source back there, so the next push keeps the rollback. Environment variables stay as they are; only the code goes back.",
+    "needs": [
+      "target:backends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which backend to roll back. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The backend's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "to",
+        "type": "string",
+        "required": false,
+        "description": "The deployment id to go back to. Defaults to the one before the live deployment."
+      },
+      {
+        "name": "push-to-git",
+        "type": "boolean",
+        "required": false,
+        "description": "Also commit the old source to the linked GitHub branch (or open a pull request in review mode)."
       }
     ]
   },
@@ -671,6 +1090,173 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
+  "backend access status": {
+    "usage": "pbc backend access status [--name <name>] [--env <name>]",
+    "summary": "Show whether it is private and who can open it.",
+    "needs": [
+      "target:backends"
+    ],
+    "args": [],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which backend. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The backend's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      }
+    ]
+  },
+  "backend access private": {
+    "usage": "pbc backend access private [emails] [--name <name>] [--env <name>]",
+    "summary": "Make it private. Emails given replace the list.",
+    "needs": [
+      "target:backends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "email",
+        "required": false
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which backend. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The backend's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      }
+    ]
+  },
+  "backend access public": {
+    "usage": "pbc backend access public [--name <name>] [--env <name>]",
+    "summary": "Make it public. The list is kept.",
+    "needs": [
+      "target:backends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which backend. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The backend's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      }
+    ]
+  },
+  "backend access add": {
+    "usage": "pbc backend access add <emails> [--name <name>] [--env <name>]",
+    "summary": "Add emails or @domains to the list.",
+    "needs": [
+      "target:backends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "email",
+        "required": true
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which backend. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The backend's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      }
+    ]
+  },
+  "backend access remove": {
+    "usage": "pbc backend access remove <emails> [--name <name>] [--env <name>]",
+    "summary": "Remove emails or @domains from the list.",
+    "needs": [
+      "target:backends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "email",
+        "required": true
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which backend. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The backend's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      }
+    ]
+  },
   "pocketbase create": {
     "usage": "pbc pocketbase create [<name>] [flags]",
     "summary": "Create a PocketBase instance.",
@@ -761,7 +1347,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "pocketbase deploy": {
     "usage": "pbc pocketbase deploy [--name <name>|--new <name>] [flags]",
     "summary": "Create or redeploy a PocketBase instance.",
-    "details": "Packages pb_public, pb_hooks, and pb_migrations and ships them with the\ninstance, at the paths recorded in the \"build\" block of pbc.json. None of the\nthree is required: a directory that holds none still deploys, creating an\nempty instance and saying so.\n\nA redeploy ships them too: supported hook files (subdirectories included) go\nthrough the hooks route, which keeps the portal's editor in sync; pb_migrations\nis merged with the instance's; pb_public is replaced wholesale. New migrations\nare applied by the restart that follows.\n\nA new instance gets a superuser account — your account email and a generated\npassword printed once (readable afterwards with `pbc pocketbase info`).\nOverride either with --admin-email/--admin-password. Env vars are pushed only\nfrom the dotenv file this environment names; `pbc deploy --help` lists the\nmerge and --delete-missing/--skip-env/--force-env rules.",
+    "details": "Packages pb_public, pb_hooks, and pb_migrations and ships them with the\ninstance, at the paths recorded in the \"build\" block of pbc.json. None of the\nthree is required: a directory that holds none still deploys, creating an\nempty instance and saying so. Files matched by .pbcignore in this directory\n(gitignore-style lines; *.map is left out by default, \"!*.map\" keeps them) are\nnot shipped, and the deploy says how many were left out.\n\nA redeploy ships them too: supported hook files (subdirectories included) go\nthrough the hooks route, which keeps the portal's editor in sync; pb_migrations\nis merged with the instance's; pb_public is replaced wholesale. New migrations\nare applied by the restart that follows.\n\nA new instance gets a superuser account — your account email and a generated\npassword printed once (readable afterwards with `pbc pocketbase info`).\nOverride either with --admin-email/--admin-password. Env vars are pushed only\nfrom the dotenv file this environment names; `pbc deploy --help` lists the\nmerge and --delete-missing/--skip-env/--force-env rules.",
     "needs": [
       "target:pocketbases",
       {
@@ -826,6 +1412,12 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "description": "Package without running the build command."
       },
       {
+        "name": "force",
+        "type": "boolean",
+        "required": false,
+        "description": "Replace the instance's files even when someone changed them after this directory's revision."
+      },
+      {
         "name": "skip-env",
         "type": "boolean",
         "required": false,
@@ -854,6 +1446,41 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "type": "string",
         "required": false,
         "description": "Deploy this archive instead of building the directory."
+      },
+      {
+        "name": "dry-run",
+        "type": "boolean",
+        "required": false,
+        "description": "Build and compare with the instance, then show what would upload without changing anything."
+      },
+      {
+        "name": "preview",
+        "type": "boolean",
+        "required": false,
+        "description": "Deploy to a new preview: a copy of the live instance with its own address. Live is not touched."
+      },
+      {
+        "name": "preview-name",
+        "type": "string",
+        "required": false,
+        "description": "Name of the preview. An open preview with this name gets the deploy; otherwise a new one is made with it. Picked when omitted."
+      },
+      {
+        "name": "preview-size",
+        "type": "string",
+        "required": false,
+        "choices": [
+          "small",
+          "medium",
+          "full"
+        ],
+        "description": "How much live data the preview copies: small (about 100 rows per collection, the default), medium (about 1,000) or full (refused for a large database)."
+      },
+      {
+        "name": "preview-keep-user",
+        "type": "string",
+        "required": false,
+        "description": "Comma-separated emails of users the preview always keeps, so you can sign in as them."
       },
       {
         "name": "env",
@@ -987,6 +1614,160 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
+  "pocketbase email status": {
+    "usage": "pbc pocketbase email status [--name <instance>]",
+    "summary": "Show managed email status, sender level and usage.",
+    "details": "Managed email sends the instance's verification, password reset\nand sign-in code emails with no mail server setup. Starter and Pro only.",
+    "needs": [
+      "target:pocketbases",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which instance. Defaults to the directory binding."
+      }
+    ]
+  },
+  "pocketbase email enable": {
+    "usage": "pbc pocketbase email enable [--name <instance>]",
+    "summary": "Turn on managed email and write its SMTP settings into the instance.",
+    "needs": [
+      "target:pocketbases",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which instance. Defaults to the directory binding."
+      }
+    ]
+  },
+  "pocketbase email disable": {
+    "usage": "pbc pocketbase email disable [--name <instance>]",
+    "summary": "Turn off managed email. The instance stops sending until you set up SMTP.",
+    "needs": [
+      "target:pocketbases",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which instance. Defaults to the directory binding."
+      }
+    ]
+  },
+  "pocketbase email reapply": {
+    "usage": "pbc pocketbase email reapply [--name <instance>]",
+    "summary": "Write the managed email SMTP settings into the instance again.",
+    "needs": [
+      "target:pocketbases",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which instance. Defaults to the directory binding."
+      }
+    ]
+  },
+  "pocketbase email messages": {
+    "usage": "pbc pocketbase email messages [--name <instance>]",
+    "summary": "List the instance's recent managed emails.",
+    "needs": [
+      "target:pocketbases",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which instance. Defaults to the directory binding."
+      }
+    ]
+  },
+  "pocketbase email test": {
+    "usage": "pbc pocketbase email test [--name <instance>] [--to <address>]",
+    "summary": "Send a test email through managed email.",
+    "details": "Sends the instance's verification template. It counts toward the\ndaily limit and appears in `pbc pocketbase email messages`.",
+    "needs": [
+      "target:pocketbases",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which instance. Defaults to the directory binding."
+      },
+      {
+        "name": "to",
+        "type": "string",
+        "required": false,
+        "description": "Recipient. Defaults to your account email."
+      }
+    ]
+  },
+  "pocketbase email sender": {
+    "usage": "pbc pocketbase email sender [--name <instance>] [--sender-name <name> --reply-to <address>]",
+    "summary": "Show or set the sender name and reply-to address.",
+    "details": "Without flags, prints them. With both flags, saves them on the\ninstance. Replies from your users go to the reply-to address.",
+    "needs": [
+      "target:pocketbases",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which instance. Defaults to the directory binding."
+      },
+      {
+        "name": "sender-name",
+        "type": "string",
+        "required": false,
+        "description": "Name your users see as the sender."
+      },
+      {
+        "name": "reply-to",
+        "type": "string",
+        "required": false,
+        "description": "Address that receives replies."
+      }
+    ]
+  },
   "pocketbase superuser sync": {
     "usage": "pbc pocketbase superuser sync --email <email> --password <password> [--name <instance>]",
     "summary": "Add or update the managed PocketBase superuser.",
@@ -1066,6 +1847,738 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "type": "string",
         "required": false,
         "description": "Which instance. Defaults to the directory's binding."
+      }
+    ]
+  },
+  "pocketbase revisions ls": {
+    "usage": "pbc pocketbase revisions ls [--name <instance>] [--page <n>]",
+    "summary": "List the version history of an instance's files.",
+    "details": "Every change to pb_hooks, pb_migrations and pb_public is a numbered\nrevision, whether it came from the portal, this CLI, an AI assistant,\na GitHub deploy, or the instance writing a migration itself.",
+    "needs": [
+      "target:pocketbases"
+    ],
+    "args": [],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which instance. Defaults to the directory's binding."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The instance's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "page",
+        "type": "string",
+        "required": false,
+        "description": "Page of 30 revisions, newest first."
+      }
+    ]
+  },
+  "pocketbase revisions diff": {
+    "usage": "pbc pocketbase revisions diff <revision> [--against <revision>] [--name <instance>]",
+    "summary": "Show which files a revision added, changed and removed.",
+    "needs": [
+      "target:pocketbases"
+    ],
+    "args": [
+      {
+        "name": "revision",
+        "required": true
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which instance. Defaults to the directory's binding."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The instance's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "against",
+        "type": "string",
+        "required": false,
+        "description": "Compare with this revision instead of the one before."
+      }
+    ]
+  },
+  "pocketbase revisions show": {
+    "usage": "pbc pocketbase revisions show <revision> <path> [--name <instance>]",
+    "summary": "Print one file as it was in a revision.",
+    "details": "Text up to 1 MB prints to stdout; a larger or binary file prints a\ndownload link instead.",
+    "needs": [
+      "target:pocketbases"
+    ],
+    "args": [
+      {
+        "name": "revision",
+        "required": true
+      },
+      {
+        "name": "path",
+        "required": true
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which instance. Defaults to the directory's binding."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The instance's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      }
+    ]
+  },
+  "pocketbase revisions restore": {
+    "usage": "pbc pocketbase revisions restore <revision> [--schema] [--yes] [--name <instance>]",
+    "summary": "Put hooks and public files back as they were in a revision.",
+    "details": "Changed hooks are rewritten and hooks added since are removed, which\nrestarts the instance; pb_public is replaced. Without --schema,\nmigrations and the database schema stay as they are. With --schema,\nmigrations added since the revision are reverted with their down\nparts first (PocketBase 0.32.0 or later); the database is copied aside\nbefore, and put back if a down part fails. The restore is itself a new\nrevision, so it can be undone the same way.",
+    "needs": [
+      "target:pocketbases",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "revision",
+        "required": true
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which instance. Defaults to the directory's binding."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The instance's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "schema",
+        "type": "boolean",
+        "required": false,
+        "description": "Also revert migrations added since, with their down parts."
+      }
+    ]
+  },
+  "pocketbase pull": {
+    "usage": "pbc pocketbase pull [--revision <n>] [--dir <path>] [--yes] [--name <instance>]",
+    "summary": "Download an instance's hooks, migrations and public files.",
+    "details": "Writes pb_hooks/, pb_migrations/ and pb_public/ as they are on the\ninstance now, or as they were in --revision, into --dir (default: this\ndirectory). Local files that differ are overwritten after confirmation;\nfiles that exist only locally are left alone.",
+    "needs": [
+      "target:pocketbases"
+    ],
+    "args": [],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which instance. Defaults to the directory's binding."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The instance's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "revision",
+        "type": "string",
+        "required": false,
+        "description": "Revision to download; latest by default."
+      },
+      {
+        "name": "dir",
+        "type": "string",
+        "required": false,
+        "description": "Directory to write into. Default: here."
+      }
+    ]
+  },
+  "pocketbase move": {
+    "usage": "pbc pocketbase move (<name>|--name <name>|--id <id>) [--to <compute id>] [--no-wait] [--yes] [--env <name>]",
+    "summary": "Move an instance to another compute.",
+    "details": "After a plan upgrade an instance keeps running where it was created;\nmoving it takes it to the compute the plan includes. On Pro, an instance can\nalso move between your computes, for example to keep busy instances apart\nfrom quiet ones. Moving copies its data, users, hooks and settings. It is\noffline while the data is copied: usually under a minute, longer for a large\ndatabase.\n\nIts old address keeps working and forwards to the new one, so apps can be\nupdated when convenient. The stopped previous copy stays until you delete it\nwith `pbc pocketbase previous-copy rm`.",
+    "needs": [
+      "target:pocketbases",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which instance. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The instance's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "to",
+        "type": "string",
+        "required": false,
+        "description": "Compute id to move to, when more than one is offered."
+      },
+      {
+        "name": "no-wait",
+        "type": "boolean",
+        "required": false,
+        "description": "Start the move and return without waiting for it."
+      }
+    ]
+  },
+  "pocketbase previous-copy rm": {
+    "usage": "pbc pocketbase previous-copy rm (<name>|--name <name>|--id <id>) [--yes] [--env <name>]",
+    "summary": "Delete the copy a move left behind and stop its old address.",
+    "details": "A moved instance keeps its stopped previous copy, and the old address\nforwards to the new one while that copy exists. Deleting it stops the\nforwarding: apps and links that still use the old address will fail.",
+    "needs": [
+      "target:pocketbases",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which instance. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The instance's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      }
+    ]
+  },
+  "pocketbase preview ls": {
+    "usage": "pbc pocketbase preview ls [<name>|--name <name>|--id <id>]",
+    "summary": "List an instance's previews and their addresses.",
+    "details": "A preview is a short-lived copy of a live instance with its own address.\nCreate one with `pbc pocketbase deploy --preview`, try it, then ship it to live\nwith `pbc pocketbase preview ship` or discard it with `pbc pocketbase preview rm`.",
+    "needs": [
+      "target:pocketbases",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional instance name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live instance. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live instance's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      }
+    ]
+  },
+  "pocketbase preview ship": {
+    "usage": "pbc pocketbase preview ship [<name>|--name <name>|--id <id>] [--preview <name>] [--yes]",
+    "summary": "Apply a preview's hooks, migrations and public files to live.",
+    "details": "Ships what changed on the preview since it was made: hooks, migrations\n(which then run on live) and pb_public. Live data is never overwritten by the\npreview's data. Live restarts once, and the preview is deleted afterwards.\nRefused when live changed since the preview was made: bring live's newer files\nin with `pbc pocketbase preview update` first.",
+    "needs": [
+      "target:pocketbases",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional instance name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live instance. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live instance's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "preview",
+        "type": "string",
+        "required": false,
+        "description": "Which preview. Picked when the instance has only one."
+      }
+    ]
+  },
+  "pocketbase preview rm": {
+    "usage": "pbc pocketbase preview rm [<name>|--name <name>|--id <id>] [--preview <name>] [--yes]",
+    "summary": "Discard a preview. Live is not touched.",
+    "needs": [
+      "target:pocketbases",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional instance name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live instance. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live instance's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "preview",
+        "type": "string",
+        "required": false,
+        "description": "Which preview. Picked when the instance has only one."
+      }
+    ]
+  },
+  "pocketbase preview update": {
+    "usage": "pbc pocketbase preview update [<name>|--name <name>|--id <id>] [--preview <name>]",
+    "summary": "Bring live's newer files into a preview, keeping its changes.",
+    "details": "For a preview made before live changed. Live's newer hooks, migrations and\npb_public files are applied to the preview; files the preview changed stay as\nthey are, and its data is kept. Edits to different parts of the same file are\ncombined; edits to the same lines are listed for you to settle with\n`pbc pocketbase preview resolve`.",
+    "needs": [
+      "target:pocketbases",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional instance name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live instance. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live instance's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "preview",
+        "type": "string",
+        "required": false,
+        "description": "Which preview. Picked when the instance has only one."
+      }
+    ]
+  },
+  "pocketbase preview drafts": {
+    "usage": "pbc pocketbase preview drafts [<name>|--name <name>|--id <id>]",
+    "summary": "List the changes kept from an instance's previews.",
+    "details": "Every file change made on a preview is kept as a draft on its live instance,\neven after the preview is discarded or expires. Reopen one as a new preview\nwith `pbc pocketbase preview reopen --draft <name>`.",
+    "needs": [
+      "target:pocketbases",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional instance name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live instance. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live instance's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      }
+    ]
+  },
+  "pocketbase preview reopen": {
+    "usage": "pbc pocketbase preview reopen [<name>|--name <name>|--id <id>] --draft <name>",
+    "summary": "Open a draft as a new preview on top of the latest live.",
+    "details": "Makes a new preview from live, as `deploy --preview` does with the default\nSmall copy, then applies the draft's file changes to it. Files live also changed\nin the same place are listed for `pbc pocketbase preview resolve`.",
+    "needs": [
+      "target:pocketbases",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional instance name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live instance. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live instance's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "draft",
+        "type": "string",
+        "required": false,
+        "description": "Which draft, by name."
+      }
+    ]
+  },
+  "pocketbase preview conflicts": {
+    "usage": "pbc pocketbase preview conflicts [<name>|--name <name>|--id <id>] [--preview <name>]",
+    "summary": "List the files a preview and live both changed in the same place.",
+    "details": "Updating a preview or reopening a draft combines edits to different parts of a\nfile by itself. Edits to the same lines are left for you: resolve each with\n`pbc pocketbase preview resolve <file>`. --out <dir> writes each text file\nthere three times: <path> (yours, edit this one), <path>.live and\n<path>.original; then run `resolve <file> --from <dir>/<path>`.",
+    "needs": [
+      "target:pocketbases",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional instance name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live instance. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live instance's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "preview",
+        "type": "string",
+        "required": false,
+        "description": "Which preview. Picked when the instance has only one."
+      },
+      {
+        "name": "out",
+        "type": "path",
+        "required": false,
+        "description": "Write the versions of each file to this folder."
+      }
+    ]
+  },
+  "pocketbase preview resolve": {
+    "usage": "pbc pocketbase preview resolve <file> (--mine|--live|--from <path>) [--name <name>|--id <id>] [--preview <name>]",
+    "summary": "Settle one file a preview and live both changed.",
+    "details": "--mine keeps the preview's version, --live takes live's (or deletes the file\nwhen live deleted it), and --from saves the content of a local file you edited.\nShipping waits until no file is left; list them with\n`pbc pocketbase preview conflicts`.",
+    "needs": [
+      "target:pocketbases",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "file",
+        "required": true,
+        "description": "Path such as pb_hooks/main.pb.js"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live instance. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live instance's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "preview",
+        "type": "string",
+        "required": false,
+        "description": "Which preview. Picked when the instance has only one."
+      },
+      {
+        "name": "mine",
+        "type": "boolean",
+        "required": false,
+        "description": "Keep the preview's version."
+      },
+      {
+        "name": "live",
+        "type": "boolean",
+        "required": false,
+        "description": "Take live's version."
+      },
+      {
+        "name": "from",
+        "type": "path",
+        "required": false,
+        "description": "Save this local file's content."
+      }
+    ]
+  },
+  "pocketbase preview drafts rename": {
+    "usage": "pbc pocketbase preview drafts rename <draft> <new-name> [--name <name>|--id <id>]",
+    "summary": "Rename a draft so you can find it later.",
+    "needs": [
+      "target:pocketbases",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "draft",
+        "required": true,
+        "description": "The draft's current name"
+      },
+      {
+        "name": "new-name",
+        "required": true,
+        "description": "Lowercase letters, numbers and hyphens"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live instance. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live instance's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      }
+    ]
+  },
+  "pocketbase preview extend": {
+    "usage": "pbc pocketbase preview extend [<name>|--name <name>|--id <id>] [--preview <name>]",
+    "summary": "Keep a preview for another full lifetime from now.",
+    "needs": [
+      "target:pocketbases",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional instance name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live instance. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live instance's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "preview",
+        "type": "string",
+        "required": false,
+        "description": "Which preview. Picked when the instance has only one."
       }
     ]
   },
@@ -1177,7 +2690,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
           "nextjs",
           "python"
         ],
-        "description": "Defaults to build.runtime in pbc.json, else inferred."
+        "description": "Defaults to build.runtime in pbc.json, else inferred. Saved to pbc.json when passed."
       },
       {
         "name": "python-version",
@@ -1196,7 +2709,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "start",
         "type": "string",
         "required": false,
-        "description": "Command to run; defaults to build.startCommand."
+        "description": "Command to run; defaults to build.startCommand. Saved to pbc.json when passed."
       },
       {
         "name": "compute",
@@ -1328,6 +2841,12 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "description": "Package without running the build command."
       },
       {
+        "name": "force",
+        "type": "boolean",
+        "required": false,
+        "description": "Replace the instance's files even when someone changed them after this directory's revision."
+      },
+      {
         "name": "skip-env",
         "type": "boolean",
         "required": false,
@@ -1358,6 +2877,41 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "description": "Deploy this archive instead of building the directory."
       },
       {
+        "name": "dry-run",
+        "type": "boolean",
+        "required": false,
+        "description": "Build and compare with the instance, then show what would upload without changing anything."
+      },
+      {
+        "name": "preview",
+        "type": "boolean",
+        "required": false,
+        "description": "Deploy to a new preview: a copy of the live instance with its own address. Live is not touched."
+      },
+      {
+        "name": "preview-name",
+        "type": "string",
+        "required": false,
+        "description": "Name of the preview. An open preview with this name gets the deploy; otherwise a new one is made with it. Picked when omitted."
+      },
+      {
+        "name": "preview-size",
+        "type": "string",
+        "required": false,
+        "choices": [
+          "small",
+          "medium",
+          "full"
+        ],
+        "description": "How much live data the preview copies: small (about 100 rows per collection, the default), medium (about 1,000) or full (refused for a large database)."
+      },
+      {
+        "name": "preview-keep-user",
+        "type": "string",
+        "required": false,
+        "description": "Comma-separated emails of users the preview always keeps, so you can sign in as them."
+      },
+      {
         "name": "env",
         "type": "string",
         "required": false,
@@ -1384,7 +2938,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
           "nextjs",
           "python"
         ],
-        "description": "Defaults to build.runtime in pbc.json, else inferred."
+        "description": "Defaults to build.runtime in pbc.json, else inferred. Saved to pbc.json when passed."
       },
       {
         "name": "python-version",
@@ -1403,7 +2957,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "start",
         "type": "string",
         "required": false,
-        "description": "Command to run; defaults to build.startCommand."
+        "description": "Command to run; defaults to build.startCommand. Saved to pbc.json when passed."
       }
     ]
   },

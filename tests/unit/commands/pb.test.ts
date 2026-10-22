@@ -1,4 +1,5 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
+import { HashIndex } from "../../../src/hash-index.ts";
 import { makePbCommands, pushHooks } from "../../../src/commands/pb.ts";
 import { makeResourceCommands } from "../../../src/commands/resource.ts";
 import { KINDS } from "../../../src/kinds.ts";
@@ -23,7 +24,11 @@ import { extractEntry } from "../../../src/local/unzip.ts";
 function deps(
   client = createMockCloudClient(),
   currentProject = "",
-): { d: CloudCmdDeps & { deploy: MockDeployFetch }; config: Config; cwd: string } {
+): {
+  d: CloudCmdDeps & { deploy: MockDeployFetch };
+  config: Config;
+  cwd: string;
+} {
   const config: Config = {
     ...defaultConfig(),
     cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
@@ -110,6 +115,33 @@ Deno.test("pb deploy creates then reaches running, recording the binding", async
   });
 });
 
+Deno.test("pb deploy shows why the instance did not finish setting up", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const { d, config } = deps(client);
+  config.currentProject = p.id;
+  const orig = client.getResource.bind(client);
+  client.getResource = async (k, id) => ({
+    ...(await orig(k, id)),
+    status: "error",
+    statusMessage: "No free-tier capacity available",
+  });
+  d.deploy.setStatus(
+    "failed",
+    "This instance did not finish setting up. Contact support.",
+  );
+  const cmds = makePbCommands(d);
+  await assertRejects(
+    () =>
+      cmds["pocketbase deploy"].run({ new: "db1" }, {
+        args: [],
+        flags: flags({ project: p.id }),
+      }),
+    CliError,
+    "No free-tier capacity available",
+  );
+});
+
 Deno.test("bare pb deploy redeploys the bound resource with no --name", async () => {
   const client = createMockCloudClient();
   const p = await client.createProject("app");
@@ -175,10 +207,11 @@ Deno.test("pb rm clears that environment's binding", async () => {
       environments: { production: { id: pb.id, name: "db1" } },
     }),
   );
-  const code = await makeResourceCommands(d, KINDS.pocketbases)["pocketbase rm"].run({}, {
-    args: [],
-    flags: flags({ project: p.id }),
-  });
+  const code = await makeResourceCommands(d, KINDS.pocketbases)["pocketbase rm"]
+    .run({}, {
+      args: [],
+      flags: flags({ project: p.id }),
+    });
   assertEquals(code, 0);
   const link = await readLinkFile(cwd);
   assertEquals(link?.environments, undefined);
@@ -261,10 +294,13 @@ Deno.test("pb deploy sends admin credentials, which the platform will not invent
   );
   runningNow(client);
   await d.requireAuth();
-  const code = await makePbCommands(d)["pocketbase deploy"].run({ new: "db1" }, {
-    args: [],
-    flags: flags({ project: p.id }),
-  });
+  const code = await makePbCommands(d)["pocketbase deploy"].run(
+    { new: "db1" },
+    {
+      args: [],
+      flags: flags({ project: p.id }),
+    },
+  );
   assertEquals(code, 0);
   const [, data] = client.calls.createResource[0];
   assertEquals(data.adminUsername, "u@e.com");
@@ -377,10 +413,13 @@ Deno.test("pb deploy creates on the owner's Pro compute, which is never auto-sel
   config.currentProject = p.id;
   runningNow(client);
   withComputes(client, [{ id: "srv9", name: "pro-1", location: "GRA" }]);
-  const code = await makePbCommands(d)["pocketbase deploy"].run({ new: "db1" }, {
-    args: [],
-    flags: flags({ project: p.id }),
-  });
+  const code = await makePbCommands(d)["pocketbase deploy"].run(
+    { new: "db1" },
+    {
+      args: [],
+      flags: flags({ project: p.id }),
+    },
+  );
   assertEquals(code, 0);
   assertEquals(client.calls.createResource[0][1].server, "srv9");
 });
@@ -395,10 +434,13 @@ Deno.test("pb deploy in an org project uses the organization's compute", async (
     ownerPlan: "starter",
     organization: "org1",
   });
-  const code = await makePbCommands(d)["pocketbase deploy"].run({ new: "db1" }, {
-    args: [],
-    flags: flags({ project: p.id }),
-  });
+  const code = await makePbCommands(d)["pocketbase deploy"].run(
+    { new: "db1" },
+    {
+      args: [],
+      flags: flags({ project: p.id }),
+    },
+  );
   assertEquals(code, 0);
   assertEquals(client.calls.createResource[0][1].server, "org-srv");
 });
@@ -456,10 +498,13 @@ Deno.test("pb redeploy never re-picks the compute", async () => {
   client.deployContext = () => {
     throw new Error("deploy-context must not be called on a redeploy");
   };
-  const code = await makePbCommands(d)["pocketbase deploy"].run({ name: "db1" }, {
-    args: [],
-    flags: flags({ project: p.id }),
-  });
+  const code = await makePbCommands(d)["pocketbase deploy"].run(
+    { name: "db1" },
+    {
+      args: [],
+      flags: flags({ project: p.id }),
+    },
+  );
   assertEquals(code, 0);
   assertEquals(client.calls.createResource.length, 0);
 });
@@ -684,6 +729,258 @@ Deno.test("pb continuous-backup enable surfaces a plan refusal", async () => {
   );
 });
 
+const MANAGED_EMAIL_STATE = {
+  enabled: true,
+  status: "active",
+  statusReason: "",
+  trust: "new",
+  senderAddress: "i-pb1@mail.example.net",
+  relayHost: "smtp.mail.example.net",
+  planEligible: true,
+  limits: {
+    daily: 100,
+    monthly: 1000,
+    perMinute: 10,
+    maxRecipients: 1,
+    maxBytes: 1048576,
+    queueDepth: 50,
+  },
+  usage: { today: 3, month: 40 },
+};
+
+async function managedEmailClient(data: unknown) {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const resource = await client.createResource("pocketbases", {
+    name: "db1",
+    project: p.id,
+  });
+  client.ext = (path, body) => {
+    client.calls.ext.push([path, body]);
+    return Promise.resolve(Response.json({ success: true, data }));
+  };
+  return { client, projectId: p.id, resourceId: resource.id };
+}
+
+async function runCommand(
+  client: ReturnType<typeof createMockCloudClient>,
+  projectId: string,
+  key: string,
+  json = true,
+) {
+  const { d } = deps(client);
+  const log = captureLog();
+  try {
+    const code = await makePbCommands(d)[key].run({ name: "db1" }, {
+      args: [],
+      flags: flags({ project: projectId, json }),
+    });
+    assertEquals(code, 0);
+  } finally {
+    log.restore();
+  }
+  return log.lines;
+}
+
+Deno.test("pb email status returns the platform state", async () => {
+  const { client, projectId, resourceId } = await managedEmailClient(
+    MANAGED_EMAIL_STATE,
+  );
+  const lines = await runCommand(client, projectId, "pocketbase email status");
+  assertEquals(client.calls.ext.at(-1), [
+    "/api/pocketbases/email/status",
+    { pocketbaseId: resourceId },
+  ]);
+  assertEquals(JSON.parse(lines.at(-1)!).data, MANAGED_EMAIL_STATE);
+});
+
+Deno.test("pb email status prints usage against the limits", async () => {
+  const { client, projectId } = await managedEmailClient({
+    ...MANAGED_EMAIL_STATE,
+    status: "paused_reputation",
+    statusReason: "bounce_rate",
+  });
+  const lines = await runCommand(
+    client,
+    projectId,
+    "pocketbase email status",
+    false,
+  );
+  const text = lines.join("\n");
+  assertStringIncludes(text, "Status: paused_reputation (bounce_rate)");
+  assertStringIncludes(text, "Sender level: new");
+  assertStringIncludes(text, "Sender address: i-pb1@mail.example.net");
+  assertStringIncludes(text, "Sent today: 3 / 100");
+  assertStringIncludes(text, "Sent this month: 40 / 1000");
+});
+
+for (
+  const [action, path] of [
+    ["enable", "/api/pocketbases/email/enable"],
+    ["disable", "/api/pocketbases/email/disable"],
+    ["reapply", "/api/pocketbases/email/reapply"],
+  ] as const
+) {
+  Deno.test(`pb email ${action} posts the instance id`, async () => {
+    const { client, projectId, resourceId } = await managedEmailClient(
+      MANAGED_EMAIL_STATE,
+    );
+    const lines = await runCommand(
+      client,
+      projectId,
+      `pocketbase email ${action}`,
+    );
+    assertEquals(client.calls.ext.at(-1), [path, { pocketbaseId: resourceId }]);
+    assertEquals(JSON.parse(lines.at(-1)!).data, MANAGED_EMAIL_STATE);
+  });
+}
+
+Deno.test("pb email messages lists recent emails", async () => {
+  const messages = [{
+    id: "m1",
+    recipient: "ada@example.org",
+    status: "delivered",
+    reason: "",
+    subject: "Verify your email",
+    created: "2026-10-19 10:00:00.000Z",
+  }];
+  const { client, projectId, resourceId } = await managedEmailClient(messages);
+  const lines = await runCommand(
+    client,
+    projectId,
+    "pocketbase email messages",
+  );
+  assertEquals(client.calls.ext.at(-1), [
+    "/api/pocketbases/email/messages",
+    { pocketbaseId: resourceId },
+  ]);
+  assertEquals(JSON.parse(lines.at(-1)!).data, messages);
+
+  const text = (await runCommand(
+    client,
+    projectId,
+    "pocketbase email messages",
+    false,
+  )).join("\n");
+  assertStringIncludes(text, "ada@example.org");
+  assertStringIncludes(text, "delivered");
+});
+
+Deno.test("pb email test sends to the given address or the signed-in user", async () => {
+  const { client, projectId, resourceId } = await managedEmailClient({
+    to: "qa@acme.io",
+  });
+  const { d } = deps(client);
+  const log = captureLog();
+  try {
+    await makePbCommands(d)["pocketbase email test"].run({
+      name: "db1",
+      to: "qa@acme.io",
+    }, { args: [], flags: flags({ project: projectId, json: false }) });
+  } finally {
+    log.restore();
+  }
+  assertEquals(client.calls.ext.at(-1), [
+    "/api/pocketbases/email/test",
+    { pocketbaseId: resourceId, to: "qa@acme.io" },
+  ]);
+  assertStringIncludes(log.lines.join("\n"), "Test email sent to qa@acme.io");
+  await runCommand(client, projectId, "pocketbase email test");
+  assertEquals(client.calls.ext.at(-1), [
+    "/api/pocketbases/email/test",
+    { pocketbaseId: resourceId },
+  ]);
+});
+
+Deno.test("pb email sender prints the sender and warns when replies are lost", async () => {
+  const identity = {
+    senderName: "Support",
+    senderAddress: "noreply@example.com",
+    replyReachable: false,
+    otherSmtpHost: "",
+  };
+  const { client, projectId, resourceId } = await managedEmailClient(identity);
+  const lines = await runCommand(
+    client,
+    projectId,
+    "pocketbase email sender",
+    false,
+  );
+  assertEquals(client.calls.ext.at(-1), [
+    "/api/pocketbases/email/identity",
+    { pocketbaseId: resourceId },
+  ]);
+  const text = lines.join("\n");
+  assertStringIncludes(text, "Sender name: Support");
+  assertStringIncludes(text, "Reply-to: noreply@example.com");
+  assertStringIncludes(text, "Replies are not delivered");
+});
+
+Deno.test("pb email sender updates the name and reply-to address", async () => {
+  const { client, projectId, resourceId } = await managedEmailClient({
+    senderName: "Acme",
+    senderAddress: "hi@acme.io",
+    replyReachable: true,
+    otherSmtpHost: "",
+  });
+  const { d } = deps(client);
+  const log = captureLog();
+  try {
+    await makePbCommands(d)["pocketbase email sender"].run({
+      name: "db1",
+      senderName: "Acme",
+      replyTo: "hi@acme.io",
+    }, { args: [], flags: flags({ project: projectId }) });
+  } finally {
+    log.restore();
+  }
+  assertEquals(client.calls.ext.at(-1), [
+    "/api/pocketbases/email/identity/update",
+    {
+      pocketbaseId: resourceId,
+      senderName: "Acme",
+      senderAddress: "hi@acme.io",
+    },
+  ]);
+});
+
+Deno.test("pb email sender asks for both values when updating", async () => {
+  const { client, projectId } = await managedEmailClient({});
+  const { d } = deps(client);
+  await assertRejects(
+    () =>
+      makePbCommands(d)["pocketbase email sender"].run({
+        name: "db1",
+        replyTo: "hi@acme.io",
+      }, { args: [], flags: flags({ project: projectId }) }),
+    CliError,
+    "--sender-name",
+  );
+});
+
+Deno.test("pb email enable surfaces the platform refusal", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  await client.createResource("pocketbases", { name: "db1", project: p.id });
+  client.ext = () =>
+    Promise.resolve(
+      Response.json(
+        { success: false, error: "Managed email needs a Starter or Pro plan" },
+        { status: 403 },
+      ),
+    );
+  const { d } = deps(client);
+  await assertRejects(
+    () =>
+      makePbCommands(d)["pocketbase email enable"].run({ name: "db1" }, {
+        args: [],
+        flags: flags({ project: p.id }),
+      }),
+    CliError,
+    "Starter or Pro",
+  );
+});
+
 Deno.test("pb create keeps backup restore available as a create flag", () => {
   const command = makePbCommands(deps().d)["pocketbase create"];
   assertEquals(command.summary, "Create a PocketBase instance.");
@@ -700,10 +997,13 @@ Deno.test("pb create makes a running instance and sends no archive", async () =>
   const p = await client.createProject("app");
   const { d } = deps(client);
   runningNow(client);
-  const code = await makePbCommands(d)["pocketbase create"].run({ name: "db1" }, {
-    args: [],
-    flags: flags({ project: p.id }),
-  });
+  const code = await makePbCommands(d)["pocketbase create"].run(
+    { name: "db1" },
+    {
+      args: [],
+      flags: flags({ project: p.id }),
+    },
+  );
   assertEquals(code, 0);
   assertEquals(client.calls.createResource.length, 1);
   const [kind, data] = client.calls.createResource[0];
@@ -1026,10 +1326,13 @@ Deno.test("pb create lands on the owner's Pro compute, which is never auto-selec
   const { d } = deps(client);
   runningNow(client);
   withComputes(client, [{ id: "srv9", name: "pro-1", location: "GRA" }]);
-  const code = await makePbCommands(d)["pocketbase create"].run({ name: "db1" }, {
-    args: [],
-    flags: flags({ project: p.id }),
-  });
+  const code = await makePbCommands(d)["pocketbase create"].run(
+    { name: "db1" },
+    {
+      args: [],
+      flags: flags({ project: p.id }),
+    },
+  );
   assertEquals(code, 0);
   assertEquals(client.calls.createResource[0][1].server, "srv9");
 });
@@ -1073,14 +1376,15 @@ Deno.test("pb create with a backup explains that credentials are preserved", asy
   const backup = `${d.cwd()}/backup.zip`;
   await Deno.writeFile(backup, new Uint8Array([1, 2, 3]));
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = () =>
-    Promise.resolve(new Response(null, { status: 200 }));
+  globalThis.fetch = () => Promise.resolve(new Response(null, { status: 200 }));
   const originalExt = client.ext;
   client.ext = (path, body) => {
     if (path === "/api/pocketbases/backup-upload-url") {
       client.calls.ext.push([path, body]);
       return Promise.resolve(
-        Response.json({ data: { key: "backup-key", uploadUrl: "https://upload", maxMB: 150 } }),
+        Response.json({
+          data: { key: "backup-key", uploadUrl: "https://upload", maxMB: 150 },
+        }),
       );
     }
     return originalExt(path, body);
@@ -1101,7 +1405,9 @@ Deno.test("pb create with a backup explains that credentials are preserved", asy
   }
   assertEquals(
     log.lines.some((line) =>
-      line.includes("Admin login: preserved from backup; credentials are not available")
+      line.includes(
+        "Admin login: preserved from backup; credentials are not available",
+      )
     ),
     true,
   );
@@ -1383,7 +1689,10 @@ Deno.test("pb ls announces the project resolved from config.currentProject", asy
   config.currentProject = p.id;
   const log = captureErr();
   try {
-    const code = await makeResourceCommands(d, KINDS.pocketbases)["pocketbase ls"].run({}, {
+    const code = await makeResourceCommands(
+      d,
+      KINDS.pocketbases,
+    )["pocketbase ls"].run({}, {
       args: [],
       flags: flags({ json: false }),
     });
@@ -1456,4 +1765,133 @@ Deno.test("pb ls JSON omits admin credentials", async () => {
   assertEquals(resource.id, pb.id);
   assertEquals("adminUsername" in resource, false);
   assertEquals("adminPassword" in resource, false);
+});
+
+Deno.test("pb deploy sends the directory's revision, and --force leaves it out", async () => {
+  for (const force of [false, true]) {
+    const client = createMockCloudClient();
+    const p = await client.createProject("app");
+    const pb = await client.createResource("pocketbases", {
+      name: "db1",
+      project: p.id,
+    });
+    const { d, config, cwd } = deps(client);
+    config.currentProject = p.id;
+    runningNow(client);
+    await Deno.writeTextFile(
+      `${cwd}/pbc.json`,
+      JSON.stringify({
+        projectId: p.id,
+        kind: "pocketbases",
+        defaultEnvironment: "production",
+        environments: { production: { id: pb.id, name: "db1", revision: 7 } },
+      }),
+    );
+    await makePbCommands(d)["pocketbase deploy"].run(force ? { force } : {}, {
+      args: [],
+      flags: flags({ project: p.id }),
+    });
+    const created = d.deploy.calls.find((c) =>
+      c.url.endsWith("/api/deployments")
+    );
+    assertEquals(
+      JSON.parse(created!.bodyText!).baseRevision,
+      force ? undefined : 7,
+    );
+  }
+});
+
+async function boundInstance(
+  revisions: Record<string, (body: Record<string, unknown>) => Response>,
+) {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const pb = await client.createResource("pocketbases", {
+    name: "db1",
+    project: p.id,
+  });
+  const { d, config, cwd } = deps(client);
+  d.hashIndex = () => Promise.resolve(HashIndex.memory());
+  config.currentProject = p.id;
+  runningNow(client);
+  await Deno.mkdir(`${cwd}/pb_hooks`, { recursive: true });
+  await Deno.writeTextFile(`${cwd}/pb_hooks/main.pb.js`, "routerAdd()");
+  await Deno.writeTextFile(
+    `${cwd}/pbc.json`,
+    JSON.stringify({
+      projectId: p.id,
+      kind: "pocketbases",
+      defaultEnvironment: "production",
+      environments: { production: { id: pb.id, name: "db1", revision: 7 } },
+    }),
+  );
+  const posted: [string, Record<string, unknown>][] = [];
+  const platformExt = client.ext;
+  client.ext = (path, body) => {
+    const action = path.startsWith("/api/pocketbases/revisions/")
+      ? path.split("/").pop()!
+      : "";
+    const answer = revisions[action];
+    if (!answer) return platformExt(path, body);
+    posted.push([action, body as Record<string, unknown>]);
+    return Promise.resolve(answer(body as Record<string, unknown>));
+  };
+  return { client, d, p, cwd, posted };
+}
+
+Deno.test("pb redeploy uploads only new files and commits them from the directory's revision", async () => {
+  const { d, p, cwd, posted } = await boundInstance({
+    upload: (body) =>
+      Response.json({
+        success: true,
+        data: {
+          uploads: (body.files as { hash: string }[]).map((f) => ({
+            hash: f.hash,
+            url: "https://r2/put",
+          })),
+        },
+      }),
+    commit: () => Response.json({ success: true, data: { revision: 8 } }),
+    list: () =>
+      Response.json({ success: true, data: { items: [{ number: 8 }] } }),
+  });
+
+  await makePbCommands(d)["pocketbase deploy"].run({}, {
+    args: [],
+    flags: flags({ project: p.id }),
+  });
+
+  const commit = posted.find(([action]) => action === "commit")![1];
+  assertEquals(commit.baseRevision, 7);
+  assertEquals((commit.files as { path: string }[]).map((f) => f.path), [
+    "pb_hooks/main.pb.js",
+  ]);
+  assertEquals(
+    d.deploy.calls.some((c) => c.url.endsWith("/api/deployments")),
+    false,
+  );
+  assertEquals(
+    d.deploy.calls.filter((c) => c.url === "https://r2/put").length,
+    1,
+  );
+  const link = JSON.parse(await Deno.readTextFile(`${cwd}/pbc.json`));
+  assertEquals(link.environments.production.revision, 8);
+});
+
+Deno.test("pb deploy --dry-run compares with the instance and changes nothing", async () => {
+  const { d, p, client, posted } = await boundInstance({
+    upload: () => Response.json({ success: true, data: { uploads: [] } }),
+  });
+
+  assertEquals(
+    await makePbCommands(d)["pocketbase deploy"].run({ dryRun: true }, {
+      args: [],
+      flags: flags({ project: p.id }),
+    }),
+    0,
+  );
+
+  assertEquals(posted.map(([action]) => action), ["upload"]);
+  assertEquals(d.deploy.calls, []);
+  assertEquals(client.calls.updateResource, []);
 });

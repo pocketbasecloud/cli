@@ -165,6 +165,14 @@ export function createMockCloudClient(
           Response.json({ success: true, data: resource }, { status: 201 }),
         );
       }
+      if (path.startsWith("/api/pocketbases/revisions/")) {
+        return Promise.resolve(
+          Response.json(
+            { success: false, message: "File history is not enabled" },
+            { status: 503 },
+          ),
+        );
+      }
       return Promise.resolve(
         new Response(JSON.stringify({ ok: true }), { status: 200 }),
       );

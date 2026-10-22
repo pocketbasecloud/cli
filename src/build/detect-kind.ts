@@ -58,6 +58,10 @@ const FRONTEND_DEPS = [
 
 const INDEX_HTML_DIRS = ["", "public", "dist", "build", "out"];
 
+const SERVER_START_SCRIPT =
+  /(?:^|[\s;&|])(?:node|nodemon|tsx|ts-node|bun)\s+(?:\S+\s+)*?([\w./-]+\.[cm]?[jt]s)(?=\s|$)/;
+const MAX_START_SCRIPT_CHARS = 1000;
+
 type PackageJson = {
   scripts?: Record<string, string>;
   dependencies?: Record<string, string>;
@@ -83,6 +87,18 @@ function dependsOn(pkg: PackageJson, names: string[]): string | undefined {
 function hasScript(pkg: PackageJson, name: string): boolean {
   const script = pkg.scripts?.[name];
   return typeof script === "string" && script.length > 0;
+}
+
+async function startedServerFile(
+  cwd: string,
+  pkg: PackageJson,
+): Promise<string | undefined> {
+  const start = pkg.scripts?.start;
+  if (typeof start !== "string" || start.length > MAX_START_SCRIPT_CHARS) {
+    return undefined;
+  }
+  const file = start.match(SERVER_START_SCRIPT)?.[1]?.replace(/^\.\//, "");
+  return file && await exists(join(cwd, file)) ? file : undefined;
 }
 
 async function boundKind(cwd: string): Promise<KindGuess | null> {
@@ -116,6 +132,12 @@ export async function detectContentKind(
       : { kind: "backends", reason: next.file };
   }
 
+  const pkg = await readPackageJson(cwd);
+  const serverFile = pkg ? await startedServerFile(cwd, pkg) : undefined;
+  if (serverFile) {
+    return { kind: "backends", reason: `the start script runs ${serverFile}` };
+  }
+
   for (const stem of FRONTEND_CONFIG_STEMS) {
     const file = await findConfig(cwd, stem);
     if (file) return { kind: "frontends", reason: file };
@@ -132,7 +154,6 @@ export async function detectContentKind(
     }
   }
 
-  const pkg = await readPackageJson(cwd);
   if (pkg) {
     const server = dependsOn(pkg, SERVER_DEPS);
     if (server) {

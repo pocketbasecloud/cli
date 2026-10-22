@@ -1,5 +1,8 @@
+import type { DeployCommit } from "../git-commit.ts";
 import { CliError, httpError } from "../errors.ts";
 import type { ResourceKind } from "./types.ts";
+import type { ICloudClient } from "./cloud.ts";
+import type { RepositoryResult } from "./repo-link.ts";
 
 export type DeployClientConfig = {
   baseUrl: string;
@@ -32,45 +35,62 @@ async function post<T>(
   return json.data as T;
 }
 
-export function deployArchive(
+export async function uploadArtifact(
+  opts: {
+    kind: ResourceKind;
+    resourceId: string;
+    bytes: Uint8Array;
+    onProgress?: (fraction: number) => void;
+  },
+  cfg: DeployClientConfig,
+): Promise<string> {
+  const fetchFn = cfg.fetchFn ?? fetch;
+  const { key, uploadUrl } = await post<{ key: string; uploadUrl: string }>(
+    "/api/deployments/upload-url",
+    { kind: opts.kind, resourceId: opts.resourceId, input: "artifact" },
+    cfg,
+  );
+  opts.onProgress?.(0);
+  const res = await fetchFn(uploadUrl, {
+    method: "PUT",
+    headers: { "content-type": "application/zip" },
+    body: new Blob([new Uint8Array(opts.bytes)]),
+  });
+  opts.onProgress?.(1);
+  if (!res.ok) {
+    throw new CliError(`Upload failed with status ${res.status}`);
+  }
+  return key;
+}
+
+export async function deployArchive(
   opts: {
     kind: ResourceKind;
     resourceId: string;
     bytes: Uint8Array;
     hints?: { pythonVersion?: string };
+    baseRevision?: number;
+    git?: DeployCommit | null;
     onProgress?: (fraction: number) => void;
   },
   cfg: DeployClientConfig,
 ): Promise<{ deploymentId: string }> {
-  const fetchFn = cfg.fetchFn ?? fetch;
-  const payload = new Blob([new Uint8Array(opts.bytes)]);
-  return post<{ key: string; uploadUrl: string }>(
-    "/api/deployments/upload-url",
-    { kind: opts.kind, resourceId: opts.resourceId, input: "artifact" },
+  const key = await uploadArtifact(opts, cfg);
+  return post<{ deploymentId: string }>(
+    "/api/deployments",
+    {
+      kind: opts.kind,
+      resourceId: opts.resourceId,
+      input: "artifact",
+      artifactKey: key,
+      ...(opts.hints ? { hints: opts.hints } : {}),
+      ...(opts.baseRevision !== undefined
+        ? { baseRevision: opts.baseRevision }
+        : {}),
+      ...(opts.git ? { git: opts.git } : {}),
+    },
     cfg,
-  ).then(async ({ key, uploadUrl }) => {
-    opts.onProgress?.(0);
-    const res = await fetchFn(uploadUrl, {
-      method: "PUT",
-      headers: { "content-type": "application/zip" },
-      body: payload,
-    });
-    opts.onProgress?.(1);
-    if (!res.ok) {
-      throw new CliError(`Upload failed with status ${res.status}`);
-    }
-    return post<{ deploymentId: string }>(
-      "/api/deployments",
-      {
-        kind: opts.kind,
-        resourceId: opts.resourceId,
-        input: "artifact",
-        artifactKey: key,
-        ...(opts.hints ? { hints: opts.hints } : {}),
-      },
-      cfg,
-    );
-  });
+  );
 }
 
 export async function waitForDeployment(
@@ -111,4 +131,84 @@ export async function waitForDeployment(
     }
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
+}
+
+export type DeploymentRow = {
+  id: string;
+  resourceId: string;
+  status: string;
+  statusMessage?: string;
+  input?: string;
+  gitSha?: string;
+  gitTitle?: string;
+  gitAuthor?: string;
+  requestedBy?: string;
+  created: string;
+  metadata?:
+    | { rollbackOf?: string; revision?: number; message?: string }
+    | null;
+};
+
+const DEPLOYMENT_FIELDS =
+  "id,resourceId,status,statusMessage,input,gitSha,gitTitle,gitAuthor,requestedBy,created,metadata";
+const RECENT_DEPLOYMENTS = 20;
+
+export async function listDeployments(
+  client: ICloudClient,
+  resourceId: string,
+): Promise<DeploymentRow[]> {
+  const res = await client.pbApi(
+    "/api/collections/deployments/records",
+    undefined,
+    {
+      method: "GET",
+      query: {
+        filter: `resourceId = "${resourceId}"`,
+        sort: "-created",
+        perPage: String(RECENT_DEPLOYMENTS),
+        skipTotal: "true",
+        fields: DEPLOYMENT_FIELDS,
+      },
+    },
+  );
+  if (!res.ok) throw await httpError(res, "Listing deployments");
+  const body = await res.json() as { items?: DeploymentRow[] };
+  return body.items ?? [];
+}
+
+export async function getDeployment(
+  client: ICloudClient,
+  deploymentId: string,
+): Promise<DeploymentRow> {
+  const res = await client.pbApi(
+    `/api/collections/deployments/records/${encodeURIComponent(deploymentId)}`,
+    undefined,
+    { method: "GET", query: { fields: DEPLOYMENT_FIELDS } },
+  );
+  if (!res.ok) throw await httpError(res, "Reading the deployment");
+  return await res.json() as DeploymentRow;
+}
+
+export async function requestRollback(
+  client: ICloudClient,
+  deploymentId: string,
+  pushToGit = false,
+): Promise<{ deploymentId: string; repository?: RepositoryResult }> {
+  const res = await client.ext("/api/deployments/rollback", {
+    deploymentId,
+    ...(pushToGit && { pushToGit }),
+  });
+  if (!res.ok) throw await httpError(res, "Rollback");
+  const body = await res.json() as {
+    data?: { deploymentId?: string; repository?: RepositoryResult };
+  };
+  if (!body.data?.deploymentId) {
+    throw new CliError("The platform rejected the rollback request.", {
+      code: "PLATFORM_ERROR",
+    });
+  }
+  return {
+    deploymentId: body.data.deploymentId,
+    ...(body.data.repository ? { repository: body.data.repository } : {}),
+  };
 }

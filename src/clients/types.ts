@@ -22,10 +22,15 @@ export type Resource = {
   subdomain?: string;
   custom_domain?: string;
   custom_domain_status?: string;
+  access?: string;
+  accessEmails?: string[] | null;
   runtimeFlags?: Record<string, boolean | number | string>;
+  server?: string;
   location?: string;
   computeLocation?: string;
   computeShared?: boolean;
+  previousDomain?: string;
+  movedAt?: string;
 };
 
 export type Org = {

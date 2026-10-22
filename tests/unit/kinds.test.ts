@@ -22,6 +22,10 @@ Deno.test("the table declares exactly the capabilities the platform serves", () 
   ]);
   assertEquals(kindsWith("logs").map((k) => k.kind), ["pocketbases", "backends"]);
   assertEquals(kindsWith("admin").map((k) => k.kind), ["pocketbases"]);
+  assertEquals(kindsWith("access").map((k) => k.kind), [
+    "frontends",
+    "backends",
+  ]);
 });
 
 Deno.test("every kind served by the env and log routes names the type they expect", () => {
@@ -149,6 +153,12 @@ Deno.test("commands that address a resource declare it; mutations demand explici
         modes[`${spec.noun} domain ${v}`] = "mutate";
       }
       modes[`${spec.noun} domain status`] = "read";
+    }
+    if (spec.access) {
+      for (const v of ["private", "public", "add", "remove"]) {
+        modes[`${spec.noun} access ${v}`] = "mutate";
+      }
+      modes[`${spec.noun} access status`] = "read";
     }
   }
 

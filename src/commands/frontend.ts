@@ -1,3 +1,4 @@
+import { readDeployCommit } from "../git-commit.ts";
 import {
   bool,
   type CmdCtx,
@@ -10,24 +11,21 @@ import {
 import type { CloudCmdDeps } from "./project.ts";
 import { KINDS } from "../kinds.ts";
 import { resolveProject } from "../resolve/project.ts";
-import { CliError } from "../errors.ts";
 import { emit } from "../envelope.ts";
-import {
-  removeEnvironment,
-  upsertEnvironment,
-} from "../config.ts";
+import { removeEnvironment, upsertEnvironment } from "../config.ts";
 import {
   awaitDeployment,
   awaitReachable,
   buildBundle,
   computeChooser,
+  deploymentFailure,
   deployProgress,
   deployResource,
   deployTargetLine,
   reportUrl,
-  resolveOwnerId,
   resolveDeployIntent,
   resolveEnvironmentTarget,
+  resolveOwnerId,
   uploadLabel,
   validateLocationChoice,
 } from "./deploy-helper.ts";
@@ -56,7 +54,8 @@ export function makeFrontendCommands(
       needs: ["target:frontends", { explicit: true }],
       usage: "pbc frontend deploy [--name <name>|--new <name>] [flags]",
       summary: "Build, package, and deploy a static site.",
-      details: `Runs the build command, zips the output directory, and uploads it. Both
+      details:
+        `Runs the build command, zips the output directory, and uploads it. Both
 come from the "build" block in pbc.json, inferred from the directory
 (vite/svelte/angular/next config, package.json build script) and written
 there on the first deploy.
@@ -80,8 +79,7 @@ it, use pbc frontend domain add.`,
           conflicts: ["name"],
         }),
         zip: str({
-          description:
-            "Deploy this archive instead of building the directory.",
+          description: "Deploy this archive instead of building the directory.",
         }),
         skipBuild: bool({
           description: "Package without running the build command.",
@@ -189,9 +187,14 @@ it, use pbc frontend domain add.`,
               kind: "frontends",
               resourceId: out.resource.id,
               bytes: bundle.bytes,
+              git: await readDeployCommit(cwd),
               onProgress: (f) =>
                 step.update(`Uploading — ${Math.round(f * 100)}%`),
-            }, { baseUrl: auth.extUrl, token: auth.userToken, fetchFn: deps.fetch });
+            }, {
+              baseUrl: auth.extUrl,
+              token: auth.userToken,
+              fetchFn: deps.fetch,
+            });
             step.update("Uploaded — waiting for the platform to start it");
             const dep = await waitForDeployment(deploymentId, {
               baseUrl: auth.backendUrl,
@@ -199,7 +202,12 @@ it, use pbc frontend domain add.`,
               fetchFn: deps.fetch,
             });
             if (dep.status === "failed") {
-              throw new CliError(dep.statusMessage, { code: "PLATFORM_ERROR" });
+              throw await deploymentFailure(
+                client,
+                "frontends",
+                out.resource.id,
+                dep.statusMessage,
+              );
             }
             step.done(`Uploaded ${bundle.fileName}`);
             return out;
@@ -237,6 +245,5 @@ it, use pbc frontend domain add.`,
         return 0;
       },
     }),
-
   };
 }

@@ -38,6 +38,20 @@ Deno.test("resolveCloudAuth takes the token from the env over the file", () => {
   });
 });
 
+Deno.test("resolveCloudAuth reads the user id from an env auth token", () => {
+  const payload = btoa(JSON.stringify({ id: "user1abc", type: "auth" }))
+    .replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+  const token = `eyJhbGciOiJIUzI1NiJ9.${payload}.signature`;
+  assertEquals(
+    resolveCloudAuth(defaultConfig(), { PBC_TOKEN: token })?.userId,
+    "user1abc",
+  );
+  assertEquals(
+    resolveCloudAuth(defaultConfig(), { PBC_TOKEN: "a.%%%.b" })?.userId,
+    "",
+  );
+});
+
 Deno.test("resolveCloudAuth stamps the production hosts", () => {
   const auth = resolveCloudAuth(defaultConfig(), { PBC_TOKEN: "envtok" });
   assertEquals(auth?.backendUrl, backendUrl());
@@ -402,7 +416,9 @@ Deno.test("removeEnvironment does not walk up to a parent pbc.json", async () =>
       environments: { production: { id: "fe1", name: "web" } },
     });
     await Deno.writeTextFile(join(parent, "pbc.json"), parentFile);
-    assertEquals(await removeEnvironment(child, "production"), { removed: false });
+    assertEquals(await removeEnvironment(child, "production"), {
+      removed: false,
+    });
     assertEquals(await Deno.readTextFile(join(parent, "pbc.json")), parentFile);
     await assertRejects(() => Deno.readTextFile(join(child, "pbc.json")));
   } finally {

@@ -1,3 +1,4 @@
+import { readDeployCommit } from "../git-commit.ts";
 import {
   bool,
   type CmdCtx,
@@ -19,6 +20,7 @@ import {
   awaitReachable,
   buildBundle,
   computeChooser,
+  deploymentFailure,
   deployProgress,
   deployResource,
   deployTargetLine,
@@ -95,7 +97,8 @@ pbc frontend deploy instead.`,
           conflicts: ["name"],
         }),
         runtime: str({
-          description: "Defaults to build.runtime in pbc.json, else inferred.",
+          description:
+            "Defaults to build.runtime in pbc.json, else inferred. Saved to pbc.json when passed.",
           choices: ["deno", "bun", "nodejs", "nextjs", "python"],
         }),
         pythonVersion: str({
@@ -104,7 +107,8 @@ pbc frontend deploy instead.`,
           choices: [...PYTHON_VERSIONS],
         }),
         start: str({
-          description: "Command to run; defaults to build.startCommand.",
+          description:
+            "Command to run; defaults to build.startCommand. Saved to pbc.json when passed.",
         }),
         compute: str({
           description:
@@ -195,6 +199,7 @@ pbc frontend deploy instead.`,
           zipPath: input.zip,
           skipBuild: input.skipBuild === true,
           runtime: input.runtime,
+          startCommand: input.start,
           pythonVersion: input.pythonVersion,
           envFile: input.envFile,
           environment: target.environment,
@@ -276,6 +281,7 @@ pbc frontend deploy instead.`,
               kind: "backends",
               resourceId: out.resource.id,
               bytes: bundle.bytes,
+              git: await readDeployCommit(cwd),
               ...(pythonVersion ? { hints: { pythonVersion } } : {}),
               onProgress: (f) =>
                 step.update(`Uploading — ${Math.round(f * 100)}%`),
@@ -296,7 +302,12 @@ pbc frontend deploy instead.`,
               log: ctx.flags.json ? (m) => console.error(m) : log,
             });
             if (dep.status === "failed") {
-              throw new CliError(dep.statusMessage, { code: "PLATFORM_ERROR" });
+              throw await deploymentFailure(
+                client,
+                "backends",
+                out.resource.id,
+                dep.statusMessage,
+              );
             }
             step.done(`Uploaded ${bundle.fileName}`);
             return out;

@@ -1,16 +1,13 @@
 import type { ICloudClient } from "../clients/cloud.ts";
 import type { Project, Resource } from "../clients/types.ts";
-import { readLinkFile, type Config, type LinkFile } from "../config.ts";
+import { type Config, type LinkFile, readLinkFile } from "../config.ts";
 import { CliError } from "../errors.ts";
 import type { KindSpec } from "../kinds.ts";
 import { nearestCommand } from "../parse.ts";
 import { chooseFromMenu } from "../ui/menu.ts";
 import { canPrompt } from "../ui/prompt.ts";
 import type { PromptIO } from "../ui/prompt.ts";
-import {
-  assertConfigured,
-  resolveEnvironmentName,
-} from "./environment.ts";
+import { assertConfigured, resolveEnvironmentName } from "./environment.ts";
 import { matchProject } from "./project.ts";
 
 export type ResourceTargetCtx = {
@@ -86,7 +83,8 @@ async function resolveProjectScope(
   ctx: ResourceTargetCtx,
   link: LinkFile | null,
 ): Promise<{ id: string; name: string } | undefined> {
-  const token = ctx.projectFilter ?? link?.projectId ?? ctx.config?.currentProject;
+  const token = ctx.projectFilter ?? link?.projectId ??
+    ctx.config?.currentProject;
   if (!token) return undefined;
   const projects = await ctx.client.listProjects();
   const m = matchProject(projects, token);
@@ -186,7 +184,9 @@ export async function resolveResourceTarget(
   assertConfigured(envChoice, link);
   const environment = envChoice.name;
 
-  const scope = await resolveProjectScope(ctx, link);
+  const scope = ctx.id && !ctx.projectFilter
+    ? undefined
+    : await resolveProjectScope(ctx, link);
   const candidates = await ctx.client.listResources(
     ctx.spec.kind,
     scope ? { project: scope.id } : undefined,

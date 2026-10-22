@@ -1,4 +1,5 @@
 import { defineCommand, type Command } from "../command.ts";
+import type { HashIndex } from "../hash-index.ts";
 import type { CloudAuth, Config } from "../config.ts";
 import type { ICloudClient } from "../clients/cloud.ts";
 import { CliError } from "../errors.ts";
@@ -19,6 +20,7 @@ export type CloudCmdDeps = {
   fetch?: typeof fetch;
   env?: (k: string) => string | undefined;
   envStatePath?: () => string;
+  hashIndex?: (cwd: string) => Promise<HashIndex>;
 };
 
 export function makeProjectCommands(

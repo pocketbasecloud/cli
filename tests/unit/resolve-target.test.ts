@@ -271,6 +271,46 @@ Deno.test("an unknown --id is NOT_FOUND", async () => {
   assertEquals(err.code, "NOT_FOUND");
 });
 
+Deno.test("--id finds a resource outside the current project", async () => {
+  const { client, cwd, projectId } = await fixture({
+    projects: [["p1", "alpha"], ["p2", "beta"]],
+    resources: [{ name: "api", project: "beta" }],
+  });
+  const [target] = await client.listResources(KINDS.pocketbases.kind);
+  const { resource } = await resolveResourceTarget({
+    client,
+    spec: KINDS.pocketbases,
+    cwd,
+    id: target.id,
+    config: { currentProject: projectId("alpha") } as Config,
+    explicit: true,
+    noInput: true,
+  });
+  assertEquals(resource.id, target.id);
+});
+
+Deno.test("--id with an explicit --project that does not hold it is NOT_FOUND", async () => {
+  const { client, cwd } = await fixture({
+    projects: [["p1", "alpha"], ["p2", "beta"]],
+    resources: [{ name: "api", project: "beta" }],
+  });
+  const [target] = await client.listResources(KINDS.pocketbases.kind);
+  const err = await assertRejects(
+    () =>
+      resolveResourceTarget({
+        client,
+        spec: KINDS.pocketbases,
+        cwd,
+        id: target.id,
+        projectFilter: "alpha",
+        explicit: true,
+        noInput: true,
+      }),
+    CliError,
+  );
+  assertEquals(err.code, "NOT_FOUND");
+});
+
 Deno.test("--project narrows the candidates a bare name is matched against", async () => {
   const { client, cwd } = await fixture({
     projects: [["p1", "acme-prod"], ["p2", "acme-staging"]],

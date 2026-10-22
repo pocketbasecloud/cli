@@ -427,7 +427,9 @@ for (const kind of ["pocketbases", "backends"] as const) {
         const deploy = createMockDeployFetch();
         deploy.setStatus(status, "Deployment rejected.");
         const requests: unknown[] = [];
+        const platformExt = client.ext;
         client.ext = (path, body) => {
+          if (path.startsWith("/api/pocketbases/revisions/")) return platformExt(path, body);
           if (path === "/api/logs/stream") requests.push(body);
           return Promise.resolve(new Response('data: {"type":"history","line":"Startup output"}\n\n'));
         };

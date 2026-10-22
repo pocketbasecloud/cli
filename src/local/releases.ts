@@ -7,16 +7,16 @@ const DOWNLOAD_BASE = `https://github.com/${REPO}/releases/download`;
 const DEFAULT_LIMIT = 20;
 
 export const FALLBACK_VERSIONS: readonly string[] = [
+  "0.40.5",
+  "0.40.4",
+  "0.40.3",
+  "0.40.2",
+  "0.40.1",
+  "0.40.0",
+  "0.39.11",
+  "0.39.10",
   "0.39.9",
   "0.39.8",
-  "0.39.7",
-  "0.39.6",
-  "0.34.2",
-  "0.34.1",
-  "0.22.50",
-  "0.22.49",
-  "0.22.48",
-  "0.22.47",
 ];
 
 export type VersionList = { versions: string[]; source: "github" | "builtin" };

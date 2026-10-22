@@ -263,6 +263,71 @@ Deno.test("backend deploy uses the inferred start command with no --start", asyn
   );
 });
 
+Deno.test("backend deploy records --start over the detected one and keeps it on redeploy", async () => {
+  const client = reportRunning(createMockCloudClient());
+  const p = await client.createProject("app");
+  withComputes(client, [{ id: "srv1", name: "pro-1", location: "GRA" }]);
+  const cwd = Deno.makeTempDirSync();
+  Deno.writeTextFileSync(
+    `${cwd}/package.json`,
+    JSON.stringify({ scripts: { start: "node index.js" } }),
+  );
+  Deno.writeTextFileSync(`${cwd}/server.js`, "console.log(1);\n");
+  const cmds = makeBackendCommands(backendDeps(client, cwd, p.id));
+  assertEquals(
+    await cmds["backend deploy"].run(
+      { new: "api", runtime: "nodejs", start: "node server.js", skipEnv: true },
+      { args: [], flags: deployFlags(p.id) },
+    ),
+    0,
+  );
+  assertEquals(
+    client.calls.createResource[0][1].startCommand,
+    "node server.js",
+  );
+  const link = JSON.parse(Deno.readTextFileSync(`${cwd}/pbc.json`));
+  assertEquals(link.build.startCommand, "node server.js");
+  assertEquals(link.build.runtime, "nodejs");
+
+  assertEquals(
+    await cmds["backend deploy"].run({ skipEnv: true }, {
+      args: [],
+      flags: deployFlags(p.id),
+    }),
+    0,
+  );
+  const updates = client.calls.updateResource;
+  assertEquals(updates[updates.length - 1][2].startCommand, "node server.js");
+});
+
+Deno.test("backend deploy shows why the backend did not finish setting up", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  withComputes(client, [{ id: "srv1", name: "pro-1", location: "GRA" }]);
+  const orig = client.getResource.bind(client);
+  client.getResource = async (k, id) => ({
+    ...(await orig(k, id)),
+    status: "error",
+    statusMessage: "No free-tier capacity available",
+  });
+  const cwd = seedSource();
+  const deps = backendDeps(client, cwd, p.id);
+  deps.deploy.setStatus(
+    "failed",
+    "This backend did not finish setting up. Contact support.",
+  );
+  const cmds = makeBackendCommands(deps);
+  await assertRejects(
+    () =>
+      cmds["backend deploy"].run(
+        { new: "api", runtime: "deno", start: "deno task start" },
+        { args: [], flags: deployFlags(p.id) },
+      ),
+    Error,
+    "No free-tier capacity available",
+  );
+});
+
 function withComputes(
   client: ReturnType<typeof createMockCloudClient>,
   computes: { id: string; name: string; location: string }[],

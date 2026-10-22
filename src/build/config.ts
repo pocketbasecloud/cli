@@ -1,5 +1,10 @@
 import type { BuildConfig, LinkFile } from "../config.ts";
-import { linkFileName, readOwnLinkFile, upsertBuildConfig } from "../config.ts";
+import {
+  linkFileName,
+  readOwnLinkFile,
+  upsertBuildConfig,
+  upsertBuildFields,
+} from "../config.ts";
 import type { ResourceKind } from "../clients/types.ts";
 import { describeBuild, detectPythonVersion, inferBuild } from "./detect.ts";
 import { UnsupportedPythonError } from "./python-detect.ts";
@@ -7,6 +12,7 @@ import { CliError } from "../errors.ts";
 
 export type BuildFlags = {
   runtime?: string;
+  startCommand?: string;
   pythonVersion?: string;
   envFile?: string;
 };
@@ -30,9 +36,10 @@ export async function resolveBuildConfig(opts: {
 }): Promise<BuildConfig> {
   const { cwd, kind, flags, environment, log } = opts;
   const own = await readOwnLinkFile(cwd);
+  const explicit = explicitBuild(flags);
 
   if (!own.build && !own.environments?.[environment ?? ""]?.build) {
-    const inferred = await inferBuild(cwd, kind);
+    const inferred = { ...await inferBuild(cwd, kind), ...explicit };
     const name = await linkFileName(cwd);
     log(`No "build" block in ${name} — inferred from ${cwd}:`);
     for (const line of describeBuild(inferred)) log(line);
@@ -41,8 +48,9 @@ export async function resolveBuildConfig(opts: {
     own.build = inferred;
   }
 
-  const build = mergeEnvBuild(own, environment);
-  const runtime = flags.runtime ?? build.runtime;
+  await recordBuildFlags({ cwd, flags, environment, log });
+  const build = { ...mergeEnvBuild(own, environment), ...explicit };
+  const runtime = build.runtime;
   const pythonVersion = flags.pythonVersion ?? build.pythonVersion ??
     (runtime === "python" ? await detectedPythonVersion(cwd, log) : undefined);
   return {
@@ -51,6 +59,34 @@ export async function resolveBuildConfig(opts: {
     ...(pythonVersion ? { pythonVersion } : {}),
     ...(flags.envFile ? { envFile: flags.envFile } : {}),
   };
+}
+
+function explicitBuild(flags: BuildFlags): BuildConfig {
+  return {
+    ...(flags.runtime
+      ? { runtime: flags.runtime as BuildConfig["runtime"] }
+      : {}),
+    ...(flags.startCommand ? { startCommand: flags.startCommand } : {}),
+  };
+}
+
+export async function recordBuildFlags(opts: {
+  cwd: string;
+  flags: BuildFlags;
+  environment?: string;
+  log: (msg: string) => void;
+}): Promise<void> {
+  const { cwd, flags, environment, log } = opts;
+  const recorded = mergeEnvBuild(await readOwnLinkFile(cwd), environment);
+  const changed = Object.fromEntries(
+    Object.entries(explicitBuild(flags)).filter(([key, value]) =>
+      recorded[key as keyof BuildConfig] !== value
+    ),
+  ) as BuildConfig;
+  if (Object.keys(changed).length === 0) return;
+  await upsertBuildFields(cwd, changed, environment);
+  log(`Recorded in ${await linkFileName(cwd)}:`);
+  for (const line of describeBuild(changed)) log(line);
 }
 
 async function detectedPythonVersion(

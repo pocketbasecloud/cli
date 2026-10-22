@@ -11,14 +11,25 @@ import {
 } from "./next-config.ts";
 import { describeInstall, planInstall } from "./install.ts";
 import { plainProgress, type Progress } from "../ui/progress.ts";
+import { type IgnoreRules, loadIgnoreRules } from "./ignore.ts";
 
 const DENY_SEGMENTS = [".git", "pb_data", "__pycache__"];
 const DENY_FILES = [".env", ".env.*", "*.log", "*.pyc"];
 
 export type Strategy = "static" | "source" | "standalone" | "pbdirs";
 
+export type PackedFile = {
+  name: string;
+  size: number;
+  mtimeMs: number;
+  read: () => Promise<Uint8Array>;
+};
+
+type ScannedFile = { name: string; abs: string; size: number; mtimeMs: number };
+
 export type PackageResult = {
   bytes: Uint8Array;
+  files: PackedFile[];
   fileName: string;
   fileCount: number;
   startCommand?: string;
@@ -73,8 +84,20 @@ async function collect(
   prefix: string,
   opts: { keepNodeModules: boolean; extra: RegExp[] },
 ): Promise<ZipEntry[]> {
-  const denyFiles = DENY_FILES.map((g) => globToRegExp(g));
   const out: ZipEntry[] = [];
+  for (const file of await scan(root, prefix, opts)) {
+    out.push({ name: file.name, body: await Deno.readFile(file.abs) });
+  }
+  return out;
+}
+
+async function scan(
+  root: string,
+  prefix: string,
+  opts: { keepNodeModules: boolean; extra: RegExp[]; ignore?: IgnoreRules },
+): Promise<ScannedFile[]> {
+  const denyFiles = DENY_FILES.map((g) => globToRegExp(g));
+  const out: ScannedFile[] = [];
   const seen = new Set<string>();
 
   async function walk(dir: string, rel: string): Promise<void> {
@@ -82,6 +105,8 @@ async function collect(
     if (seen.has(real)) return;
     seen.add(real);
 
+    const children: { name: string; childRel: string; archiveName: string }[] =
+      [];
     for await (const entry of Deno.readDir(dir)) {
       const name = entry.name;
       if (DENY_SEGMENTS.includes(name) || isOsJunkName(name)) continue;
@@ -90,10 +115,17 @@ async function collect(
       const childRel = rel ? `${rel}/${name}` : name;
       const archiveName = prefix ? `${prefix}/${childRel}` : childRel;
       if (matchesAny(archiveName, opts.extra)) continue;
+      children.push({ name, childRel, archiveName });
+    }
+    const stats = await Promise.all(
+      children.map((c) => Deno.stat(join(dir, c.name)).catch(() => null)),
+    );
 
+    for (const [i, { name, childRel, archiveName }] of children.entries()) {
       const abs = join(dir, name);
-      const stat = await Deno.stat(abs).catch(() => null);
+      const stat = stats[i];
       if (!stat) continue;
+      if (opts.ignore?.match(archiveName, stat.isDirectory)) continue;
 
       if (stat.isDirectory) {
         if (await isVirtualenv(abs)) continue;
@@ -101,7 +133,12 @@ async function collect(
         continue;
       }
       if (matchesAny(name, denyFiles)) continue;
-      out.push({ name: archiveName, body: await Deno.readFile(abs) });
+      out.push({
+        name: archiveName,
+        abs,
+        size: stat.size,
+        mtimeMs: stat.mtime?.getTime() ?? 0,
+      });
     }
   }
 
@@ -164,17 +201,18 @@ async function packStandalone(
   return { entries, startCommand: "node server.js" };
 }
 
-async function packPbDirs(
+async function scanPbDirs(
   cwd: string,
   build: BuildConfig,
   extra: RegExp[],
-): Promise<ZipEntry[]> {
+  ignore: IgnoreRules,
+): Promise<ScannedFile[]> {
   const pairs: [string | undefined, string, string][] = [
     [build.pbPublic, "pb_public", "pbPublic"],
     [build.pbHooks, "pb_hooks", "pbHooks"],
     [build.pbMigrations, "pb_migrations", "pbMigrations"],
   ];
-  const groups: ZipEntry[][] = [];
+  const byName = new Map<string, ScannedFile>();
   const name = await linkFileName(cwd);
   for (const [src, canonical, field] of pairs) {
     if (!src) continue;
@@ -183,11 +221,35 @@ async function packPbDirs(
       abs,
       `${src} not found in ${cwd} (${name} build.${field}).`,
     );
-    groups.push(
-      await collect(abs, canonical, { keepNodeModules: false, extra }),
-    );
+    for (
+      const file of await scan(abs, canonical, {
+        keepNodeModules: false,
+        extra,
+        ignore,
+      })
+    ) {
+      byName.set(file.name, file);
+    }
   }
-  return merge(groups);
+  return [...byName.values()];
+}
+
+function packedFromDisk(file: ScannedFile): PackedFile {
+  return {
+    name: file.name,
+    size: file.size,
+    mtimeMs: file.mtimeMs,
+    read: () => Deno.readFile(file.abs),
+  };
+}
+
+function packedFromEntry(entry: ZipEntry, mtimeMs = 0): PackedFile {
+  return {
+    name: entry.name,
+    size: entry.body.length,
+    mtimeMs,
+    read: () => Promise.resolve(entry.body),
+  };
 }
 
 export async function packageResource(opts: {
@@ -198,6 +260,7 @@ export async function packageResource(opts: {
   log: (msg: string) => void;
   progress?: Progress;
   run?: CommandRunner;
+  archive?: boolean;
 }): Promise<PackageResult> {
   const { cwd, kind, build, log } = opts;
   const progress = opts.progress ?? plainProgress(log);
@@ -244,16 +307,43 @@ export async function packageResource(opts: {
     globToRegExp(g, { globstar: true })
   );
 
+  const ignore = strategy === "pbdirs" ? await loadIgnoreRules(cwd) : null;
+  const reportIgnored = () => {
+    const note = ignore?.summary();
+    if (note) log(note);
+  };
+
+  if (strategy === "pbdirs" && opts.archive === false) {
+    return await progress.step("Listing files", async (step) => {
+      const files = (await scanPbDirs(cwd, build, extra, ignore!)).map(
+        packedFromDisk,
+      );
+      step.done(`Listed ${files.length} file(s).`);
+      reportIgnored();
+      return {
+        bytes: new Uint8Array(),
+        files,
+        fileName: fileNameFor(kind),
+        fileCount: files.length,
+      };
+    });
+  }
+
   return await progress.step("Packaging files", async (step) => {
     let entries: ZipEntry[];
     let startCommand: string | undefined;
+    let scanned: ScannedFile[] = [];
 
     if (strategy === "standalone") {
       const packed = await packStandalone(cwd, extra);
       entries = packed.entries;
       startCommand = packed.startCommand;
     } else if (strategy === "pbdirs") {
-      entries = await packPbDirs(cwd, build, extra);
+      scanned = await scanPbDirs(cwd, build, extra, ignore!);
+      entries = [];
+      for (const file of scanned) {
+        entries.push({ name: file.name, body: await Deno.readFile(file.abs) });
+      }
     } else {
       const dir = build.outputDir ??
         (strategy === "static" ? await builtOutputDir(cwd) : ".");
@@ -281,8 +371,12 @@ export async function packageResource(opts: {
     step.done(
       `Packaged ${entries.length} file(s), ${formatSize(bytes.length)}.`,
     );
+    reportIgnored();
     return {
       bytes,
+      files: entries.map((entry, i) =>
+        packedFromEntry(entry, scanned[i]?.mtimeMs)
+      ),
       fileName: fileNameFor(kind),
       fileCount: entries.length,
       startCommand,

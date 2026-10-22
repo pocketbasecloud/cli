@@ -543,3 +543,46 @@ Deno.test("formatSize scales to B, KB, and MB", () => {
   assertEquals(formatSize(2048), "2.0 KB");
   assertEquals(formatSize(3 * 1024 * 1024), "3.0 MB");
 });
+
+Deno.test("pbdirs leaves out what .pbcignore and its defaults match, and says so", async () => {
+  const cwd = dir({
+    ".pbcignore": "# local only\nuploads/\npb_public/drafts\n!keep.map\n",
+    "pb_public/index.html": "x",
+    "pb_public/app.js.map": "x",
+    "pb_public/keep.map": "x",
+    "pb_public/uploads/a.png": "x",
+    "pb_public/img/uploads/b.png": "x",
+    "pb_public/drafts/c.html": "x",
+    "pb_hooks/main.pb.js": "x",
+  });
+  const logged: string[] = [];
+  const { bytes } = await packageResource({
+    cwd,
+    kind: "pocketbases",
+    build: { pbPublic: "pb_public", pbHooks: "pb_hooks" },
+    skipBuild: true,
+    log: (m) => logged.push(m),
+  });
+
+  assertEquals(listNames(bytes).sort(), [
+    "pb_hooks/main.pb.js",
+    "pb_public/index.html",
+    "pb_public/keep.map",
+  ]);
+  assertEquals(
+    logged.at(-1),
+    "Left out 4 file(s) or folder(s) matched by .pbcignore or its defaults: uploads/ (2), *.map (1), pb_public/drafts (1).",
+  );
+});
+
+Deno.test("a frontend ignores .pbcignore and keeps its source maps", async () => {
+  const cwd = dir({
+    ".pbcignore": "*.html\n",
+    "dist/index.html": "x",
+    "dist/app.js.map": "x",
+  });
+  assertEquals(
+    await names(cwd, "frontends", { outputDir: "dist" }),
+    ["app.js.map", "index.html"],
+  );
+});

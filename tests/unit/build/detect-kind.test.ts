@@ -191,6 +191,30 @@ Deno.test("a start script identifies a backend when nothing else does", async ()
   assertEquals(guess?.reason, "a start script in package.json");
 });
 
+Deno.test("a start script running a server file outranks a frontend beside it", async () => {
+  const guess = await detectKind(dir({
+    "index.html": "<html></html>",
+    "server.js": "",
+    "vite.config.js": "",
+    "package.json": pkg({
+      scripts: { dev: "vite", start: "node server.js" },
+      devDependencies: { vite: "5.0.0" },
+    }),
+  }));
+  assertEquals(guess?.kind, "backends");
+  assertEquals(guess?.reason, "the start script runs server.js");
+});
+
+Deno.test("a start script naming a file that is not there is no server signal", async () => {
+  assertEquals(
+    await kindOf({
+      "vite.config.js": "",
+      "package.json": pkg({ scripts: { start: "node dist/server.js" } }),
+    }),
+    "frontends",
+  );
+});
+
 Deno.test("a Bun server with no start script still detects as a backend", async () => {
   assertEquals(
     await kindOf({
@@ -271,4 +295,14 @@ Deno.test("every kind has a label and the command group that deploys it", () => 
   assertEquals(kindCommand("frontends"), "frontend");
   assertEquals(kindDisplay("backends"), "backend");
   assertEquals(kindCommand("backends"), "backend");
+});
+
+Deno.test("a start script too long to be a command is skipped without scanning it", async () => {
+  const root = dir({
+    "package.json": pkg({ scripts: { start: `${"node ".repeat(8_000)}x` } }),
+    "x": "",
+  });
+  const started = performance.now();
+  await detectKind(root);
+  assertEquals(performance.now() - started < 100, true);
 });

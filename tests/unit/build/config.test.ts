@@ -68,24 +68,84 @@ Deno.test("persisting an inferred block preserves the rest of pbc.json", async (
   assertEquals(own.build?.runtime, "deno");
 });
 
-Deno.test("flags override the recorded block without rewriting it", async () => {
+Deno.test("runtime and start flags override the recorded block and are recorded", async () => {
   const cwd = seed({
     "pbc.json": JSON.stringify({
       projectId: "p1",
-      build: { runtime: "nodejs", envFile: ".env" },
+      build: {
+        runtime: "nodejs",
+        startCommand: "npm run start",
+        envFile: ".env",
+      },
     }),
   });
   const cfg = await resolveBuildConfig({
     cwd,
     kind: "backends",
-    flags: { runtime: "bun", envFile: ".env.production" },
+    flags: {
+      runtime: "bun",
+      startCommand: "bun server.ts",
+      envFile: ".env.production",
+    },
     log: noop,
   });
   assertEquals(cfg.runtime, "bun");
+  assertEquals(cfg.startCommand, "bun server.ts");
   assertEquals(cfg.envFile, ".env.production");
   const own = await readOwnLinkFile(cwd);
-  assertEquals(own.build?.runtime, "nodejs");
+  assertEquals(own.build?.runtime, "bun");
+  assertEquals(own.build?.startCommand, "bun server.ts");
   assertEquals(own.build?.envFile, ".env");
+});
+
+Deno.test("runtime and start flags win over inference on the first deploy", async () => {
+  const cwd = seed({
+    "package.json": '{"scripts":{"start":"node index.js"}}',
+    "server.js": "",
+  });
+  const lines: string[] = [];
+  const cfg = await resolveBuildConfig({
+    cwd,
+    kind: "backends",
+    flags: { runtime: "nodejs", startCommand: "node server.js" },
+    log: (m) => lines.push(m),
+  });
+  assertEquals(cfg.startCommand, "node server.js");
+  const own = await readOwnLinkFile(cwd);
+  assertEquals(own.build?.runtime, "nodejs");
+  assertEquals(own.build?.startCommand, "node server.js");
+  assertEquals(lines.some((l) => l.includes("npm run start")), false);
+});
+
+Deno.test("a start flag is recorded in the environment block that sets it", async () => {
+  const cwd = seed({
+    "pbc.json": JSON.stringify({
+      projectId: "p1",
+      kind: "backends",
+      build: { runtime: "nodejs", startCommand: "npm run start" },
+      environments: {
+        staging: {
+          id: "be2",
+          name: "api-staging",
+          build: { startCommand: "npm run start:staging" },
+        },
+      },
+    }),
+  });
+  const cfg = await resolveBuildConfig({
+    cwd,
+    kind: "backends",
+    flags: { startCommand: "node server.js" },
+    environment: "staging",
+    log: noop,
+  });
+  assertEquals(cfg.startCommand, "node server.js");
+  const own = await readOwnLinkFile(cwd);
+  assertEquals(
+    own.environments?.staging.build?.startCommand,
+    "node server.js",
+  );
+  assertEquals(own.build?.startCommand, "npm run start");
 });
 
 Deno.test("a pythonVersion flag overrides the recorded block", async () => {
@@ -254,7 +314,8 @@ Deno.test("flags still beat an environment's block", async () => {
   assertEquals(cfg.envFile, ".env.ci");
   const own = await readOwnLinkFile(cwd);
   assertEquals(own.build?.runtime, "nodejs");
-  assertEquals(own.environments?.staging.build?.runtime, "deno");
+  assertEquals(own.environments?.staging.build?.runtime, "bun");
+  assertEquals(own.environments?.staging.build?.envFile, ".env.staging");
 });
 
 Deno.test('an environment can override a base envFile with "" to push nothing', async () => {
