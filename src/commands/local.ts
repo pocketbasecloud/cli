@@ -176,9 +176,9 @@ Start the instance afterwards with \`./pocketbase serve\`.`,
       path: ["local", "versions"],
       usage: "pbc local versions [--all] [--pre]",
       summary: "List available PocketBase versions.",
-      details: `Reads the live GitHub releases. Shows the 20 newest by semver; --all
+      details: `Reads the live PocketBase releases. Shows the 20 newest by semver; --all
 lists every release and --pre includes prereleases. Falls back to a
-built-in list, clearly labelled, when GitHub is unreachable.`,
+built-in list, clearly labelled, when the release APIs are unreachable.`,
       args: [],
       flags: {
         all: bool({ description: "List every release, not just the 20 newest." }),

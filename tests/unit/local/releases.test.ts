@@ -3,6 +3,7 @@ import {
   assetUrl,
   checksumsUrl,
   compareSemverDesc,
+  DOWNLOAD_BASES,
   FALLBACK_VERSIONS,
   listVersions,
   normalizeVersion,
@@ -11,9 +12,25 @@ import {
 import { CliError, EXIT_CODES } from "../../../src/errors.ts";
 
 type Release = { tag_name: string; draft: boolean; prerelease: boolean };
+type HostRelease = { tag: string; draft: boolean; files: string[] };
+
+const NEW_HOST_API = "https://ganigeorgiev.com/api/";
 
 function releasesResponse(rels: Release[]): Response {
   return new Response(JSON.stringify(rels), { status: 200 });
+}
+
+function hostResponse(rels: HostRelease[]): Response {
+  return new Response(JSON.stringify({ items: rels }), { status: 200 });
+}
+
+function pbRelease(tag: string, draft = false): HostRelease {
+  const v = tag.replace(/^v/, "");
+  return {
+    tag,
+    draft,
+    files: ["checksums.txt", `pocketbase_${v}_linux_amd64.zip`],
+  };
 }
 
 const INTERLEAVED: Release[] = [
@@ -23,16 +40,22 @@ const INTERLEAVED: Release[] = [
   { tag_name: "v0.22.49", draft: false, prerelease: false },
 ];
 
-function stubFetch(res: Response | (() => never)) {
+type Stub = Response | (() => never);
+
+function stubFetch(github: Stub, host: Stub = hostResponse([])) {
   const calls: { url: string; headers: Record<string, string> }[] = [];
   const fn = ((input: string | URL | Request, init?: RequestInit) => {
     const headers: Record<string, string> = {};
     new Headers(init?.headers).forEach((v, k) => headers[k] = v);
-    calls.push({ url: String(input), headers });
+    const url = String(input);
+    calls.push({ url, headers });
+    const res = url.startsWith(NEW_HOST_API) ? host : github;
     if (typeof res === "function") return res();
     return Promise.resolve(res.clone());
   }) as unknown as typeof fetch;
-  return { fn, calls };
+  const githubCall = () => calls.find((c) => !c.url.startsWith(NEW_HOST_API))!;
+  const hostCall = () => calls.find((c) => c.url.startsWith(NEW_HOST_API))!;
+  return { fn, calls, githubCall, hostCall };
 }
 
 Deno.test("normalizeVersion strips a leading v", () => {
@@ -69,6 +92,65 @@ Deno.test("listVersions sorts interleaved release lines by semver", async () => 
   const got = await listVersions({ fetch: fn, env: () => undefined });
   assertEquals(got.source, "github");
   assertEquals(got.versions, ["0.39.9", "0.39.8", "0.22.50", "0.22.49"]);
+});
+
+Deno.test("listVersions merges new host PocketBase releases with GitHub's", async () => {
+  const { fn } = stubFetch(
+    releasesResponse(INTERLEAVED),
+    hostResponse([
+      pbRelease("v0.41.0"),
+      pbRelease("v0.22.58"),
+      pbRelease("v0.39.9"),
+      pbRelease("v0.42.0", true),
+      {
+        tag: "v3.4.73",
+        draft: false,
+        files: ["checksums.txt", "presentator_3.4.73_linux_amd64.zip"],
+      },
+    ]),
+  );
+  const got = await listVersions({ fetch: fn, env: () => undefined });
+  assertEquals(got.versions, [
+    "0.41.0",
+    "0.39.9",
+    "0.39.8",
+    "0.22.58",
+    "0.22.50",
+    "0.22.49",
+  ]);
+});
+
+Deno.test("listVersions treats hyphenated new host tags as prereleases", async () => {
+  const { fn } = stubFetch(
+    releasesResponse([]),
+    hostResponse([pbRelease("v0.42.0-rc.1"), pbRelease("v0.41.0")]),
+  );
+  const env = () => undefined;
+  assertEquals((await listVersions({ fetch: fn, env })).versions, ["0.41.0"]);
+  assertEquals(
+    (await listVersions({ fetch: fn, env }, { pre: true })).versions,
+    ["0.42.0-rc.1", "0.41.0"],
+  );
+});
+
+Deno.test("listVersions falls back when the new host fails", async () => {
+  const { fn } = stubFetch(
+    releasesResponse(INTERLEAVED),
+    new Response("boom", { status: 502 }),
+  );
+  assertEquals(
+    (await listVersions({ fetch: fn, env: () => undefined })).source,
+    "builtin",
+  );
+});
+
+Deno.test("listVersions never sends GITHUB_TOKEN to the new host", async () => {
+  const { fn, hostCall } = stubFetch(releasesResponse(INTERLEAVED));
+  await listVersions({
+    fetch: fn,
+    env: (k) => k === "GITHUB_TOKEN" ? "ghp_x" : undefined,
+  });
+  assertEquals(hostCall().headers["authorization"], undefined);
 });
 
 Deno.test("listVersions drops drafts and prereleases by default", async () => {
@@ -137,27 +219,27 @@ Deno.test("listVersions falls back on a 5xx", async () => {
 });
 
 Deno.test("listVersions sends GITHUB_TOKEN when present", async () => {
-  const { fn, calls } = stubFetch(releasesResponse(INTERLEAVED));
+  const { fn, githubCall } = stubFetch(releasesResponse(INTERLEAVED));
   await listVersions({
     fetch: fn,
     env: (k) => k === "GITHUB_TOKEN" ? "ghp_x" : undefined,
   });
-  assertEquals(calls[0].headers["authorization"], "Bearer ghp_x");
+  assertEquals(githubCall().headers["authorization"], "Bearer ghp_x");
 });
 
 Deno.test("listVersions prefers GITHUB_TOKEN over GH_TOKEN", async () => {
-  const { fn, calls } = stubFetch(releasesResponse(INTERLEAVED));
+  const { fn, githubCall } = stubFetch(releasesResponse(INTERLEAVED));
   await listVersions({
     fetch: fn,
     env: (k) => k === "GITHUB_TOKEN" ? "primary" : "secondary",
   });
-  assertEquals(calls[0].headers["authorization"], "Bearer primary");
+  assertEquals(githubCall().headers["authorization"], "Bearer primary");
 });
 
 Deno.test("listVersions sends no auth header without a token", async () => {
-  const { fn, calls } = stubFetch(releasesResponse(INTERLEAVED));
+  const { fn, githubCall } = stubFetch(releasesResponse(INTERLEAVED));
   await listVersions({ fetch: fn, env: () => undefined });
-  assertEquals(calls[0].headers["authorization"], undefined);
+  assertEquals(githubCall().headers["authorization"], undefined);
 });
 
 Deno.test("resolveLatest returns the newest stable version", async () => {
@@ -180,13 +262,21 @@ Deno.test("resolveLatest refuses to guess from the builtin list", async () => {
   assertEquals((e as Error).message.includes("explicit version"), true);
 });
 
-Deno.test("assetUrl and checksumsUrl point at the tagged release", () => {
+Deno.test("assetUrl and checksumsUrl point at the tagged release on a host", () => {
+  const github = "https://github.com/pocketbase/pocketbase/releases/download";
   assertEquals(
-    assetUrl("0.39.9", "pocketbase_0.39.9_darwin_arm64.zip"),
-    "https://github.com/pocketbase/pocketbase/releases/download/v0.39.9/pocketbase_0.39.9_darwin_arm64.zip",
+    assetUrl("0.39.9", "pocketbase_0.39.9_darwin_arm64.zip", github),
+    `${github}/v0.39.9/pocketbase_0.39.9_darwin_arm64.zip`,
   );
   assertEquals(
-    checksumsUrl("0.39.9"),
-    "https://github.com/pocketbase/pocketbase/releases/download/v0.39.9/checksums.txt",
+    checksumsUrl("0.39.9", github),
+    `${github}/v0.39.9/checksums.txt`,
   );
+});
+
+Deno.test("DOWNLOAD_BASES lists the new host before GitHub", () => {
+  assertEquals(DOWNLOAD_BASES, [
+    "https://ganigeorgiev.com/meta/pocketbase/pocketbase/download",
+    "https://github.com/pocketbase/pocketbase/releases/download",
+  ]);
 });

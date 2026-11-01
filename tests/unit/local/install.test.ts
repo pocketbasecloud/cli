@@ -23,21 +23,37 @@ type Harness = {
   files: Map<string, Uint8Array>;
   texts: Map<string, string>;
   ops: string[];
+  urls: string[];
 };
+
+const NEW_HOST_DOWNLOAD =
+  "https://ganigeorgiev.com/meta/pocketbase/pocketbase/download";
+const GITHUB_DOWNLOAD =
+  "https://github.com/pocketbase/pocketbase/releases/download";
 
 function harness(opts: {
   zip?: Uint8Array;
   checksums?: string | null;
   existing?: string[];
+  host?: string;
+  newHostFailure?: () => Promise<Response>;
 } = {}): Harness {
   const files = new Map<string, Uint8Array>();
   const texts = new Map<string, string>();
   const ops: string[] = [];
+  const urls: string[] = [];
   const existing = new Set(opts.existing ?? []);
 
   const deps: LocalDeps = {
     fetch: ((url: string | URL | Request) => {
       const u = String(url);
+      urls.push(u);
+      if (opts.newHostFailure && u.startsWith(NEW_HOST_DOWNLOAD)) {
+        return opts.newHostFailure();
+      }
+      if (opts.host && !u.startsWith(opts.host)) {
+        return Promise.resolve(new Response("nf", { status: 404 }));
+      }
       if (u.endsWith("checksums.txt")) {
         if (opts.checksums === null) {
           return Promise.resolve(new Response("nope", { status: 404 }));
@@ -100,10 +116,11 @@ function harness(opts: {
     },
     env: () => undefined,
   };
-  return { deps, files, texts, ops };
+  return { deps, files, texts, ops, urls };
 }
 
 const ASSET = "pocketbase_0.39.9_linux_amd64.zip";
+const ASSET_0_41_0 = "pocketbase_0.41.0_linux_amd64.zip";
 
 Deno.test("installBinary downloads, extracts, chmods, and renames into place", async () => {
   const zip = await buildZip([{ name: "pocketbase", body: BODY }]);
@@ -126,6 +143,93 @@ Deno.test("installBinary downloads, extracts, chmods, and renames into place", a
   const chmod = h.ops.findIndex((o) => o.startsWith("chmod:"));
   const rename = h.ops.findIndex((o) => o.startsWith("rename:"));
   assertEquals(write >= 0 && chmod > write && rename > chmod, true);
+});
+
+Deno.test("installBinary downloads from the new host first", async () => {
+  const zip = await buildZip([{ name: "pocketbase", body: BODY }]);
+  const h = harness({
+    zip,
+    checksums: `${await sha256Hex(zip)}  ${ASSET}`,
+    host: NEW_HOST_DOWNLOAD,
+  });
+
+  const res = await installBinary(h.deps, {
+    version: "0.39.9",
+    dir: "/work",
+    os: "linux",
+    arch: "amd64",
+  });
+
+  assertEquals(res.checksumVerified, true);
+  assertEquals(h.urls, [
+    `${NEW_HOST_DOWNLOAD}/v0.39.9/${ASSET}`,
+    `${NEW_HOST_DOWNLOAD}/v0.39.9/checksums.txt`,
+  ]);
+});
+
+Deno.test("installBinary falls back to GitHub and verifies against its checksums", async () => {
+  const zip = await buildZip([{ name: "pocketbase", body: BODY }]);
+  const h = harness({
+    zip,
+    checksums: `${await sha256Hex(zip)}  ${ASSET}`,
+    host: GITHUB_DOWNLOAD,
+  });
+
+  const res = await installBinary(h.deps, {
+    version: "0.39.9",
+    dir: "/work",
+    os: "linux",
+    arch: "amd64",
+  });
+
+  assertEquals(res.checksumVerified, true);
+  assertEquals(h.files.get("/work/pocketbase"), BODY);
+  assertEquals(h.urls, [
+    `${NEW_HOST_DOWNLOAD}/v0.39.9/${ASSET}`,
+    `${GITHUB_DOWNLOAD}/v0.39.9/${ASSET}`,
+    `${GITHUB_DOWNLOAD}/v0.39.9/checksums.txt`,
+  ]);
+});
+
+Deno.test("installBinary serves from GitHub when the new host is down", async () => {
+  const zip = await buildZip([{ name: "pocketbase", body: BODY }]);
+  const h = harness({
+    zip,
+    checksums: `${await sha256Hex(zip)}  ${ASSET}`,
+    host: GITHUB_DOWNLOAD,
+    newHostFailure: () => Promise.reject(new TypeError("dns error")),
+  });
+
+  const res = await installBinary(h.deps, {
+    version: "0.39.9",
+    dir: "/work",
+    os: "linux",
+    arch: "amd64",
+  });
+
+  assertEquals(res.checksumVerified, true);
+  assertEquals(h.files.get("/work/pocketbase"), BODY);
+});
+
+Deno.test("installBinary reports the new host failure when GitHub has no such version", async () => {
+  const h = harness({
+    host: "https://nowhere.invalid",
+    newHostFailure: () =>
+      Promise.resolve(new Response("down", { status: 503 })),
+  });
+
+  const err = await assertRejects(() =>
+    installBinary(h.deps, {
+      version: "0.41.0",
+      dir: "/work",
+      os: "linux",
+      arch: "amd64",
+    }), CliError);
+  assertEquals(err.message, `Download failed (503) for ${ASSET_0_41_0}.`);
+  assertEquals(h.urls, [
+    `${NEW_HOST_DOWNLOAD}/v0.41.0/${ASSET_0_41_0}`,
+    `${GITHUB_DOWNLOAD}/v0.41.0/${ASSET_0_41_0}`,
+  ]);
 });
 
 Deno.test("installBinary accepts a v-prefixed version", async () => {

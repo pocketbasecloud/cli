@@ -1,6 +1,6 @@
 import { CliError } from "../errors.ts";
 
-const RELEASES_PAGE = "https://github.com/pocketbase/pocketbase/releases";
+const RELEASES_PAGE = "https://ganigeorgiev.com/pocketbase/pocketbase/releases";
 
 const OSES = ["darwin", "linux", "windows"] as const;
 

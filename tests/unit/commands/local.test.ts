@@ -30,6 +30,8 @@ const RELEASES = JSON.stringify([
   { tag_name: "v0.22.50", draft: false, prerelease: false },
 ]);
 
+const HOST_RELEASES = JSON.stringify({ items: [] });
+
 function harness(
   opts: { zip?: Uint8Array; sums?: string; offline?: boolean } = {},
 ) {
@@ -42,6 +44,9 @@ function harness(
       const u = String(url);
       if (u.includes("api.github.com")) {
         return Promise.resolve(new Response(RELEASES, { status: 200 }));
+      }
+      if (u.startsWith("https://ganigeorgiev.com/api/")) {
+        return Promise.resolve(new Response(HOST_RELEASES, { status: 200 }));
       }
       if (u.endsWith("checksums.txt")) {
         return Promise.resolve(new Response(opts.sums ?? "", { status: 200 }));

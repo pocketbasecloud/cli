@@ -77,7 +77,7 @@ pbc versions           # list available versions
 pbc which              # show the installed binary and its pin
 \`\`\`
 
-Otherwise download it from <https://github.com/pocketbase/pocketbase/releases>
+Otherwise download it from <https://ganigeorgiev.com/pocketbase/pocketbase/releases>
 and unzip it next to this file.
 
 ## Docs

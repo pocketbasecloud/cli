@@ -8,9 +8,12 @@ import { extractEntry } from "./unzip.ts";
 import {
   assetUrl,
   checksumsUrl,
+  DOWNLOAD_BASES,
   normalizeVersion,
   resolveLatest,
 } from "./releases.ts";
+
+const HTTP_NOT_FOUND = 404;
 
 export type InstallOpts = {
   version?: string;
@@ -34,10 +37,11 @@ async function verifyChecksum(
   version: string,
   assetName: string,
   zip: Uint8Array,
+  base: string,
 ): Promise<boolean> {
   let text: string;
   try {
-    const res = await deps.fetch(checksumsUrl(version));
+    const res = await deps.fetch(checksumsUrl(version, base));
     if (!res.ok) return false;
     text = await res.text();
   } catch {
@@ -51,9 +55,41 @@ async function verifyChecksum(
   if (expected !== actual) {
     throw new CliError(
       `Checksum mismatch for ${assetName}.\n  expected ${expected}\n  actual   ${actual}\n` +
-        "Nothing was written. Retry, and if it persists report it upstream.");
+        "Nothing was written. Retry, and if it persists report it upstream.",
+    );
   }
   return true;
+}
+
+type ServedAsset = { res: Response; base: string };
+
+async function fetchAssetFromFirstServingHost(
+  deps: LocalDeps,
+  version: string,
+  assetName: string,
+  platform: { os: string; arch: string },
+): Promise<ServedAsset> {
+  let firstFailure: Error | undefined;
+  for (const base of DOWNLOAD_BASES) {
+    let res: Response;
+    try {
+      res = await deps.fetch(assetUrl(version, assetName, base));
+    } catch (err) {
+      firstFailure ??= err instanceof Error ? err : new Error(String(err));
+      continue;
+    }
+    if (res.ok) return { res, base };
+    await res.body?.cancel();
+    if (res.status === HTTP_NOT_FOUND) continue;
+    firstFailure ??= new CliError(
+      `Download failed (${res.status}) for ${assetName}.`,
+    );
+  }
+  throw firstFailure ?? new CliError(
+    `PocketBase ${version} has no ${platform.os}/${platform.arch} build. ` +
+      "Run `pbc versions` to see what is available.",
+    { code: "USAGE" },
+  );
 }
 
 export async function installBinary(
@@ -79,18 +115,21 @@ export async function installBinary(
     : await resolveLatest(deps);
 
   const assetName = platform.assetName(version);
-  const res = await deps.fetch(assetUrl(version, assetName));
-  if (res.status === 404) {
-    throw new CliError(
-      `PocketBase ${version} has no ${platform.os}/${platform.arch} build. ` +
-        "Run `pbc versions` to see what is available.", { code: "USAGE" });
-  }
-  if (!res.ok) {
-    throw new CliError(`Download failed (${res.status}) for ${assetName}.`);
-  }
+  const { res, base } = await fetchAssetFromFirstServingHost(
+    deps,
+    version,
+    assetName,
+    platform,
+  );
 
   const zip = new Uint8Array(await res.arrayBuffer());
-  const checksumVerified = await verifyChecksum(deps, version, assetName, zip);
+  const checksumVerified = await verifyChecksum(
+    deps,
+    version,
+    assetName,
+    zip,
+    base,
+  );
   const binary = await extractEntry(zip, platform.binName);
 
   const tmp = join(opts.dir, `.${platform.binName}.download`);

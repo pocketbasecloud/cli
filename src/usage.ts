@@ -3498,7 +3498,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "local versions": {
     "usage": "pbc local versions [--all] [--pre]",
     "summary": "List available PocketBase versions.",
-    "details": "Reads the live GitHub releases. Shows the 20 newest by semver; --all\nlists every release and --pre includes prereleases. Falls back to a\nbuilt-in list, clearly labelled, when GitHub is unreachable.",
+    "details": "Reads the live PocketBase releases. Shows the 20 newest by semver; --all\nlists every release and --pre includes prereleases. Falls back to a\nbuilt-in list, clearly labelled, when the release APIs are unreachable.",
     "args": [],
     "flags": [
       {
