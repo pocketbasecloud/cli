@@ -280,3 +280,45 @@ Deno.test("httpError does not repeat the upgrade order from a 426 body", async (
   );
   assertEquals(e.message.split("`pbc self upgrade`").length - 1, 1);
 });
+
+Deno.test("httpError marks a busy instance as retryable and keeps the platform sentence", async () => {
+  const e = await httpError(
+    res({
+      status: "failed",
+      error_message:
+        "Another change to this instance's files is still being applied. Try again in a minute.",
+      code: "filesBusy",
+    }, 409),
+    "Set env",
+  );
+  assertEquals(e.code, "CONFLICT");
+  assertEquals(e.retryable, true);
+  assertStringIncludes(e.message, "still being applied");
+});
+
+Deno.test("httpError keeps an ordinary conflict non-retryable", async () => {
+  const e = await httpError(
+    res({ message: "Name already taken" }, 409),
+    "Create",
+  );
+  assertEquals(e.retryable, false);
+});
+
+Deno.test("httpError treats a change PocketBase could not start with as the caller's to fix, not a retry", async () => {
+  const e = await httpError(
+    res({
+      status: "failed",
+      error_message:
+        "Revision #1 did not start: failed to execute crash.pb.js: - Error: e2e crash. The previous hooks and public files were put back as revision #2.",
+      code: "startupFailed",
+      revision: 2,
+    }, 422),
+    "Hook push",
+  );
+  assertEquals(e.code, "INVALID_VALUE");
+  assertEquals(e.retryable, false);
+  assertStringIncludes(e.message, "did not start");
+  assertStringIncludes(e.hint ?? "", "put back");
+  assertStringIncludes(e.hint ?? "", "named in the message");
+  assertEquals(e.exitCode, EXIT_CODES.USAGE);
+});

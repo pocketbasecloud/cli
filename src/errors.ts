@@ -92,7 +92,8 @@ export class CliError extends Error {
     this.code = opts.code ?? "PLATFORM_ERROR";
     this.hint = opts.hint ?? HINT_BY_ERROR_CODE[this.code];
     this.docs = opts.docs;
-    this.retryable = opts.retryable ?? (RETRYABLE_BY_ERROR_CODE[this.code] ?? false);
+    this.retryable = opts.retryable ??
+      (RETRYABLE_BY_ERROR_CODE[this.code] ?? false);
     this.fields = opts.fields;
   }
   get exitCode(): number {
@@ -283,6 +284,27 @@ export async function httpError(
     reason
       ? `${action} failed (${res.status}): ${reason}`
       : `${action} failed (${res.status}).`,
-    code ? { code } : {},
+    refusalCode(body) === STARTUP_FAILED_CODE
+      ? { code: "INVALID_VALUE", retryable: false, hint: STARTUP_FAILED_HINT }
+      : {
+        ...(code ? { code } : {}),
+        ...(isBusyRefusal(body) ? { retryable: true } : {}),
+      },
   );
+}
+
+const STARTUP_FAILED_CODE = "startupFailed";
+const STARTUP_FAILED_HINT =
+  "PocketBase did not start with this change, so the previous files were put back. Fix the file named in the message and push it again; pushing the same content again will fail the same way.";
+
+function refusalCode(body: unknown): string | undefined {
+  const code = (body as { code?: unknown } | null)?.code;
+  return typeof code === "string" ? code : undefined;
+}
+
+const BUSY_REFUSAL_CODES = new Set(["filesBusy"]);
+
+function isBusyRefusal(body: unknown): boolean {
+  const code = refusalCode(body);
+  return code !== undefined && BUSY_REFUSAL_CODES.has(code);
 }
