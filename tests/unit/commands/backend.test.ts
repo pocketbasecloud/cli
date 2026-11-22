@@ -232,7 +232,7 @@ Deno.test("backend deploy refuses --python-version on a non-python runtime", asy
         { args: [], flags: deployFlags(p.id) },
       ),
     Error,
-    "--python-version applies to python backends only",
+    "--python-version applies to python services only",
   );
   assertEquals(client.calls.createResource.length, 0);
 });

@@ -70,7 +70,7 @@ build. The source is kept, so pbc website revisions and pbc website pull work
 on it and it can be edited from the portal or an AI assistant. A Next.js app
 with a server is a service: deploy it with pbc service deploy.
 
-Frontends have no cloud env store — build-time variables are baked into the
+Websites have no cloud env store — build-time variables are baked into the
 bundle, so there is no --env-file flag here.
 
 A site is served from an address the platform assigns and never changes:
@@ -80,12 +80,12 @@ it, use pbc website domain add.`,
       flags: {
         name: str({
           description:
-            "Which existing frontend to redeploy; asked for when unbound.",
+            "Which existing website to redeploy; asked for when unbound.",
           conflicts: ["new"],
         }),
         new: str({
           description:
-            "Create a new frontend with this name. Fails if the name is taken.",
+            "Create a new website with this name. Fails if the name is taken.",
           conflicts: ["name"],
         }),
         zip: str({

@@ -463,7 +463,7 @@ for (const kind of ["pocketbases", "backends"] as const) {
             assertEquals(await run(), 0);
           }
           assertStringIncludes(stderr.join(""), "Startup output");
-          assertEquals(requests, [{ target_id: resource.id, type: apiType, initial_lines: 50 }]);
+          assertEquals(requests, [{ target_id: resource.id, type: apiType, initial_lines: 50, follow: false }]);
           if (json && status === "success") {
             assertEquals(stdout.lines.length, 1);
             assertEquals(JSON.parse(stdout.lines[0]).data.id, resource.id);

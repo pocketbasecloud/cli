@@ -156,6 +156,22 @@ Deno.test("the denylist drops .git, pb_data, dotenv files, and logs", async () =
   ]);
 });
 
+Deno.test("a site served from its root never publishes the CLI's local state files", async () => {
+  const cwd = dir({
+    "index.html": "x",
+    "pbc.json": '{"projectId":"p1"}',
+    "pb.json": '{"projectId":"p1"}',
+    ".pbcignore": "*.map",
+    "assets/pbc.json": "{}",
+  });
+  assertEquals(await names(cwd, "frontends", {}), ["index.html"]);
+});
+
+Deno.test("a service never ships the CLI's local state files", async () => {
+  const cwd = dir({ "main.ts": "x", "pbc.json": "{}", "pb.json": "{}" });
+  assertEquals(await names(cwd, "backends", { runtime: "deno" }), ["main.ts"]);
+});
+
 Deno.test("build.exclude globs drop extra files", async () => {
   const cwd = dir({
     "dist/app.js": "x",

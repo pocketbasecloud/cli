@@ -90,12 +90,12 @@ pbc website deploy instead.`,
       flags: {
         name: str({
           description:
-            "Which existing backend to redeploy; asked for when unbound.",
+            "Which existing service to redeploy; asked for when unbound.",
           conflicts: ["new"],
         }),
         new: str({
           description:
-            "Create a new backend with this name. Fails if the name is taken.",
+            "Create a new service with this name. Fails if the name is taken.",
           conflicts: ["name"],
         }),
         runtime: str({
@@ -105,7 +105,7 @@ pbc website deploy instead.`,
         }),
         pythonVersion: str({
           description:
-            "Python version for a python backend. Defaults to build.pythonVersion in pbc.json, else inferred.",
+            "Python version for a python service. Defaults to build.pythonVersion in pbc.json, else inferred.",
           choices: [...PYTHON_VERSIONS],
         }),
         start: str({
@@ -232,7 +232,7 @@ pbc website deploy instead.`,
         const pythonVersion = input.pythonVersion ?? bundle.build.pythonVersion;
         if (pythonVersion && runtime !== "python") {
           throw new CliError(
-            "--python-version applies to python backends only.",
+            "--python-version applies to python services only.",
             { code: "USAGE" },
           );
         }
@@ -247,7 +247,7 @@ pbc website deploy instead.`,
         if (start) data.startCommand = start;
         if (!start && target.create) {
           throw new CliError(
-            `No start command for this ${runtime} backend. Add a "start" ` +
+            `No start command for this ${runtime} service. Add a "start" ` +
               `${
                 runtime === "deno"
                   ? "task to deno.json"

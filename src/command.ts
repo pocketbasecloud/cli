@@ -43,7 +43,12 @@ type BooleanFlag = {
 
 export type FlagSpec = StringFlag | PathFlag | BooleanFlag;
 
-export type ArgSpec = { name: string; required: boolean; description?: string };
+export type ArgSpec = {
+  name: string;
+  required: boolean;
+  description?: string;
+  variadic?: boolean;
+};
 
 export type CmdCtx = { args: string[]; flags: GlobalFlags };
 

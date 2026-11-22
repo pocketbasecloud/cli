@@ -52,6 +52,29 @@ function flagLines(command: Command): string[] {
   );
 }
 
+export function groupCommands(
+  registry: CommandRegistry,
+  group: string,
+): string[] {
+  if (!group) return [];
+  return canonicalKeys(registry).filter((c) => c.startsWith(`${group} `))
+    .sort();
+}
+
+export function buildGroupHelpText(
+  registry: CommandRegistry,
+  group: string,
+): string {
+  return [
+    `Usage: pbc ${group} <command> [flags]`,
+    "",
+    "Commands:",
+    ...formatSection(registry, groupCommands(registry, group)),
+    "",
+    `Run \`pbc ${group} <command> --help\` for details on a command.`,
+  ].join("\n");
+}
+
 export function buildCommandHelpText(command: Command): string {
   const flags = flagLines(command);
   return [

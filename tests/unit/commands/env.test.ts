@@ -415,6 +415,128 @@ async function frontendEnvFixture(buildEnv?: Record<string, string>) {
   return { client, cmds, fe, flags };
 }
 
+async function backendEnvFixture(
+  pbApi?: (path: string, body: unknown) => Promise<Response>,
+) {
+  const client = createMockCloudClient(pbApi ? { pbApi } : {});
+  const p = await client.createProject("app");
+  const be = await client.createResource("backends", {
+    name: "api",
+    project: p.id,
+  });
+  const config: Config = {
+    ...defaultConfig(),
+    cloud: { backendUrl: "u", extUrl: "x", userToken: "t", userId: "u1" },
+    currentProject: p.id,
+  };
+  const cmds = makeEnvCommands({
+    requireAuth: () => Promise.resolve({ client, config, auth: config.cloud! }),
+    loadConfig: () => Promise.resolve(config),
+    saveConfig: () => Promise.resolve(),
+    cwd: () => "/tmp",
+    envStatePath: tempStatePath(),
+  });
+  const flags = {
+    json: true,
+    yes: true,
+    noInput: true,
+    interactive: false,
+    project: p.id,
+  };
+  return { client, cmds, be, flags };
+}
+
+Deno.test("env set with several pairs writes them in one bulk request", async () => {
+  const { client, cmds, be, flags } = await backendEnvFixture();
+  const code = await cmds["env set"].run(
+    { target: "backend", name: "api" },
+    { args: ["A=1", "B=x=y"], flags },
+  );
+  assertEquals(code, 0);
+  assertEquals(client.calls.pbApi, []);
+  assertEquals(client.calls.ext, [["/api/env/bulk-set", {
+    target_id: be.id,
+    type: "backend",
+    variables: { A: "1", B: "x=y" },
+    prune: false,
+  }]]);
+});
+
+Deno.test("env set with one pair keeps the single-key request", async () => {
+  const { client, cmds, be, flags } = await backendEnvFixture();
+  await cmds["env set"].run(
+    { target: "backend", name: "api" },
+    { args: ["A=1"], flags },
+  );
+  assertEquals(client.calls.pbApi, [["/api/env/set", {
+    target_id: be.id,
+    type: "backend",
+    key: "A",
+    value: "1",
+  }]]);
+  assertEquals(client.calls.ext, []);
+});
+
+Deno.test("env set refuses a pair without = before writing anything", async () => {
+  const { client, cmds, flags } = await backendEnvFixture();
+  const err = await assertRejects(() =>
+    cmds["env set"].run(
+      { target: "backend", name: "api" },
+      { args: ["A=1", "B"], flags },
+    )
+  );
+  assertEquals((err as CliError).code, "USAGE");
+  assertEquals(client.calls.pbApi, []);
+  assertEquals(client.calls.ext, []);
+});
+
+Deno.test("env rm of a variable the platform did not have says it was not set", async () => {
+  const { cmds, flags } = await backendEnvFixture(() =>
+    Promise.resolve(Response.json({
+      status: "success",
+      operation: "delete-env",
+      details: { key: "REG_NOPE", was_existing: false },
+    }))
+  );
+  const err = await assertRejects(
+    () =>
+      cmds["env rm"].run(
+        { target: "backend", name: "api" },
+        { args: ["REG_NOPE"], flags },
+      ),
+    CliError,
+    "REG_NOPE is not set on this service.",
+  );
+  assertEquals((err as CliError).code, "NOT_FOUND");
+});
+
+Deno.test("env rm of a variable the platform had succeeds", async () => {
+  const { cmds, flags } = await backendEnvFixture(() =>
+    Promise.resolve(Response.json({
+      status: "success",
+      details: { key: "A", was_existing: true },
+    }))
+  );
+  const code = await cmds["env rm"].run(
+    { target: "backend", name: "api" },
+    { args: ["A"], flags },
+  );
+  assertEquals(code, 0);
+});
+
+Deno.test("env set with several pairs merges them into a website's buildEnv at once", async () => {
+  const { client, cmds, fe, flags } = await frontendEnvFixture({ VITE_A: "1" });
+  await cmds["env set"].run(
+    { target: "frontend", name: "site" },
+    { args: ["VITE_B=2", "VITE_C=3"], flags },
+  );
+  assertEquals(client.calls.updateResource, [[
+    "frontends",
+    fe.id,
+    { buildEnv: { VITE_A: "1", VITE_B: "2", VITE_C: "3" } },
+  ]]);
+});
+
 Deno.test("env set --target frontend merges into the frontend's buildEnv", async () => {
   const { client, cmds, fe, flags } = await frontendEnvFixture({ VITE_A: "1" });
   const code = await cmds["env set"].run(

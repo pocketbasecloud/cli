@@ -299,3 +299,19 @@ Deno.test("a repeatable flag collects every value in order, a plain one keeps th
     assertEquals(out.input.name, "b");
   }
 });
+
+Deno.test("a variadic last argument accepts several values; a fixed one does not", () => {
+  const command = (variadic: boolean) =>
+    defineCommand({
+      path: ["env", "set"],
+      usage: "",
+      summary: "",
+      args: [{ name: "KEY=VALUE", required: true, variadic }],
+      flags: {},
+      run: () => Promise.resolve(0),
+    });
+  const many = parseCommand(command(true), [], ["A=1", "B=2"], {});
+  assertEquals(many.ok && many.args, ["A=1", "B=2"]);
+  const fixed = parseCommand(command(false), [], ["A=1", "B=2"], {});
+  assertEquals(!fixed.ok && fixed.errors[0].kind, "arity");
+});

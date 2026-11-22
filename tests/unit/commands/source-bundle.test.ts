@@ -41,7 +41,7 @@ Deno.test("a website --source bundle holds the source without building it", asyn
   assertEquals(ran, []);
   assertEquals(
     [...(await extractFiles(bundle.bytes)).keys()].sort(),
-    ["package.json", "pbc.json", "src/main.ts", "vite.config.ts"],
+    ["package.json", "src/main.ts", "vite.config.ts"],
   );
   assertEquals(sourceHints(bundle.build), {
     command: bundle.build.command,

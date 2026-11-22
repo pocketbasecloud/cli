@@ -180,7 +180,10 @@ export function parseCommand(
         kind: "required", message: `missing required argument <${a.name}>.`,
       });
     }
-  } else if (argSpecs.length > 0 && args.length > argSpecs.length) {
+  } else if (
+    argSpecs.length > 0 && args.length > argSpecs.length &&
+    !argSpecs.at(-1)?.variadic
+  ) {
     errors.push({
       kind: "arity",
       message: `unexpected argument: ${args.slice(argSpecs.length).join(" ")}.`,

@@ -6,13 +6,17 @@ import type {
   Need,
 } from "./command.ts";
 import { canonicalKeys, kebabCase } from "./command.ts";
-import { parseGlobalFlags } from "./globals.ts";
+import { type GlobalFlags, parseGlobalFlags } from "./globals.ts";
 import type { ParseError } from "./parse.ts";
 import { nearestCommand, parseCommand, resolveCommand } from "./parse.ts";
 import { fillMissing, type PromptIO } from "./ui/prompt.ts";
 import { type CommandTarget, targetsOf } from "./targets.ts";
 import { emit, emitError } from "./envelope.ts";
-import { buildCommandHelpText } from "./help.ts";
+import {
+  buildCommandHelpText,
+  buildGroupHelpText,
+  groupCommands,
+} from "./help.ts";
 export { nearestCommand };
 
 const PARSE_ERROR_CODE: Record<ParseError["kind"], ErrorCode> = {
@@ -66,6 +70,37 @@ export function manifestEntry(command: Command): ManifestEntry {
   };
 }
 
+function groupHelp(
+  registry: CommandRegistry,
+  group: string,
+  members: string[],
+  globals: GlobalFlags,
+): number {
+  if (globals.help) {
+    emit(
+      globals.json,
+      {
+        group,
+        commands: members.map((command) => ({
+          command,
+          summary: registry[command].summary,
+        })),
+      },
+      () => buildGroupHelpText(registry, group),
+    );
+    return 0;
+  }
+  const err = new CliError(`pbc ${group} needs a command.`, {
+    code: "USAGE",
+    hint: `pbc ${group} --help`,
+  });
+  console.error(
+    `Error: ${err.message}\n\n${buildGroupHelpText(registry, group)}`,
+  );
+  emitError(globals.json, err);
+  return err.exitCode;
+}
+
 export async function dispatch(
   registry: CommandRegistry,
   argv: string[],
@@ -81,6 +116,11 @@ export async function dispatch(
   }
   if (!command) {
     const globals = parseGlobalFlags(rest);
+    const group = path.join(" ");
+    const members = groupCommands(registry, group);
+    if (members.length > 0) {
+      return groupHelp(registry, group, members, globals);
+    }
     const suggestion = nearestCommand(path.join(" "), canonicalKeys(registry));
     const err = new CliError(
       `Unknown command: ${path.join(" ") || "(none)"}.` +

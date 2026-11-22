@@ -2,7 +2,7 @@
 // command registry, and re-run by `deno task build`. Do not edit by hand — the docs site imports COMMANDS
 // from this file and it must stay pure data.
 
-export type ArgSpec = { name: string; required: boolean; description?: string };
+export type ArgSpec = { name: string; required: boolean; description?: string; variadic?: boolean };
 export type FlagSpec = { name: string; type: "string" | "boolean" | "path"; required: boolean; choices?: string[]; description?: string; /** Accepted as an alias for this flag; do not document it as its own. */ renamedTo?: string; /** Parsed and discarded; do not document it as usable. */ retired?: { since: string; note: string } };
 export type Need = `target:${string}` | { explicit: true };
 export type CommandSpec = { usage: string; summary: string; details?: string; /** Target resolution the command needs: which resource kind, and whether a lone candidate may be auto-selected. */ needs?: Need[]; args: ArgSpec[]; flags: FlagSpec[] };
@@ -1559,7 +1559,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "pocketbase continuous-backup status": {
     "usage": "pbc pocketbase continuous-backup status [--name <instance>]",
     "summary": "Show whether continuous backup is on for an instance.",
-    "details": "Continuous backup streams every database change off-site and\nallows a restore to any point in time. A paid plan is required to enable it.",
+    "details": "Continuous backup streams every database change off-site and\nallows a restore to any point in time. A paid plan is required to enable it;\nnew instances on a paid plan start with it on, syncing every 5 minutes.",
     "needs": [
       "target:pocketbases",
       {
@@ -1567,6 +1567,32 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ],
     "args": [],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which instance. Defaults to the directory binding."
+      }
+    ]
+  },
+  "pocketbase continuous-backup interval": {
+    "usage": "pbc pocketbase continuous-backup interval [--name <instance>] <5m|1m|1s>",
+    "summary": "Change how often continuous backup syncs an instance.",
+    "details": "5m is included with a paid plan. 1m costs $5/month and 1s\n$15/month per instance. 5m and 1m keep a 7-day restore window; 1s keeps 30\ndays. A paid tier charges a prorated amount now and applies once paid; if the\ncharge needs confirmation, the command prints its payment link. While an\nearlier invoice is unpaid, it prints that invoice's link and changes nothing;\npay it, then run the command again.",
+    "needs": [
+      "target:pocketbases",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "interval",
+        "required": true,
+        "description": "5m, 1m or 1s"
+      }
+    ],
     "flags": [
       {
         "name": "name",
@@ -1617,7 +1643,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "pocketbase email status": {
     "usage": "pbc pocketbase email status [--name <instance>]",
     "summary": "Show managed email status, sender level and usage.",
-    "details": "Managed email sends the instance's verification, password reset\nand sign-in code emails with no mail server setup. Starter and Pro include\n50 emails a day and 500 a month; an email add-on raises the limits.",
+    "details": "Managed email sends the instance's verification, password reset\nand sign-in code emails with no mail server setup. Starter and Pro include\n200 emails a day and 2,000 a month; an email add-on raises the limits.",
     "needs": [
       "target:pocketbases",
       {
@@ -3996,7 +4022,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "website deploy": {
     "usage": "pbc website deploy [--name <name>|--new <name>] [flags]",
     "summary": "Build, package, and deploy a static site.",
-    "details": "Runs the build command, zips the output directory, and uploads it. Both\ncome from the \"build\" block in pbc.json, inferred from the directory\n(vite/svelte/angular/next config, package.json build script) and written\nthere on the first deploy.\n\nWith --source, the directory's source is uploaded instead (without\nnode_modules, .git, .env files or the build output) and the platform runs the\nbuild. The source is kept, so pbc website revisions and pbc website pull work\non it and it can be edited from the portal or an AI assistant. A Next.js app\nwith a server is a service: deploy it with pbc service deploy.\n\nFrontends have no cloud env store — build-time variables are baked into the\nbundle, so there is no --env-file flag here.\n\nA site is served from an address the platform assigns and never changes:\n<id>.<compute>.pocketbasecloud.com. To put a domain of your own in front of\nit, use pbc website domain add.",
+    "details": "Runs the build command, zips the output directory, and uploads it. Both\ncome from the \"build\" block in pbc.json, inferred from the directory\n(vite/svelte/angular/next config, package.json build script) and written\nthere on the first deploy.\n\nWith --source, the directory's source is uploaded instead (without\nnode_modules, .git, .env files or the build output) and the platform runs the\nbuild. The source is kept, so pbc website revisions and pbc website pull work\non it and it can be edited from the portal or an AI assistant. A Next.js app\nwith a server is a service: deploy it with pbc service deploy.\n\nWebsites have no cloud env store — build-time variables are baked into the\nbundle, so there is no --env-file flag here.\n\nA site is served from an address the platform assigns and never changes:\n<id>.<compute>.pocketbasecloud.com. To put a domain of your own in front of\nit, use pbc website domain add.",
     "needs": [
       "target:frontends",
       {
@@ -4009,13 +4035,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": false,
-        "description": "Which existing frontend to redeploy; asked for when unbound."
+        "description": "Which existing website to redeploy; asked for when unbound."
       },
       {
         "name": "new",
         "type": "string",
         "required": false,
-        "description": "Create a new frontend with this name. Fails if the name is taken."
+        "description": "Create a new website with this name. Fails if the name is taken."
       },
       {
         "name": "zip",
@@ -4088,13 +4114,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": false,
-        "description": "Which existing backend to redeploy; asked for when unbound."
+        "description": "Which existing service to redeploy; asked for when unbound."
       },
       {
         "name": "new",
         "type": "string",
         "required": false,
-        "description": "Create a new backend with this name. Fails if the name is taken."
+        "description": "Create a new service with this name. Fails if the name is taken."
       },
       {
         "name": "runtime",
@@ -4120,7 +4146,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
           "3.13",
           "3.14"
         ],
-        "description": "Python version for a python backend. Defaults to build.pythonVersion in pbc.json, else inferred."
+        "description": "Python version for a python service. Defaults to build.pythonVersion in pbc.json, else inferred."
       },
       {
         "name": "start",
@@ -4374,7 +4400,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
           "3.13",
           "3.14"
         ],
-        "description": "Python version for a python backend. Defaults to build.pythonVersion in pbc.json, else inferred."
+        "description": "Python version for a python service. Defaults to build.pythonVersion in pbc.json, else inferred."
       },
       {
         "name": "start",
@@ -4478,12 +4504,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ]
   },
   "env set": {
-    "usage": "pbc env set KEY=VALUE --target pocketbase|website|service --name <n> [--env <name>]",
-    "summary": "Set an environment variable.",
+    "usage": "pbc env set KEY=VALUE [KEY=VALUE...] --target pocketbase|website|service --name <n> [--env <name>]",
+    "summary": "Set one or more environment variables.",
     "args": [
       {
         "name": "KEY=VALUE",
-        "required": true
+        "required": true,
+        "variadic": true
       }
     ],
     "flags": [

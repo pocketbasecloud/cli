@@ -41,6 +41,7 @@ import {
   previewUrl,
   sourceLabel,
 } from "../clients/previews.ts";
+import { currentRevision, rememberInstanceRevision } from "./revisions.ts";
 
 export {
   listPreviews,
@@ -511,6 +512,22 @@ function copyLine(copy: PreviewMember, source = LIVE): string {
     }`,
     ...(copy.notice ? [`      ${copy.notice}`] : []),
   ].join("\n");
+}
+
+export function originLabel(preview: PreviewSummary): string {
+  return preview.data === "empty"
+    ? `made from ${sourceLabel(preview)} with an empty database`
+    : `copied from ${sourceLabel(preview)}`;
+}
+
+export function shipTargetInstance(
+  liveId: string,
+  previews: PreviewSummary[],
+  targetId: string,
+): string | undefined {
+  if (targetId === LIVE) return liveId;
+  const environment = previews.find((preview) => preview.id === targetId);
+  return environment ? pocketbaseMember(environment)?.id : undefined;
 }
 
 export function createdCopies(
@@ -1111,8 +1128,8 @@ Deploy to the copy from the live ${spec.label}'s directory with
             copies,
           },
           [
-            `${label} ${preview.name} of ${found.name}, copied from ${
-              sourceLabel(preview)
+            `${label} ${preview.name} of ${found.name}, ${
+              originLabel(preview)
             }, is ready (${lifetimeLabel(preview)}):`,
             ...copies.map((copy) =>
               `    ${KIND_WORD[copy.kind]}  ${copy.name}  ${copy.id}`
@@ -1155,7 +1172,10 @@ shipped to an environment, it is kept so it can go on to live later.`,
         }),
       },
       run: async (input, ctx) => {
-        const { client, preview, previews } = await withPreview(ctx, input);
+        const { client, found, preview, previews } = await withPreview(
+          ctx,
+          input,
+        );
         const target = input.to
           ? resolveEnvironment(previews, input.to, "ship", preview)
           : undefined;
@@ -1191,6 +1211,15 @@ shipped to an environment, it is kept so it can go on to live later.`,
           },
           "Ship",
         );
+        const shippedTo = isPocketBase
+          ? shipTargetInstance(found.id, previews, changes.target.id)
+          : undefined;
+        const revision = shippedTo
+          ? await currentRevision(client, shippedTo)
+          : undefined;
+        if (shippedTo && revision !== undefined) {
+          await rememberInstanceRevision(deps.cwd(), shippedTo, revision);
+        }
         const members = shipped?.members ?? [];
         const kept = shipped?.kept ?? isPermanent(preview);
         emit(

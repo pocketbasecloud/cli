@@ -637,7 +637,14 @@ Deno.test("pb continuous-backup status maps the instance state", async () => {
     return Promise.resolve(
       Response.json({
         success: true,
-        data: { enabled: true, running: false, restorable: true },
+        data: {
+          enabled: true,
+          running: false,
+          restorable: true,
+          interval: "1m",
+          retentionDays: 30,
+          suspended: false,
+        },
       }),
     );
   };
@@ -661,7 +668,164 @@ Deno.test("pb continuous-backup status maps the instance state", async () => {
     enabled: true,
     running: false,
     restorable: true,
+    interval: "1m",
+    intervalIncluded: false,
+    retentionDays: 30,
+    suspended: false,
   });
+});
+
+Deno.test("pb continuous-backup status marks an included interval", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  await client.createResource("pocketbases", { name: "db1", project: p.id });
+  client.ext = () =>
+    Promise.resolve(
+      Response.json({
+        success: true,
+        data: {
+          enabled: true,
+          running: true,
+          restorable: true,
+          interval: "1m",
+          intervalIncluded: true,
+          retentionDays: 7,
+          suspended: false,
+        },
+      }),
+    );
+  const { d } = deps(client);
+  const log = captureLog();
+  try {
+    await makePbCommands(d)["pocketbase continuous-backup status"].run({
+      name: "db1",
+    }, {
+      args: [],
+      flags: flags({ project: p.id, json: false }),
+    });
+  } finally {
+    log.restore();
+  }
+  assertStringIncludes(
+    log.lines.join("\n"),
+    "Interval: every minute (included)",
+  );
+});
+
+Deno.test("pb continuous-backup status describes a suspended backup", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  await client.createResource("pocketbases", { name: "db1", project: p.id });
+  client.ext = () =>
+    Promise.resolve(
+      Response.json({
+        success: true,
+        data: {
+          enabled: true,
+          running: false,
+          restorable: true,
+          retentionDays: 7,
+          suspended: true,
+        },
+      }),
+    );
+  const { d } = deps(client);
+  const log = captureLog();
+  try {
+    await makePbCommands(d)["pocketbase continuous-backup status"].run({
+      name: "db1",
+    }, {
+      args: [],
+      flags: flags({ project: p.id, json: false }),
+    });
+  } finally {
+    log.restore();
+  }
+  const output = log.lines.join("\n");
+  assertStringIncludes(output, "Suspended (plan changed; restore points kept)");
+  assertStringIncludes(output, "Interval: every 5 minutes");
+  assertStringIncludes(output, "Restore window: 7 days");
+});
+
+Deno.test("pb continuous-backup interval posts the new interval", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const resource = await client.createResource("pocketbases", {
+    name: "db1",
+    project: p.id,
+  });
+  const { d } = deps(client);
+  const log = captureLog();
+  try {
+    const code = await makePbCommands(
+      d,
+    )["pocketbase continuous-backup interval"]
+      .run({ name: "db1" }, {
+        args: ["1s"],
+        flags: flags({ project: p.id, json: false }),
+      });
+    assertEquals(code, 0);
+  } finally {
+    log.restore();
+  }
+  assertEquals(client.calls.ext.at(-1), [
+    "/api/pocketbases/continuous-backup/interval",
+    { pocketbaseId: resource.id, interval: "1s" },
+  ]);
+  assertStringIncludes(log.lines.join("\n"), "every second ($15/month)");
+});
+
+Deno.test("pb continuous-backup interval rejects an unknown interval", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  await client.createResource("pocketbases", { name: "db1", project: p.id });
+  const { d } = deps(client);
+  await assertRejects(
+    () =>
+      makePbCommands(d)["pocketbase continuous-backup interval"].run({
+        name: "db1",
+      }, {
+        args: ["10m"],
+        flags: flags({ project: p.id }),
+      }),
+    CliError,
+    "5m, 1m or 1s",
+  );
+  assertEquals(client.calls.ext.length, 0);
+});
+
+Deno.test("pb continuous-backup interval points to payment when Stripe needs it", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  await client.createResource("pocketbases", { name: "db1", project: p.id });
+  client.ext = () =>
+    Promise.resolve(
+      Response.json(
+        {
+          success: false,
+          error:
+            "The prorated charge didn't go through yet. Pay it on Stripe's secure page; the new interval applies once paid.",
+          paymentUrl: "https://pay.example.com/i/abc",
+        },
+        { status: 402 },
+      ),
+    );
+  const { d } = deps(client);
+  const error = await assertRejects(
+    () =>
+      makePbCommands(d)["pocketbase continuous-backup interval"].run({
+        name: "db1",
+      }, {
+        args: ["1m"],
+        flags: flags({ project: p.id }),
+      }),
+    CliError,
+  );
+  assertEquals(
+    error.message,
+    "The prorated charge didn't go through yet. Pay it on Stripe's secure page; the new interval applies once paid. https://pay.example.com/i/abc",
+  );
+  assertEquals(error.hint, "The change applies only after payment.");
 });
 
 Deno.test("pb continuous-backup enable posts the instance id", async () => {

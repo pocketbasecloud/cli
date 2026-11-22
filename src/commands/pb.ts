@@ -1201,7 +1201,8 @@ merge and --delete-missing/--skip-env/--force-env rules.`,
       usage: "pbc pocketbase continuous-backup status [--name <instance>]",
       summary: "Show whether continuous backup is on for an instance.",
       details: `Continuous backup streams every database change off-site and
-allows a restore to any point in time. A paid plan is required to enable it.`,
+allows a restore to any point in time. A paid plan is required to enable it;
+new instances on a paid plan start with it on, syncing every 5 minutes.`,
       args: [],
       flags: {
         name: str({
@@ -1216,20 +1217,99 @@ allows a restore to any point in time. A paid plan is required to enable it.`,
         );
         if (!res.ok) throw await httpError(res, "Continuous backup status");
         const body = await res.json().catch(() => ({})) as {
-          data?: { enabled?: boolean; running?: boolean; restorable?: boolean };
+          data?: {
+            enabled?: boolean;
+            running?: boolean;
+            restorable?: boolean;
+            interval?: string;
+            intervalIncluded?: boolean;
+            retentionDays?: number;
+            suspended?: boolean;
+          };
         };
         const status = body.data ?? {};
         const enabled = status.enabled === true;
         const running = status.running === true;
         const restorable = status.restorable === true;
+        const interval = isBackupInterval(status.interval)
+          ? status.interval
+          : DEFAULT_BACKUP_INTERVAL;
+        const intervalIncluded = status.intervalIncluded === true;
+        const retentionDays = status.retentionDays ?? null;
+        const suspended = status.suspended === true;
         emit(
           ctx.flags.json,
-          { enabled, running, restorable },
+          {
+            enabled,
+            running,
+            restorable,
+            interval,
+            intervalIncluded,
+            retentionDays,
+            suspended,
+          },
           [
             `Enabled: ${enabled ? "yes" : "no"}`,
+            ...(suspended ? [SUSPENDED_BACKUP_STATE] : []),
             `Running: ${running ? "yes" : "no"}`,
             `Restorable: ${restorable ? "yes" : "no"}`,
+            `Interval: ${BACKUP_INTERVALS[interval].label}${
+              intervalIncluded ? " (included)" : ""
+            }`,
+            ...(retentionDays === null
+              ? []
+              : [`Restore window: ${retentionDays} days`]),
           ].join("\n"),
+        );
+        return 0;
+      },
+    }),
+
+    "pocketbase continuous-backup interval": defineCommand({
+      path: ["pocketbase", "continuous-backup", "interval"],
+      needs: ["target:pocketbases", { explicit: true }],
+      usage:
+        "pbc pocketbase continuous-backup interval [--name <instance>] <5m|1m|1s>",
+      summary: "Change how often continuous backup syncs an instance.",
+      details: `5m is included with a paid plan. 1m costs $5/month and 1s
+$15/month per instance. 5m and 1m keep a 7-day restore window; 1s keeps 30
+days. A paid tier charges a prorated amount now and applies once paid; if the
+charge needs confirmation, the command prints its payment link. While an
+earlier invoice is unpaid, it prints that invoice's link and changes nothing;
+pay it, then run the command again.`,
+      args: [{
+        name: "interval",
+        required: true,
+        description: "5m, 1m or 1s",
+      }],
+      flags: {
+        name: str({
+          description: "Which instance. Defaults to the directory binding.",
+        }),
+      },
+      run: async (input, ctx) => {
+        const interval = ctx.args[0];
+        if (!isBackupInterval(interval)) {
+          throw new CliError("Interval must be 5m, 1m or 1s.", {
+            code: "INVALID_VALUE",
+          });
+        }
+        const { client, found } = await resolveOne(ctx, input, {
+          args: ctx.args.slice(1),
+        });
+        const res = await client.ext(
+          "/api/pocketbases/continuous-backup/interval",
+          { pocketbaseId: found.id, interval },
+        );
+        if (res.status === HTTP_PAYMENT_REQUIRED) {
+          throw await paymentRequiredError(res);
+        }
+        if (!res.ok) throw await httpError(res, "Continuous backup interval");
+        const tier = BACKUP_INTERVALS[interval];
+        emit(
+          ctx.flags.json,
+          { interval },
+          `Continuous backup now syncs ${tier.label} (${tier.price}).`,
         );
         return 0;
       },
@@ -1293,7 +1373,7 @@ allows a restore to any point in time. A paid plan is required to enable it.`,
       summary: "Show managed email status, sender level and usage.",
       details: `Managed email sends the instance's verification, password reset
 and sign-in code emails with no mail server setup. Starter and Pro include
-50 emails a day and 500 a month; an email add-on raises the limits.`,
+200 emails a day and 2,000 a month; an email add-on raises the limits.`,
       args: [],
       flags: {
         name: str({
@@ -1660,6 +1740,37 @@ interface ManagedEmailState {
     limits: { daily: number; monthly: number };
     usage: { today: number; month: number };
   } | null;
+}
+
+const BACKUP_INTERVALS = {
+  "5m": { label: "every 5 minutes", price: "included" },
+  "1m": { label: "every minute", price: "$5/month" },
+  "1s": { label: "every second", price: "$15/month" },
+} as const;
+
+type BackupInterval = keyof typeof BACKUP_INTERVALS;
+
+const DEFAULT_BACKUP_INTERVAL: BackupInterval = "5m";
+const SUSPENDED_BACKUP_STATE = "Suspended (plan changed; restore points kept)";
+const HTTP_PAYMENT_REQUIRED = 402;
+
+function isBackupInterval(value: unknown): value is BackupInterval {
+  return typeof value === "string" && Object.hasOwn(BACKUP_INTERVALS, value);
+}
+
+async function paymentRequiredError(res: Response): Promise<CliError> {
+  const body = await res.json().catch(() => ({})) as {
+    error?: string;
+    paymentUrl?: string;
+  };
+  return new CliError(
+    [body.error ?? "Payment is required.", body.paymentUrl].filter(Boolean)
+      .join(" "),
+    {
+      code: "PLAN_LIMIT",
+      hint: "The change applies only after payment.",
+    },
+  );
 }
 
 interface ManagedEmailMessage {

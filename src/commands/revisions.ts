@@ -180,9 +180,9 @@ export async function editedAsSource(
     return false;
   }
   const json = await res.json().catch(() => null) as
-    | { data?: { sourceManaged?: boolean } }
+    | { data?: { sourceManaged?: boolean; current?: number } }
     | null;
-  return json?.data?.sourceManaged === true;
+  return json?.data?.sourceManaged === true && json.data.current !== 0;
 }
 
 async function revisionCall<T>(
@@ -252,6 +252,18 @@ export async function rememberRevision(
     environment,
     entry: { id: instance.id, name: entry.name ?? instance.name, revision },
   });
+}
+
+export async function rememberInstanceRevision(
+  cwd: string,
+  instanceId: string,
+  revision: number,
+): Promise<void> {
+  const environments = (await readOwnLinkFile(cwd)).environments ?? {};
+  for (const [environment, entry] of Object.entries(environments)) {
+    if (entry.id !== instanceId) continue;
+    await rememberRevision(cwd, environment, entry, revision);
+  }
 }
 
 export async function currentRevision(

@@ -6,6 +6,7 @@ import {
   discardedMessage,
   lifetimeLabel,
   makePreviewCommands,
+  originLabel,
   parseEnvOverride,
   planLines,
   type PreviewSummary,
@@ -14,6 +15,7 @@ import {
   syncStatus,
   updateLines,
 } from "../../../src/commands/pb-preview.ts";
+import { join } from "@std/path";
 import { createMockCloudClient } from "../../mocks/cloud.mock.ts";
 import { type Config, defaultConfig } from "../../../src/config.ts";
 import type { CloudCmdDeps } from "../../../src/commands/project.ts";
@@ -80,6 +82,10 @@ async function setup(
     );
   };
   return { client, project: p, pb };
+}
+
+function previewCalls(client: Client) {
+  return client.calls.ext.filter(([path]) => path.startsWith("/api/previews/"));
 }
 
 async function run(
@@ -159,7 +165,7 @@ Deno.test("preview ship ships the named preview as the CLI", async () => {
     project.id,
   );
   assertEquals(r.code, 0);
-  assertEquals(client.calls.ext.at(-1), [
+  assertEquals(previewCalls(client).at(-1), [
     "/api/previews/ship",
     { previewId: PREVIEW.id, source: "cli" },
   ]);
@@ -174,10 +180,52 @@ Deno.test("preview ship ships the named preview as the CLI", async () => {
   });
 });
 
+Deno.test("preview ship records live's new revision in pbc.json so the next deploy is not a conflict", async () => {
+  const { client, project, pb } = await setup([PREVIEW], {
+    "/api/previews/ship": Response.json({
+      success: true,
+      data: { deploymentId: "dep1" },
+    }),
+    "/api/pocketbases/revisions/list": Response.json({
+      success: true,
+      data: { items: [{ number: 8 }] },
+    }),
+  });
+  const cwd = Deno.makeTempDirSync();
+  const link = {
+    projectId: project.id,
+    kind: "pocketbases",
+    defaultEnvironment: "production",
+    environments: {
+      production: { id: pb.id, name: "db1", revision: 3 },
+      other: { id: "someone-else", name: "x", revision: 1 },
+    },
+  };
+  await Deno.writeTextFile(join(cwd, "pbc.json"), JSON.stringify(link));
+  const out = console.log;
+  const err = console.error;
+  console.log = () => {};
+  console.error = () => {};
+  try {
+    await makePreviewCommands({ ...deps(client), cwd: () => cwd })[
+      "pocketbase preview ship"
+    ].run(
+      { name: "db1", preview: "fix-login" },
+      { args: [], flags: { ...flags, project: project.id } },
+    );
+  } finally {
+    console.log = out;
+    console.error = err;
+  }
+  const written = JSON.parse(await Deno.readTextFile(join(cwd, "pbc.json")));
+  assertEquals(written.environments.production.revision, 8);
+  assertEquals(written.environments.other.revision, 1);
+});
+
 Deno.test("preview ship picks the only preview when none is named", async () => {
   const { client, project } = await setup([PREVIEW]);
   await run(client, "pocketbase preview ship", { name: "db1" }, project.id);
-  assertEquals(client.calls.ext.at(-1)?.[1], {
+  assertEquals(previewCalls(client).at(-1)?.[1], {
     previewId: PREVIEW.id,
     source: "cli",
   });
@@ -1068,6 +1116,14 @@ Deno.test("pocketbase preview create --data empty starts from an empty database"
   assertEquals("data" in commands["website preview create"].flags, false);
 });
 
+Deno.test("a preview made with an empty database never claims it was copied", () => {
+  assertEquals(originLabel({ ...PREVIEW, data: "copy" }), "copied from live");
+  assertEquals(
+    originLabel({ ...PREVIEW, data: "empty" }),
+    "made from live with an empty database",
+  );
+});
+
 Deno.test("preview create defaults to a preview and refuses env for another resource", async () => {
   const { client, project } = await setup([PREVIEW], {
     "/api/previews/create": Response.json({
@@ -1410,7 +1466,7 @@ Deno.test("preview ship --to asks for the plan against that target, then ships t
     { name: "db1", preview: "fix-login", to: "staging" },
     project.id,
   );
-  assertEquals(client.calls.ext.slice(-2), [
+  assertEquals(previewCalls(client).slice(-2), [
     ["/api/previews/changes", { previewId: PREVIEW.id, to: STAGING.id }],
     ["/api/previews/ship", {
       previewId: PREVIEW.id,
@@ -1418,6 +1474,11 @@ Deno.test("preview ship --to asks for the plan against that target, then ships t
       to: STAGING.id,
     }],
   ]);
+  assertEquals(client.calls.ext.at(-1), ["/api/pocketbases/revisions/list", {
+    pocketbaseId: STAGING.members[0].id,
+    page: 1,
+    perPage: 1,
+  }]);
   assertEquals(r.data.kept, true);
   assertEquals(r.data.target, PLAN.target);
   assertEquals(r.data.plan, PLAN.plan);
@@ -1431,7 +1492,7 @@ Deno.test("preview ship without --to lets the platform pick the source", async (
     { name: "db1", preview: "fix-login" },
     project.id,
   );
-  assertEquals(client.calls.ext.slice(-2), [
+  assertEquals(previewCalls(client).slice(-2), [
     ["/api/previews/changes", { previewId: PREVIEW.id }],
     ["/api/previews/ship", { previewId: PREVIEW.id, source: "cli" }],
   ]);

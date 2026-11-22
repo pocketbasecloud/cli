@@ -39,6 +39,39 @@ export function prunedKeysOf(body: unknown): string[] {
   return Array.isArray(pruned) ? pruned.map(String) : [];
 }
 
+const SET_USAGE = `Usage: pbc env set KEY=VALUE [KEY=VALUE...] --target ${
+  kindsWith("env").map((k) => k.noun).join("|")
+} --name <n>`;
+
+export function parseAssignments(args: string[]): Record<string, string> {
+  if (args.length === 0) throw new CliError(SET_USAGE, { code: "USAGE" });
+  const vars: Record<string, string> = {};
+  for (const pair of args) {
+    const eq = pair.indexOf("=");
+    if (eq <= 0) {
+      throw new CliError(`"${pair}" is not KEY=VALUE. ${SET_USAGE}`, {
+        code: "USAGE",
+      });
+    }
+    vars[pair.slice(0, eq)] = pair.slice(eq + 1);
+  }
+  return vars;
+}
+
+function wasExisting(body: unknown): boolean {
+  const b = (body ?? {}) as {
+    details?: { was_existing?: unknown };
+    was_existing?: unknown;
+  };
+  return (b.details?.was_existing ?? b.was_existing) !== false;
+}
+
+function notSet(key: string, noun: string): CliError {
+  return new CliError(`${key} is not set on this ${noun}.`, {
+    code: "NOT_FOUND",
+  });
+}
+
 const DOUBLE_QUOTE_ESCAPES: Record<string, string> = {
   n: "\n",
   r: "\r",
@@ -209,6 +242,7 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Command> {
       client,
       targetId: resource.id,
       isFrontend: spec.kind === "frontends",
+      noun: spec.noun,
       type: spec.apiType as "pocketbase" | "backend",
     };
   }
@@ -281,9 +315,9 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Command> {
 
     "env set": defineCommand({
       path: ["env", "set"],
-      usage: `pbc env set KEY=VALUE --target ${ENV_NOUNS.join("|")} --name <n> [--env <name>]`,
-      summary: "Set an environment variable.",
-      args: [{ name: "KEY=VALUE", required: true }],
+      usage: `pbc env set KEY=VALUE [KEY=VALUE...] --target ${ENV_NOUNS.join("|")} --name <n> [--env <name>]`,
+      summary: "Set one or more environment variables.",
+      args: [{ name: "KEY=VALUE", required: true, variadic: true }],
       flags: {
         target: targetFlag,
         name: nameFlag,
@@ -291,14 +325,9 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Command> {
         env: envFlag,
       },
       run: async (input, ctx) => {
-        const kv = ctx.args[0];
-        if (!kv || !kv.includes("=")) {
-          throw new CliError(
-            `Usage: pbc env set KEY=VALUE --target ${ENV_NOUNS.join("|")} --name <n>`,
-            { code: "USAGE" });
-        }
-        const key = kv.slice(0, kv.indexOf("="));
-        const value = kv.slice(kv.indexOf("=") + 1);
+        const vars = parseAssignments(ctx.args);
+        const keys = Object.keys(vars);
+        const done = `Set ${keys.join(", ")}.`;
         const { client, targetId, isFrontend, type } = await resolveVarTarget(
           ctx,
           input,
@@ -306,19 +335,26 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Command> {
         );
         if (isFrontend) {
           const env = await readBuildEnv(client, targetId);
-          await writeBuildEnv(client, targetId, { ...env, [key]: value });
-          emit(ctx.flags.json, { ok: true }, `Set ${key}.`);
+          await writeBuildEnv(client, targetId, { ...env, ...vars });
+          emit(ctx.flags.json, { ok: true }, done);
           return 0;
         }
-        const res = await client.pbApi("/api/env/set", {
-          target_id: targetId,
-          type,
-          key,
-          value,
-        });
+        const res = keys.length === 1
+          ? await client.pbApi("/api/env/set", {
+            target_id: targetId,
+            type,
+            key: keys[0],
+            value: vars[keys[0]],
+          })
+          : await client.ext("/api/env/bulk-set", {
+            target_id: targetId,
+            type,
+            variables: vars,
+            prune: false,
+          });
         if (!res.ok) throw await httpError(res, "Set");
         await forgetEnvDigest(envStateKey(type, targetId), deps.envStatePath?.());
-        emit(ctx.flags.json, { ok: true }, `Set ${key}.`);
+        emit(ctx.flags.json, { ok: true }, done);
         return 0;
       },
     }),
@@ -341,21 +377,14 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Command> {
             `Usage: pbc env rm KEY --target ${ENV_NOUNS.join("|")} --name <n>`,
             { code: "USAGE" });
         }
-        const { client, targetId, isFrontend, type } = await resolveVarTarget(
-          ctx,
-          input,
-          true,
-        );
+        const { client, targetId, isFrontend, type, noun } =
+          await resolveVarTarget(ctx, input, true);
         if (isFrontend) {
           const { [key]: removed, ...rest } = await readBuildEnv(
             client,
             targetId,
           );
-          if (removed === undefined) {
-            throw new CliError(`${key} is not set on this website.`, {
-              code: "NOT_FOUND",
-            });
-          }
+          if (removed === undefined) throw notSet(key, noun);
           await writeBuildEnv(client, targetId, rest);
           emit(ctx.flags.json, { ok: true }, `Removed ${key}.`);
           return 0;
@@ -366,6 +395,7 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Command> {
           key,
         });
         if (!res.ok) throw await httpError(res, "Delete");
+        if (!wasExisting(await res.json())) throw notSet(key, noun);
         await forgetEnvDigest(envStateKey(type, targetId), deps.envStatePath?.());
         emit(ctx.flags.json, { ok: true }, `Removed ${key}.`);
         return 0;

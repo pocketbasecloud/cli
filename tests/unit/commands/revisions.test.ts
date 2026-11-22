@@ -547,6 +547,10 @@ Deno.test("a build over source warns and names the way to keep them in sync", ()
 Deno.test("only a resource the platform answers as source-managed is edited as source", async () => {
   const answers: Record<string, Response> = {
     managed: Response.json({ success: true, data: { sourceManaged: true } }),
+    fresh: Response.json({
+      success: true,
+      data: { sourceManaged: true, current: 0 },
+    }),
     built: Response.json(
       { success: false, code: "notSourceManaged" },
       { status: 409 },
@@ -564,6 +568,7 @@ Deno.test("only a resource the platform answers as source-managed is edited as s
   });
   assertEquals(await editedAsSource(client, "frontends", "managed"), true);
   assertEquals(await editedAsSource(client, "frontends", "built"), false);
+  assertEquals(await editedAsSource(client, "frontends", "fresh"), false);
   assertEquals(await editedAsSource(client, "backends", "down"), false);
   assertEquals(posted[0], [
     "/api/revisions/list",

@@ -1,6 +1,11 @@
 import { globToRegExp, join } from "@std/path";
 import { CliError } from "../errors.ts";
-import { type BuildConfig, linkFileName } from "../config.ts";
+import {
+  type BuildConfig,
+  LEGACY_LINK_FILE,
+  LINK_FILE,
+  linkFileName,
+} from "../config.ts";
 import type { ResourceKind } from "../clients/types.ts";
 import { writeZip, type ZipEntry } from "./zip.ts";
 import { builtOutputDir } from "./detect.ts";
@@ -11,10 +16,18 @@ import {
 } from "./next-config.ts";
 import { describeInstall, planInstall } from "./install.ts";
 import { plainProgress, type Progress } from "../ui/progress.ts";
-import { type IgnoreRules, loadIgnoreRules } from "./ignore.ts";
+import { IGNORE_FILE, type IgnoreRules, loadIgnoreRules } from "./ignore.ts";
 
 const DENY_SEGMENTS = [".git", "pb_data", "__pycache__"];
-const DENY_FILES = [".env", ".env.*", "*.log", "*.pyc"];
+const DENY_FILES = [
+  ".env",
+  ".env.*",
+  "*.log",
+  "*.pyc",
+  LINK_FILE,
+  LEGACY_LINK_FILE,
+  IGNORE_FILE,
+];
 
 export type Strategy = "static" | "source" | "standalone" | "pbdirs";
 

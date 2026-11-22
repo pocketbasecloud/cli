@@ -15,29 +15,52 @@ import { resolveResourceTarget } from "../resolve/target.ts";
 const LOG_KINDS = kindsWith("logs");
 const LOG_NOUNS = LOG_KINDS.map((k) => k.noun);
 const LOG_ARG = LOG_NOUNS.join("|");
+const DEFAULT_LOG_LINES = 50;
+const MAX_LOG_LINES = 1000;
+const HISTORY_IDLE_MS = 5_000;
+
+export enum LogReadMode {
+  Follow = "follow",
+  History = "history",
+}
 
 export async function streamToWriter(
   body: ReadableStream<Uint8Array>,
   write: (s: string) => void,
-  opts: { limit?: number; signal?: AbortSignal } = {},
+  opts: {
+    limit?: number;
+    signal?: AbortSignal;
+    mode?: LogReadMode;
+    idleMs?: number;
+  } = {},
 ): Promise<void> {
   const reader = body.getReader();
   const dec = new TextDecoder();
+  const historyOnly = opts.mode === LogReadMode.History;
   let buffer = "";
   let printed = 0;
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
   const cancel = () => {
     void reader.cancel().catch(() => {});
+  };
+  const armIdle = () => {
+    if (!historyOnly) return;
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(cancel, opts.idleMs ?? HISTORY_IDLE_MS);
   };
   opts.signal?.addEventListener("abort", cancel, { once: true });
   try {
     if (opts.signal?.aborted) return;
+    armIdle();
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
+      armIdle();
       buffer += dec.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
       for (const raw of lines) {
+        if (historyOnly && isLiveLogEvent(raw)) return;
         const line = decodeLogLine(raw);
         if (line === null) continue;
         write(`${line}\n`);
@@ -47,9 +70,35 @@ export async function streamToWriter(
     const last = decodeLogLine(buffer);
     if (last !== null) write(`${last}\n`);
   } finally {
+    clearTimeout(idleTimer);
     opts.signal?.removeEventListener("abort", cancel);
     await reader.cancel().catch(() => {});
   }
+}
+
+function isLiveLogEvent(raw: string): boolean {
+  const line = raw.trim().replace(/^data:/, "").trim();
+  if (!line.startsWith("{")) return false;
+  try {
+    return (JSON.parse(line) as { type?: string }).type === "new";
+  } catch {
+    return false;
+  }
+}
+
+export function parseLogLines(value: string | undefined): number {
+  if (value === undefined) return DEFAULT_LOG_LINES;
+  const lines = Number(value);
+  if (
+    value.trim() === "" || !Number.isInteger(lines) || lines < 1 ||
+    lines > MAX_LOG_LINES
+  ) {
+    throw new CliError(
+      `--lines must be a whole number from 1 to ${MAX_LOG_LINES}, got "${value}".`,
+      { code: "USAGE" },
+    );
+  }
+  return lines;
 }
 
 const DEPLOY_LOG_LINES = 50;
@@ -77,12 +126,17 @@ export async function reportDeploymentLogs(
       target_id: opts.targetId,
       type: opts.type,
       initial_lines: DEPLOY_LOG_LINES,
+      follow: false,
     }, { signal: controller.signal });
     if (!res.ok || !res.body) throw await httpError(res, "Log stream");
     await streamToWriter(res.body, (line) => {
       printed = true;
       opts.log(line.replace(/\n$/, ""));
-    }, { limit: DEPLOY_LOG_LINES, signal: controller.signal });
+    }, {
+      limit: DEPLOY_LOG_LINES,
+      signal: controller.signal,
+      mode: LogReadMode.History,
+    });
     if (!printed) opts.log("No logs available yet.");
   } catch (error) {
     if (!controller.signal.aborted) {
@@ -151,12 +205,23 @@ pbc.json is bound to.`,
           : bound
           ? KINDS[bound]
           : null;
+        if (ctx.args[0] && !spec) {
+          const hinted = bound && KINDS[bound].logs
+            ? KINDS[bound]
+            : LOG_KINDS[0];
+          throw new CliError(
+            `The first argument is the kind (${LOG_ARG}), not a name. ` +
+              `Did you mean \`pbc logs ${hinted.noun} --name ${ctx.args[0]}\`?`,
+            { code: "USAGE" },
+          );
+        }
         if (!spec || !spec.logs) {
           throw new CliError(
             `Usage: pbc logs <${LOG_ARG}> --name <n> [-f]`,
             { code: "USAGE" });
         }
         const type = spec.apiType!;
+        const lines = parseLogLines(input.lines);
         const { client, config } = await deps.requireAuth();
         const { resource: found } = await resolveResourceTarget({
           client,
@@ -173,14 +238,11 @@ pbc.json is bound to.`,
           log: (m) => console.error(m),
         });
         const follow = input.follow === true;
-        const lines = Math.min(
-          Math.max(Number(input.lines ?? 50) || 50, 1),
-          1000,
-        );
         const res = await client.ext("/api/logs/stream", {
           target_id: found.id,
           type,
           initial_lines: lines,
+          follow,
         });
         if (!res.ok || !res.body) {
           throw await httpError(res, "Log stream");
@@ -200,7 +262,7 @@ pbc.json is bound to.`,
         await streamToWriter(
           res.body,
           write,
-          follow ? {} : { limit: lines },
+          follow ? {} : { limit: lines, mode: LogReadMode.History },
         );
         return 0;
       },

@@ -99,3 +99,65 @@ Deno.test("no registered command shadows a global flag", async () => {
     }
   }
 });
+
+function capturedOutput(
+  fn: () => Promise<number>,
+): Promise<{ code: number; logs: string[]; errs: string[] }> {
+  const logs: string[] = [];
+  const errs: string[] = [];
+  const origLog = console.log;
+  const origErr = console.error;
+  console.log = (s: string) => logs.push(s);
+  console.error = (s: string) => errs.push(s);
+  return fn().then((code) => ({ code, logs, errs })).finally(() => {
+    console.log = origLog;
+    console.error = origErr;
+  });
+}
+
+const groupRegistry: CommandRegistry = {
+  ...registry,
+  "thing undo": defineCommand({
+    path: ["thing", "undo"],
+    usage: "pbc thing undo",
+    summary: "Undo a thing.",
+    args: [],
+    flags: {},
+    run: () => Promise.resolve(0),
+  }),
+};
+
+Deno.test("a group's --help lists the group's commands", async () => {
+  const { code, logs } = await capturedOutput(() =>
+    dispatch(groupRegistry, ["thing", "--help"])
+  );
+  assertEquals(code, 0);
+  const text = logs.join("\n");
+  assertEquals(text.includes("thing do    Do a thing."), true);
+  assertEquals(text.includes("thing undo  Undo a thing."), true);
+  assertEquals(text.includes("Unknown command"), false);
+});
+
+Deno.test("a group's --help --json lists the group's commands", async () => {
+  const { code, logs } = await capturedOutput(() =>
+    dispatch(groupRegistry, ["thing", "--help", "--json"])
+  );
+  assertEquals(code, 0);
+  assertEquals(JSON.parse(logs[0]).data, {
+    group: "thing",
+    commands: [
+      { command: "thing do", summary: "Do a thing." },
+      { command: "thing undo", summary: "Undo a thing." },
+    ],
+  });
+});
+
+Deno.test("a bare group is a usage error that lists the group's commands", async () => {
+  const { code, errs } = await capturedOutput(() =>
+    dispatch(groupRegistry, ["thing"])
+  );
+  assertEquals(code, 2);
+  const text = errs.join("\n");
+  assertEquals(text.includes("pbc thing needs a command"), true);
+  assertEquals(text.includes("thing undo  Undo a thing."), true);
+});
