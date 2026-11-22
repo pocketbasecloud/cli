@@ -1100,6 +1100,22 @@ Deno.test("pb email sender prints the sender and warns when replies are lost", a
   assertStringIncludes(text, "Replies are not delivered");
 });
 
+Deno.test("pb email sender says replies arrive in the inbox", async () => {
+  const { client, projectId } = await managedEmailClient({
+    senderName: "Support",
+    senderAddress: "noreply@example.com",
+    replyReachable: false,
+    repliesToInbox: true,
+    otherSmtpHost: "",
+  });
+  const text =
+    (await runCommand(client, projectId, "pocketbase email sender", false))
+      .join("\n");
+  assertStringIncludes(text, "Replies: arrive in the Inbox");
+  assertEquals(text.includes("Replies are not delivered"), false);
+  assertEquals(text.includes("noreply@example.com"), false);
+});
+
 Deno.test("pb email sender updates the name and reply-to address", async () => {
   const { client, projectId, resourceId } = await managedEmailClient({
     senderName: "Acme",

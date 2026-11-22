@@ -1795,6 +1795,7 @@ interface ManagedEmailIdentity {
   senderName: string;
   senderAddress: string;
   replyReachable: boolean;
+  repliesToInbox?: boolean;
 }
 
 async function managedEmailCall(
@@ -1815,8 +1816,10 @@ async function managedEmailCall(
 function describeSender(identity: ManagedEmailIdentity): string {
   return [
     `Sender name: ${identity.senderName}`,
-    `Reply-to: ${identity.senderAddress}`,
-    ...(identity.replyReachable ? [] : [
+    identity.repliesToInbox
+      ? "Replies: arrive in the Inbox in the portal. Set --reply-to to send them to your own email instead."
+      : `Reply-to: ${identity.senderAddress}`,
+    ...(identity.replyReachable || identity.repliesToInbox ? [] : [
       "Replies are not delivered to this address. Set one you read with --reply-to.",
     ]),
   ].join("\n");
