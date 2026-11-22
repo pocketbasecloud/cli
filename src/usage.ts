@@ -329,15 +329,15 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "frontend ls": {
-    "usage": "pbc frontend ls",
-    "summary": "List frontends in a project.",
+  "website ls": {
+    "usage": "pbc website ls",
+    "summary": "List websites in a project.",
     "args": [],
     "flags": []
   },
-  "frontend info": {
-    "usage": "pbc frontend info (<name>|--name <name>|--id <id>) [--env <name>]",
-    "summary": "Show frontend details.",
+  "website info": {
+    "usage": "pbc website info (<name>|--name <name>|--id <id>) [--env <name>]",
+    "summary": "Show website details.",
     "needs": [
       "target:frontends"
     ],
@@ -353,7 +353,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": false,
-        "description": "Which frontend to show. Asked for when omitted."
+        "description": "Which website to show. Asked for when omitted."
       },
       {
         "name": "id",
@@ -369,9 +369,9 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "frontend rm": {
-    "usage": "pbc frontend rm (<name>|--name <name>|--id <id>) [--yes] [--env <name>]",
-    "summary": "Delete a frontend.",
+  "website rm": {
+    "usage": "pbc website rm (<name>|--name <name>|--id <id>) [--yes] [--env <name>]",
+    "summary": "Delete a website.",
     "needs": [
       "target:frontends",
       {
@@ -390,7 +390,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": false,
-        "description": "Which frontend to delete. Asked for when omitted."
+        "description": "Which website to delete. Asked for when omitted."
       },
       {
         "name": "id",
@@ -406,9 +406,9 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "frontend deployments": {
-    "usage": "pbc frontend deployments [<name>|--name <name>|--id <id>] [--env <name>]",
-    "summary": "List a frontend's recent deployments.",
+  "website deployments": {
+    "usage": "pbc website deployments [<name>|--name <name>|--id <id>] [--env <name>]",
+    "summary": "List a website's recent deployments.",
     "needs": [
       "target:frontends"
     ],
@@ -424,7 +424,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": false,
-        "description": "Which frontend to list. Asked for when omitted."
+        "description": "Which website to list. Asked for when omitted."
       },
       {
         "name": "id",
@@ -440,10 +440,10 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "frontend rollback": {
-    "usage": "pbc frontend rollback [<name>|--name <name>|--id <id>] [--to <deployment>] [--push-to-git] [--yes] [--env <name>]",
-    "summary": "Roll a frontend back to an earlier deployment.",
-    "details": "Without --to, goes back to the successful deployment before the live one. The earlier build is deployed again as a new deployment; list candidates with pbc frontend deployments. The linked GitHub repository is left alone unless --push-to-git also puts the old source back there, so the next push keeps the rollback.",
+  "website rollback": {
+    "usage": "pbc website rollback [<name>|--name <name>|--id <id>] [--to <deployment>] [--push-to-git] [--yes] [--env <name>]",
+    "summary": "Roll a website back to an earlier deployment.",
+    "details": "Without --to, goes back to the successful deployment before the live one. The earlier build is deployed again as a new deployment; list candidates with pbc website deployments. The linked GitHub repository is left alone unless --push-to-git also puts the old source back there, so the next push keeps the rollback.",
     "needs": [
       "target:frontends",
       {
@@ -462,7 +462,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": false,
-        "description": "Which frontend to roll back. Asked for when omitted."
+        "description": "Which website to roll back. Asked for when omitted."
       },
       {
         "name": "id",
@@ -490,8 +490,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "frontend domain add": {
-    "usage": "pbc frontend domain add <domain> --name <name> [--env <name>]",
+  "website domain add": {
+    "usage": "pbc website domain add <domain> --name <name> [--env <name>]",
     "summary": "Add a custom domain.",
     "needs": [
       "target:frontends",
@@ -510,7 +510,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": true,
-        "description": "Which frontend. Asked for when omitted."
+        "description": "Which website. Asked for when omitted."
       },
       {
         "name": "id",
@@ -526,8 +526,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "frontend domain verify": {
-    "usage": "pbc frontend domain verify <domain> --name <name> [--env <name>]",
+  "website domain verify": {
+    "usage": "pbc website domain verify <domain> --name <name> [--env <name>]",
     "summary": "Verify a custom domain.",
     "needs": [
       "target:frontends",
@@ -546,7 +546,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": true,
-        "description": "Which frontend. Asked for when omitted."
+        "description": "Which website. Asked for when omitted."
       },
       {
         "name": "id",
@@ -562,8 +562,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "frontend domain remove": {
-    "usage": "pbc frontend domain remove <domain> --name <name> [--env <name>]",
+  "website domain remove": {
+    "usage": "pbc website domain remove <domain> --name <name> [--env <name>]",
     "summary": "Remove a custom domain.",
     "needs": [
       "target:frontends",
@@ -582,7 +582,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": true,
-        "description": "Which frontend. Asked for when omitted."
+        "description": "Which website. Asked for when omitted."
       },
       {
         "name": "id",
@@ -598,8 +598,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "frontend domain status": {
-    "usage": "pbc frontend domain status [--name <name>] [--env <name>]",
+  "website domain status": {
+    "usage": "pbc website domain status [--name <name>] [--env <name>]",
     "summary": "Check whether the custom domain is reachable.",
     "needs": [
       "target:frontends"
@@ -610,7 +610,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": true,
-        "description": "Which frontend. Asked for when omitted."
+        "description": "Which website. Asked for when omitted."
       },
       {
         "name": "id",
@@ -626,8 +626,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "frontend access status": {
-    "usage": "pbc frontend access status [--name <name>] [--env <name>]",
+  "website access status": {
+    "usage": "pbc website access status [--name <name>] [--env <name>]",
     "summary": "Show whether it is private and who can open it.",
     "needs": [
       "target:frontends"
@@ -638,7 +638,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": false,
-        "description": "Which frontend. Asked for when omitted."
+        "description": "Which website. Asked for when omitted."
       },
       {
         "name": "id",
@@ -654,8 +654,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "frontend access private": {
-    "usage": "pbc frontend access private [emails] [--name <name>] [--env <name>]",
+  "website access private": {
+    "usage": "pbc website access private [emails] [--name <name>] [--env <name>]",
     "summary": "Make it private. Emails given replace the list.",
     "needs": [
       "target:frontends",
@@ -674,7 +674,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": false,
-        "description": "Which frontend. Asked for when omitted."
+        "description": "Which website. Asked for when omitted."
       },
       {
         "name": "id",
@@ -690,8 +690,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "frontend access public": {
-    "usage": "pbc frontend access public [--name <name>] [--env <name>]",
+  "website access public": {
+    "usage": "pbc website access public [--name <name>] [--env <name>]",
     "summary": "Make it public. The list is kept.",
     "needs": [
       "target:frontends",
@@ -705,7 +705,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": false,
-        "description": "Which frontend. Asked for when omitted."
+        "description": "Which website. Asked for when omitted."
       },
       {
         "name": "id",
@@ -721,8 +721,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "frontend access add": {
-    "usage": "pbc frontend access add <emails> [--name <name>] [--env <name>]",
+  "website access add": {
+    "usage": "pbc website access add <emails> [--name <name>] [--env <name>]",
     "summary": "Add emails or @domains to the list.",
     "needs": [
       "target:frontends",
@@ -741,7 +741,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": false,
-        "description": "Which frontend. Asked for when omitted."
+        "description": "Which website. Asked for when omitted."
       },
       {
         "name": "id",
@@ -757,8 +757,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "frontend access remove": {
-    "usage": "pbc frontend access remove <emails> [--name <name>] [--env <name>]",
+  "website access remove": {
+    "usage": "pbc website access remove <emails> [--name <name>] [--env <name>]",
     "summary": "Remove emails or @domains from the list.",
     "needs": [
       "target:frontends",
@@ -777,7 +777,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": false,
-        "description": "Which frontend. Asked for when omitted."
+        "description": "Which website. Asked for when omitted."
       },
       {
         "name": "id",
@@ -793,15 +793,15 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "backend ls": {
-    "usage": "pbc backend ls",
-    "summary": "List backends in a project.",
+  "service ls": {
+    "usage": "pbc service ls",
+    "summary": "List services in a project.",
     "args": [],
     "flags": []
   },
-  "backend info": {
-    "usage": "pbc backend info (<name>|--name <name>|--id <id>) [--env <name>]",
-    "summary": "Show backend details.",
+  "service info": {
+    "usage": "pbc service info (<name>|--name <name>|--id <id>) [--env <name>]",
+    "summary": "Show service details.",
     "needs": [
       "target:backends"
     ],
@@ -817,13 +817,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": false,
-        "description": "Which backend to show. Asked for when omitted."
+        "description": "Which service to show. Asked for when omitted."
       },
       {
         "name": "id",
         "type": "string",
         "required": false,
-        "description": "The backend's id, alternative to --name."
+        "description": "The service's id, alternative to --name."
       },
       {
         "name": "env",
@@ -833,9 +833,9 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "backend rm": {
-    "usage": "pbc backend rm (<name>|--name <name>|--id <id>) [--yes] [--env <name>]",
-    "summary": "Delete a backend.",
+  "service rm": {
+    "usage": "pbc service rm (<name>|--name <name>|--id <id>) [--yes] [--env <name>]",
+    "summary": "Delete a service.",
     "needs": [
       "target:backends",
       {
@@ -854,13 +854,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": false,
-        "description": "Which backend to delete. Asked for when omitted."
+        "description": "Which service to delete. Asked for when omitted."
       },
       {
         "name": "id",
         "type": "string",
         "required": false,
-        "description": "The backend's id, alternative to --name."
+        "description": "The service's id, alternative to --name."
       },
       {
         "name": "env",
@@ -870,9 +870,9 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "backend deployments": {
-    "usage": "pbc backend deployments [<name>|--name <name>|--id <id>] [--env <name>]",
-    "summary": "List a backend's recent deployments.",
+  "service deployments": {
+    "usage": "pbc service deployments [<name>|--name <name>|--id <id>] [--env <name>]",
+    "summary": "List a service's recent deployments.",
     "needs": [
       "target:backends"
     ],
@@ -888,13 +888,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": false,
-        "description": "Which backend to list. Asked for when omitted."
+        "description": "Which service to list. Asked for when omitted."
       },
       {
         "name": "id",
         "type": "string",
         "required": false,
-        "description": "The backend's id, alternative to --name."
+        "description": "The service's id, alternative to --name."
       },
       {
         "name": "env",
@@ -904,10 +904,10 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "backend rollback": {
-    "usage": "pbc backend rollback [<name>|--name <name>|--id <id>] [--to <deployment>] [--push-to-git] [--yes] [--env <name>]",
-    "summary": "Roll a backend back to an earlier deployment.",
-    "details": "Without --to, goes back to the successful deployment before the live one. The earlier build is deployed again as a new deployment; list candidates with pbc backend deployments. The linked GitHub repository is left alone unless --push-to-git also puts the old source back there, so the next push keeps the rollback. Environment variables stay as they are; only the code goes back.",
+  "service rollback": {
+    "usage": "pbc service rollback [<name>|--name <name>|--id <id>] [--to <deployment>] [--push-to-git] [--yes] [--env <name>]",
+    "summary": "Roll a service back to an earlier deployment.",
+    "details": "Without --to, goes back to the successful deployment before the live one. The earlier build is deployed again as a new deployment; list candidates with pbc service deployments. The linked GitHub repository is left alone unless --push-to-git also puts the old source back there, so the next push keeps the rollback. Environment variables stay as they are; only the code goes back.",
     "needs": [
       "target:backends",
       {
@@ -926,13 +926,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": false,
-        "description": "Which backend to roll back. Asked for when omitted."
+        "description": "Which service to roll back. Asked for when omitted."
       },
       {
         "name": "id",
         "type": "string",
         "required": false,
-        "description": "The backend's id, alternative to --name."
+        "description": "The service's id, alternative to --name."
       },
       {
         "name": "env",
@@ -954,8 +954,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "backend domain add": {
-    "usage": "pbc backend domain add <domain> --name <name> [--env <name>]",
+  "service domain add": {
+    "usage": "pbc service domain add <domain> --name <name> [--env <name>]",
     "summary": "Add a custom domain.",
     "needs": [
       "target:backends",
@@ -974,13 +974,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": true,
-        "description": "Which backend. Asked for when omitted."
+        "description": "Which service. Asked for when omitted."
       },
       {
         "name": "id",
         "type": "string",
         "required": false,
-        "description": "The backend's id, alternative to --name."
+        "description": "The service's id, alternative to --name."
       },
       {
         "name": "env",
@@ -990,8 +990,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "backend domain verify": {
-    "usage": "pbc backend domain verify <domain> --name <name> [--env <name>]",
+  "service domain verify": {
+    "usage": "pbc service domain verify <domain> --name <name> [--env <name>]",
     "summary": "Verify a custom domain.",
     "needs": [
       "target:backends",
@@ -1010,13 +1010,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": true,
-        "description": "Which backend. Asked for when omitted."
+        "description": "Which service. Asked for when omitted."
       },
       {
         "name": "id",
         "type": "string",
         "required": false,
-        "description": "The backend's id, alternative to --name."
+        "description": "The service's id, alternative to --name."
       },
       {
         "name": "env",
@@ -1026,8 +1026,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "backend domain remove": {
-    "usage": "pbc backend domain remove <domain> --name <name> [--env <name>]",
+  "service domain remove": {
+    "usage": "pbc service domain remove <domain> --name <name> [--env <name>]",
     "summary": "Remove a custom domain.",
     "needs": [
       "target:backends",
@@ -1046,13 +1046,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": true,
-        "description": "Which backend. Asked for when omitted."
+        "description": "Which service. Asked for when omitted."
       },
       {
         "name": "id",
         "type": "string",
         "required": false,
-        "description": "The backend's id, alternative to --name."
+        "description": "The service's id, alternative to --name."
       },
       {
         "name": "env",
@@ -1062,8 +1062,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "backend domain status": {
-    "usage": "pbc backend domain status [--name <name>] [--env <name>]",
+  "service domain status": {
+    "usage": "pbc service domain status [--name <name>] [--env <name>]",
     "summary": "Check whether the custom domain is reachable.",
     "needs": [
       "target:backends"
@@ -1074,13 +1074,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": true,
-        "description": "Which backend. Asked for when omitted."
+        "description": "Which service. Asked for when omitted."
       },
       {
         "name": "id",
         "type": "string",
         "required": false,
-        "description": "The backend's id, alternative to --name."
+        "description": "The service's id, alternative to --name."
       },
       {
         "name": "env",
@@ -1090,8 +1090,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "backend access status": {
-    "usage": "pbc backend access status [--name <name>] [--env <name>]",
+  "service access status": {
+    "usage": "pbc service access status [--name <name>] [--env <name>]",
     "summary": "Show whether it is private and who can open it.",
     "needs": [
       "target:backends"
@@ -1102,13 +1102,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": false,
-        "description": "Which backend. Asked for when omitted."
+        "description": "Which service. Asked for when omitted."
       },
       {
         "name": "id",
         "type": "string",
         "required": false,
-        "description": "The backend's id, alternative to --name."
+        "description": "The service's id, alternative to --name."
       },
       {
         "name": "env",
@@ -1118,8 +1118,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "backend access private": {
-    "usage": "pbc backend access private [emails] [--name <name>] [--env <name>]",
+  "service access private": {
+    "usage": "pbc service access private [emails] [--name <name>] [--env <name>]",
     "summary": "Make it private. Emails given replace the list.",
     "needs": [
       "target:backends",
@@ -1138,13 +1138,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": false,
-        "description": "Which backend. Asked for when omitted."
+        "description": "Which service. Asked for when omitted."
       },
       {
         "name": "id",
         "type": "string",
         "required": false,
-        "description": "The backend's id, alternative to --name."
+        "description": "The service's id, alternative to --name."
       },
       {
         "name": "env",
@@ -1154,8 +1154,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "backend access public": {
-    "usage": "pbc backend access public [--name <name>] [--env <name>]",
+  "service access public": {
+    "usage": "pbc service access public [--name <name>] [--env <name>]",
     "summary": "Make it public. The list is kept.",
     "needs": [
       "target:backends",
@@ -1169,13 +1169,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": false,
-        "description": "Which backend. Asked for when omitted."
+        "description": "Which service. Asked for when omitted."
       },
       {
         "name": "id",
         "type": "string",
         "required": false,
-        "description": "The backend's id, alternative to --name."
+        "description": "The service's id, alternative to --name."
       },
       {
         "name": "env",
@@ -1185,8 +1185,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "backend access add": {
-    "usage": "pbc backend access add <emails> [--name <name>] [--env <name>]",
+  "service access add": {
+    "usage": "pbc service access add <emails> [--name <name>] [--env <name>]",
     "summary": "Add emails or @domains to the list.",
     "needs": [
       "target:backends",
@@ -1205,13 +1205,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": false,
-        "description": "Which backend. Asked for when omitted."
+        "description": "Which service. Asked for when omitted."
       },
       {
         "name": "id",
         "type": "string",
         "required": false,
-        "description": "The backend's id, alternative to --name."
+        "description": "The service's id, alternative to --name."
       },
       {
         "name": "env",
@@ -1221,8 +1221,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "backend access remove": {
-    "usage": "pbc backend access remove <emails> [--name <name>] [--env <name>]",
+  "service access remove": {
+    "usage": "pbc service access remove <emails> [--name <name>] [--env <name>]",
     "summary": "Remove emails or @domains from the list.",
     "needs": [
       "target:backends",
@@ -1241,13 +1241,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "name": "name",
         "type": "string",
         "required": false,
-        "description": "Which backend. Asked for when omitted."
+        "description": "Which service. Asked for when omitted."
       },
       {
         "name": "id",
         "type": "string",
         "required": false,
-        "description": "The backend's id, alternative to --name."
+        "description": "The service's id, alternative to --name."
       },
       {
         "name": "env",
@@ -1617,7 +1617,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "pocketbase email status": {
     "usage": "pbc pocketbase email status [--name <instance>]",
     "summary": "Show managed email status, sender level and usage.",
-    "details": "Managed email sends the instance's verification, password reset\nand sign-in code emails with no mail server setup. Starter and Pro only.",
+    "details": "Managed email sends the instance's verification, password reset\nand sign-in code emails with no mail server setup. Starter and Pro include\n50 emails a day and 500 a month; an email add-on raises the limits.",
     "needs": [
       "target:pocketbases",
       {
@@ -2046,6 +2046,386 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
+  "website revisions ls": {
+    "usage": "pbc website revisions ls [--name <site>] [--page <n>]",
+    "summary": "List the version history of a website's source.",
+    "details": "Every change to the source is a numbered revision, whether it came from\nthe portal, this CLI, an AI assistant or a GitHub deploy. A revision is\nbuilding until its deployment finishes, then applied or failed.",
+    "needs": [
+      "target:frontends"
+    ],
+    "args": [],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which site. Defaults to the directory's binding."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The site's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "page",
+        "type": "string",
+        "required": false,
+        "description": "Page of 30 revisions, newest first."
+      }
+    ]
+  },
+  "website revisions diff": {
+    "usage": "pbc website revisions diff <revision> [--against <revision>] [--name <site>]",
+    "summary": "Show which files a revision added, changed and removed.",
+    "needs": [
+      "target:frontends"
+    ],
+    "args": [
+      {
+        "name": "revision",
+        "required": true
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which site. Defaults to the directory's binding."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The site's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "against",
+        "type": "string",
+        "required": false,
+        "description": "Compare with this revision instead of the one before."
+      }
+    ]
+  },
+  "website revisions show": {
+    "usage": "pbc website revisions show <revision> <path> [--name <site>]",
+    "summary": "Print one file as it was in a revision.",
+    "details": "Text up to 1 MB prints to stdout; a larger or binary file prints a\ndownload link instead.",
+    "needs": [
+      "target:frontends"
+    ],
+    "args": [
+      {
+        "name": "revision",
+        "required": true
+      },
+      {
+        "name": "path",
+        "required": true
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which site. Defaults to the directory's binding."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The site's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      }
+    ]
+  },
+  "website revisions restore": {
+    "usage": "pbc website revisions restore <revision> [--yes] [--name <site>]",
+    "summary": "Put a website's source back as it was in a revision.",
+    "details": "The website is rebuilt from that source and deployed. The restore\nis itself a new revision, so it can be undone the same way.",
+    "needs": [
+      "target:frontends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "revision",
+        "required": true
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which site. Defaults to the directory's binding."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The site's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      }
+    ]
+  },
+  "website pull": {
+    "usage": "pbc website pull [--revision <n>] [--dir <path>] [--yes] [--name <site>]",
+    "summary": "Download a website's source.",
+    "details": "Writes the website's source as it is now, or as it was in\n--revision, into --dir (default: this\ndirectory). Local files that differ are overwritten after confirmation;\nfiles that exist only locally are left alone, and so is a pbc.json\nalready there.",
+    "needs": [
+      "target:frontends"
+    ],
+    "args": [],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which site. Defaults to the directory's binding."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The site's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "revision",
+        "type": "string",
+        "required": false,
+        "description": "Revision to download; latest by default."
+      },
+      {
+        "name": "dir",
+        "type": "string",
+        "required": false,
+        "description": "Directory to write into. Default: here."
+      }
+    ]
+  },
+  "service revisions ls": {
+    "usage": "pbc service revisions ls [--name <service>] [--page <n>]",
+    "summary": "List the version history of a service's source.",
+    "details": "Every change to the source is a numbered revision, whether it came from\nthe portal, this CLI, an AI assistant or a GitHub deploy. A revision is\nbuilding until its deployment finishes, then applied or failed.",
+    "needs": [
+      "target:backends"
+    ],
+    "args": [],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which service. Defaults to the directory's binding."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The service's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "page",
+        "type": "string",
+        "required": false,
+        "description": "Page of 30 revisions, newest first."
+      }
+    ]
+  },
+  "service revisions diff": {
+    "usage": "pbc service revisions diff <revision> [--against <revision>] [--name <service>]",
+    "summary": "Show which files a revision added, changed and removed.",
+    "needs": [
+      "target:backends"
+    ],
+    "args": [
+      {
+        "name": "revision",
+        "required": true
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which service. Defaults to the directory's binding."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The service's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "against",
+        "type": "string",
+        "required": false,
+        "description": "Compare with this revision instead of the one before."
+      }
+    ]
+  },
+  "service revisions show": {
+    "usage": "pbc service revisions show <revision> <path> [--name <service>]",
+    "summary": "Print one file as it was in a revision.",
+    "details": "Text up to 1 MB prints to stdout; a larger or binary file prints a\ndownload link instead.",
+    "needs": [
+      "target:backends"
+    ],
+    "args": [
+      {
+        "name": "revision",
+        "required": true
+      },
+      {
+        "name": "path",
+        "required": true
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which service. Defaults to the directory's binding."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The service's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      }
+    ]
+  },
+  "service revisions restore": {
+    "usage": "pbc service revisions restore <revision> [--yes] [--name <service>]",
+    "summary": "Put a service's source back as it was in a revision.",
+    "details": "The service is rebuilt from that source and deployed. The restore\nis itself a new revision, so it can be undone the same way.",
+    "needs": [
+      "target:backends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "revision",
+        "required": true
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which service. Defaults to the directory's binding."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The service's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      }
+    ]
+  },
+  "service pull": {
+    "usage": "pbc service pull [--revision <n>] [--dir <path>] [--yes] [--name <service>]",
+    "summary": "Download a service's source.",
+    "details": "Writes the service's source as it is now, or as it was in\n--revision, into --dir (default: this\ndirectory). Local files that differ are overwritten after confirmation;\nfiles that exist only locally are left alone, and so is a pbc.json\nalready there.",
+    "needs": [
+      "target:backends"
+    ],
+    "args": [],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which service. Defaults to the directory's binding."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The service's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "revision",
+        "type": "string",
+        "required": false,
+        "description": "Revision to download; latest by default."
+      },
+      {
+        "name": "dir",
+        "type": "string",
+        "required": false,
+        "description": "Directory to write into. Default: here."
+      }
+    ]
+  },
   "pocketbase move": {
     "usage": "pbc pocketbase move (<name>|--name <name>|--id <id>) [--to <compute id>] [--no-wait] [--yes] [--env <name>]",
     "summary": "Move an instance to another compute.",
@@ -2136,8 +2516,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
   },
   "pocketbase preview ls": {
     "usage": "pbc pocketbase preview ls [<name>|--name <name>|--id <id>]",
-    "summary": "List an instance's previews and their addresses.",
-    "details": "A preview is a short-lived copy of a live instance with its own address.\nCreate one with `pbc pocketbase deploy --preview`, try it, then ship it to live\nwith `pbc pocketbase preview ship` or discard it with `pbc pocketbase preview rm`.",
+    "summary": "List a PocketBase's previews and environments with their addresses.",
+    "details": "A preview is a short-lived copy of a live PocketBase with its own address. A\npermanent environment such as staging is the same copy that never expires.\nCreate one with `pbc pocketbase preview create`\nor `pbc pocketbase deploy --preview`, try it, then ship it to live with\n`pbc pocketbase preview ship` or discard it with `pbc pocketbase preview rm`.",
     "needs": [
       "target:pocketbases",
       {
@@ -2172,10 +2552,81 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
+  "pocketbase preview create": {
+    "usage": "pbc pocketbase preview create [<preview>] [--name <name>|--id <id>] [--from live|<environment>] [--permanent] [--set-env KEY=VALUE ...] [--data copy|empty] [--size small|medium|full]",
+    "summary": "Copy a live PocketBase into a preview or permanent environment.",
+    "details": "Copies the live PocketBase and its env, with its own address. A preview\nexpires; --permanent makes a lasting environment such as staging. Per\nPocketBase: Free 1 preview; Starter 2 previews and 1 environment; Pro\n25 previews and unlimited environments.\n\n--from <environment> copies a permanent environment instead of live.\n--data empty starts from an empty database instead of live's data.\n--set-env KEY=VALUE overrides one copied env value. Repeatable.\nDeploy to the copy from the live PocketBase's directory with\n`pbc pocketbase deploy --env <preview>`.",
+    "needs": [
+      "target:pocketbases",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "preview",
+        "required": false,
+        "description": "Name of the preview or environment. Picked when omitted."
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live instance. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live instance's id, alternative to --name."
+      },
+      {
+        "name": "from",
+        "type": "string",
+        "required": false,
+        "description": "Copy this permanent environment instead of live (the default)."
+      },
+      {
+        "name": "permanent",
+        "type": "boolean",
+        "required": false,
+        "description": "Keep it as a permanent environment that never expires (Starter and Pro)."
+      },
+      {
+        "name": "set-env",
+        "type": "string",
+        "required": false,
+        "description": "KEY=VALUE env override on the copy. Repeatable."
+      },
+      {
+        "name": "data",
+        "type": "string",
+        "required": false,
+        "choices": [
+          "copy",
+          "empty"
+        ],
+        "description": "Copy live's data (copy, the default) or start with an empty database (empty)."
+      },
+      {
+        "name": "size",
+        "type": "string",
+        "required": false,
+        "choices": [
+          "small",
+          "medium",
+          "full"
+        ],
+        "description": "How much live data to copy: small (the default), medium or full."
+      }
+    ]
+  },
   "pocketbase preview ship": {
-    "usage": "pbc pocketbase preview ship [<name>|--name <name>|--id <id>] [--preview <name>] [--yes]",
-    "summary": "Apply a preview's hooks, migrations and public files to live.",
-    "details": "Ships what changed on the preview since it was made: hooks, migrations\n(which then run on live) and pb_public. Live data is never overwritten by the\npreview's data. Live restarts once, and the preview is deleted afterwards.\nRefused when live changed since the preview was made: bring live's newer files\nin with `pbc pocketbase preview update` first.",
+    "usage": "pbc pocketbase preview ship [<name>|--name <name>|--id <id>] [--preview <name>] [--to live|<environment>] [--yes]",
+    "summary": "Apply a preview's changes to live or to a permanent environment.",
+    "details": "Ships only what changed on the preview since it was copied: hooks, migrations\n(which then run on the target) and pb_public.\n--to picks live or a permanent environment such as staging; the default is\nwhere the preview was copied from. The target's own newer changes are\nkept, and its data and env are never overwritten. The plan is printed first.\nFiles both sides changed in the same place stop the ship until settled with\n`pbc pocketbase preview resolve`. Shipped to live, a preview is deleted;\nshipped to an environment, it is kept so it can go on to live later.",
     "needs": [
       "target:pocketbases",
       {
@@ -2213,6 +2664,12 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "type": "string",
         "required": false,
         "description": "Which preview. Picked when the instance has only one."
+      },
+      {
+        "name": "to",
+        "type": "string",
+        "required": false,
+        "description": "Ship to live or a permanent environment. Defaults to where the preview was copied from."
       }
     ]
   },
@@ -2260,9 +2717,9 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ]
   },
   "pocketbase preview update": {
-    "usage": "pbc pocketbase preview update [<name>|--name <name>|--id <id>] [--preview <name>]",
-    "summary": "Bring live's newer files into a preview, keeping its changes.",
-    "details": "For a preview made before live changed. Live's newer hooks, migrations and\npb_public files are applied to the preview; files the preview changed stay as\nthey are, and its data is kept. Edits to different parts of the same file are\ncombined; edits to the same lines are listed for you to settle with\n`pbc pocketbase preview resolve`.",
+    "usage": "pbc pocketbase preview update [<name>|--name <name>|--id <id>] [--preview <name>] [--data] [--yes]",
+    "summary": "Bring the source's newer files into a preview, keeping its changes.",
+    "details": "For a preview made before its source (live or the environment it was copied\nfrom) changed. The source's newer hooks, migrations and pb_public files are\napplied to the preview; files the preview changed stay as they are, and its data\nis kept. Edits to different parts of the same file are combined; edits to the\nsame lines are listed for you to settle with `pbc pocketbase preview resolve`.\n\n--data also copies the source's data again, replacing the preview's data.",
     "needs": [
       "target:pocketbases",
       {
@@ -2300,6 +2757,12 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "type": "string",
         "required": false,
         "description": "Which preview. Picked when the instance has only one."
+      },
+      {
+        "name": "data",
+        "type": "boolean",
+        "required": false,
+        "description": "Also copy the source's data again, replacing the preview's data."
       }
     ]
   },
@@ -2382,6 +2845,48 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "type": "string",
         "required": false,
         "description": "Which draft, by name."
+      }
+    ]
+  },
+  "pocketbase preview drafts rename": {
+    "usage": "pbc pocketbase preview drafts rename <draft> <new-name> [--name <name>|--id <id>]",
+    "summary": "Rename a draft so you can find it later.",
+    "needs": [
+      "target:pocketbases",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "draft",
+        "required": true,
+        "description": "The draft's current name"
+      },
+      {
+        "name": "new-name",
+        "required": true,
+        "description": "Lowercase letters, numbers and hyphens"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live instance. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live instance's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
       }
     ]
   },
@@ -2497,48 +3002,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "pocketbase preview drafts rename": {
-    "usage": "pbc pocketbase preview drafts rename <draft> <new-name> [--name <name>|--id <id>]",
-    "summary": "Rename a draft so you can find it later.",
-    "needs": [
-      "target:pocketbases",
-      {
-        "explicit": true
-      }
-    ],
-    "args": [
-      {
-        "name": "draft",
-        "required": true,
-        "description": "The draft's current name"
-      },
-      {
-        "name": "new-name",
-        "required": true,
-        "description": "Lowercase letters, numbers and hyphens"
-      }
-    ],
-    "flags": [
-      {
-        "name": "name",
-        "type": "string",
-        "required": false,
-        "description": "Which live instance. Asked for when omitted."
-      },
-      {
-        "name": "id",
-        "type": "string",
-        "required": false,
-        "description": "The live instance's id, alternative to --name."
-      },
-      {
-        "name": "env",
-        "type": "string",
-        "required": false,
-        "description": "Which pbc.json environment to target."
-      }
-    ]
-  },
   "pocketbase preview extend": {
     "usage": "pbc pocketbase preview extend [<name>|--name <name>|--id <id>] [--preview <name>]",
     "summary": "Keep a preview for another full lifetime from now.",
@@ -2582,10 +3045,958 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "frontend deploy": {
-    "usage": "pbc frontend deploy [--name <name>|--new <name>] [flags]",
+  "website preview ls": {
+    "usage": "pbc website preview ls [<name>|--name <name>|--id <id>]",
+    "summary": "List a website's previews and environments with their addresses.",
+    "details": "A preview is a short-lived copy of a live website with its own address. A\npermanent environment such as staging is the same copy that never expires.\nCreate one with `pbc website preview create`, try it, then ship it to live with\n`pbc website preview ship` or discard it with `pbc website preview rm`.",
+    "needs": [
+      "target:frontends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional site name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live site. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live site's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      }
+    ]
+  },
+  "website preview create": {
+    "usage": "pbc website preview create [<preview>] [--name <name>|--id <id>] [--from live|<environment>] [--permanent] [--set-env KEY=VALUE ...]",
+    "summary": "Copy a live website into a preview or permanent environment.",
+    "details": "Copies the live website and its env, with its own address. A preview\nexpires; --permanent makes a lasting environment such as staging. Per\nwebsite: Free 1 preview; Starter 2 previews and 1 environment; Pro\n25 previews and unlimited environments.\n\n--from <environment> copies a permanent environment instead of live.\n--set-env KEY=VALUE overrides one copied env value. Repeatable.\nDeploy to the copy from the live website's directory with\n`pbc website deploy --env <preview>`.",
+    "needs": [
+      "target:frontends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "preview",
+        "required": false,
+        "description": "Name of the preview or environment. Picked when omitted."
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live site. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live site's id, alternative to --name."
+      },
+      {
+        "name": "from",
+        "type": "string",
+        "required": false,
+        "description": "Copy this permanent environment instead of live (the default)."
+      },
+      {
+        "name": "permanent",
+        "type": "boolean",
+        "required": false,
+        "description": "Keep it as a permanent environment that never expires (Starter and Pro)."
+      },
+      {
+        "name": "set-env",
+        "type": "string",
+        "required": false,
+        "description": "KEY=VALUE env override on the copy. Repeatable."
+      }
+    ]
+  },
+  "website preview env-diff": {
+    "usage": "pbc website preview env-diff [<preview>] [--name <name>|--id <id>]",
+    "summary": "List the env keys a preview of a website has that differ from live.",
+    "details": "Lists key names only, never values. Copy live's values over with\n`pbc website preview env-copy`.",
+    "needs": [
+      "target:frontends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "preview",
+        "required": false,
+        "description": "Which preview. Picked when the site has only one."
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live site. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live site's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      }
+    ]
+  },
+  "website preview env-copy": {
+    "usage": "pbc website preview env-copy [<preview>] [--key <KEY> ...] [--name <name>|--id <id>] [--yes]",
+    "summary": "Copy env values from live onto a preview of a website.",
+    "details": "Copies live's values for the named keys (every key when --key is omitted). A\nservice restarts; a website is rebuilt when its source was kept.",
+    "needs": [
+      "target:frontends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "preview",
+        "required": false,
+        "description": "Which preview. Picked when the site has only one."
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live site. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live site's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "key",
+        "type": "string",
+        "required": false,
+        "description": "Copy only this key. Repeatable."
+      }
+    ]
+  },
+  "website preview ship": {
+    "usage": "pbc website preview ship [<name>|--name <name>|--id <id>] [--preview <name>] [--to live|<environment>] [--yes]",
+    "summary": "Apply a preview's changes to live or to a permanent environment.",
+    "details": "Ships only what changed on the preview since it was copied.\n--to picks live or a permanent environment such as staging; the default is\nwhere the preview was copied from. The target's own newer changes are\nkept, and its data and env are never overwritten. The plan is printed first.\nFiles both sides changed in the same place stop the ship until settled with\n`pbc website preview resolve`. Shipped to live, a preview is deleted;\nshipped to an environment, it is kept so it can go on to live later.",
+    "needs": [
+      "target:frontends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional site name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live site. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live site's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "preview",
+        "type": "string",
+        "required": false,
+        "description": "Which preview. Picked when the site has only one."
+      },
+      {
+        "name": "to",
+        "type": "string",
+        "required": false,
+        "description": "Ship to live or a permanent environment. Defaults to where the preview was copied from."
+      }
+    ]
+  },
+  "website preview rm": {
+    "usage": "pbc website preview rm [<name>|--name <name>|--id <id>] [--preview <name>] [--yes]",
+    "summary": "Discard a preview. Live is not touched.",
+    "needs": [
+      "target:frontends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional site name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live site. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live site's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "preview",
+        "type": "string",
+        "required": false,
+        "description": "Which preview. Picked when the site has only one."
+      }
+    ]
+  },
+  "website preview update": {
+    "usage": "pbc website preview update [<name>|--name <name>|--id <id>] [--preview <name>] [--copy-env] [--replace] [--yes]",
+    "summary": "Bring the source's newer files into a preview, keeping its changes.",
+    "details": "For a preview made before its source (live or the environment it was copied\nfrom) changed. A preview behind its source is redeployed from it. One with\ndeploys of its own keeps them unless you pass --replace; its build stays in its\ndeploy history, so roll back brings it back.\n\n--copy-env also copies the env keys that differ from the source.",
+    "needs": [
+      "target:frontends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional site name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live site. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live site's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "preview",
+        "type": "string",
+        "required": false,
+        "description": "Which preview. Picked when the site has only one."
+      },
+      {
+        "name": "copy-env",
+        "type": "boolean",
+        "required": false,
+        "description": "Also copy env keys that differ from the source."
+      },
+      {
+        "name": "replace",
+        "type": "boolean",
+        "required": false,
+        "description": "Take the source's build even when the preview has deploys of its own."
+      }
+    ]
+  },
+  "website preview conflicts": {
+    "usage": "pbc website preview conflicts [<name>|--name <name>|--id <id>] [--preview <name>]",
+    "summary": "List the files a preview and live both changed in the same place.",
+    "details": "Updating a preview or reopening a draft combines edits to different parts of a\nfile by itself. Edits to the same lines are left for you: resolve each with\n`pbc website preview resolve <file>`. --out <dir> writes each text file\nthere three times: <path> (yours, edit this one), <path>.live and\n<path>.original; then run `resolve <file> --from <dir>/<path>`.",
+    "needs": [
+      "target:frontends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional site name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live site. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live site's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "preview",
+        "type": "string",
+        "required": false,
+        "description": "Which preview. Picked when the site has only one."
+      },
+      {
+        "name": "out",
+        "type": "path",
+        "required": false,
+        "description": "Write the versions of each file to this folder."
+      }
+    ]
+  },
+  "website preview resolve": {
+    "usage": "pbc website preview resolve <file> (--mine|--live|--from <path>) [--name <name>|--id <id>] [--preview <name>]",
+    "summary": "Settle one file a preview and live both changed.",
+    "details": "--mine keeps the preview's version, --live takes live's (or deletes the file\nwhen live deleted it), and --from saves the content of a local file you edited.\nShipping waits until no file is left; list them with\n`pbc website preview conflicts`.",
+    "needs": [
+      "target:frontends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "file",
+        "required": true,
+        "description": "Path such as pb_hooks/main.pb.js"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live site. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live site's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "preview",
+        "type": "string",
+        "required": false,
+        "description": "Which preview. Picked when the site has only one."
+      },
+      {
+        "name": "mine",
+        "type": "boolean",
+        "required": false,
+        "description": "Keep the preview's version."
+      },
+      {
+        "name": "live",
+        "type": "boolean",
+        "required": false,
+        "description": "Take live's version."
+      },
+      {
+        "name": "from",
+        "type": "path",
+        "required": false,
+        "description": "Save this local file's content."
+      }
+    ]
+  },
+  "website preview extend": {
+    "usage": "pbc website preview extend [<name>|--name <name>|--id <id>] [--preview <name>]",
+    "summary": "Keep a preview for another full lifetime from now.",
+    "needs": [
+      "target:frontends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional site name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live site. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live site's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "preview",
+        "type": "string",
+        "required": false,
+        "description": "Which preview. Picked when the site has only one."
+      }
+    ]
+  },
+  "service preview ls": {
+    "usage": "pbc service preview ls [<name>|--name <name>|--id <id>]",
+    "summary": "List a service's previews and environments with their addresses.",
+    "details": "A preview is a short-lived copy of a live service with its own address. A\npermanent environment such as staging is the same copy that never expires.\nCreate one with `pbc service preview create`, try it, then ship it to live with\n`pbc service preview ship` or discard it with `pbc service preview rm`.",
+    "needs": [
+      "target:backends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional service name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live service. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live service's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      }
+    ]
+  },
+  "service preview create": {
+    "usage": "pbc service preview create [<preview>] [--name <name>|--id <id>] [--from live|<environment>] [--permanent] [--set-env KEY=VALUE ...]",
+    "summary": "Copy a live service into a preview or permanent environment.",
+    "details": "Copies the live service and its env, with its own address. A preview\nexpires; --permanent makes a lasting environment such as staging. Per\nservice: Free 1 preview; Starter 2 previews and 1 environment; Pro\n25 previews and unlimited environments.\n\n--from <environment> copies a permanent environment instead of live.\n--set-env KEY=VALUE overrides one copied env value. Repeatable.\nDeploy to the copy from the live service's directory with\n`pbc service deploy --env <preview>`.",
+    "needs": [
+      "target:backends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "preview",
+        "required": false,
+        "description": "Name of the preview or environment. Picked when omitted."
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live service. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live service's id, alternative to --name."
+      },
+      {
+        "name": "from",
+        "type": "string",
+        "required": false,
+        "description": "Copy this permanent environment instead of live (the default)."
+      },
+      {
+        "name": "permanent",
+        "type": "boolean",
+        "required": false,
+        "description": "Keep it as a permanent environment that never expires (Starter and Pro)."
+      },
+      {
+        "name": "set-env",
+        "type": "string",
+        "required": false,
+        "description": "KEY=VALUE env override on the copy. Repeatable."
+      }
+    ]
+  },
+  "service preview env-diff": {
+    "usage": "pbc service preview env-diff [<preview>] [--name <name>|--id <id>]",
+    "summary": "List the env keys a preview of a service has that differ from live.",
+    "details": "Lists key names only, never values. Copy live's values over with\n`pbc service preview env-copy`.",
+    "needs": [
+      "target:backends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "preview",
+        "required": false,
+        "description": "Which preview. Picked when the service has only one."
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live service. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live service's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      }
+    ]
+  },
+  "service preview env-copy": {
+    "usage": "pbc service preview env-copy [<preview>] [--key <KEY> ...] [--name <name>|--id <id>] [--yes]",
+    "summary": "Copy env values from live onto a preview of a service.",
+    "details": "Copies live's values for the named keys (every key when --key is omitted). A\nservice restarts; a website is rebuilt when its source was kept.",
+    "needs": [
+      "target:backends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "preview",
+        "required": false,
+        "description": "Which preview. Picked when the service has only one."
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live service. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live service's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "key",
+        "type": "string",
+        "required": false,
+        "description": "Copy only this key. Repeatable."
+      }
+    ]
+  },
+  "service preview ship": {
+    "usage": "pbc service preview ship [<name>|--name <name>|--id <id>] [--preview <name>] [--to live|<environment>] [--yes]",
+    "summary": "Apply a preview's changes to live or to a permanent environment.",
+    "details": "Ships only what changed on the preview since it was copied.\n--to picks live or a permanent environment such as staging; the default is\nwhere the preview was copied from. The target's own newer changes are\nkept, and its data and env are never overwritten. The plan is printed first.\nFiles both sides changed in the same place stop the ship until settled with\n`pbc service preview resolve`. Shipped to live, a preview is deleted;\nshipped to an environment, it is kept so it can go on to live later.",
+    "needs": [
+      "target:backends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional service name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live service. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live service's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "preview",
+        "type": "string",
+        "required": false,
+        "description": "Which preview. Picked when the service has only one."
+      },
+      {
+        "name": "to",
+        "type": "string",
+        "required": false,
+        "description": "Ship to live or a permanent environment. Defaults to where the preview was copied from."
+      }
+    ]
+  },
+  "service preview rm": {
+    "usage": "pbc service preview rm [<name>|--name <name>|--id <id>] [--preview <name>] [--yes]",
+    "summary": "Discard a preview. Live is not touched.",
+    "needs": [
+      "target:backends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional service name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live service. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live service's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "preview",
+        "type": "string",
+        "required": false,
+        "description": "Which preview. Picked when the service has only one."
+      }
+    ]
+  },
+  "service preview update": {
+    "usage": "pbc service preview update [<name>|--name <name>|--id <id>] [--preview <name>] [--copy-env] [--replace] [--yes]",
+    "summary": "Bring the source's newer files into a preview, keeping its changes.",
+    "details": "For a preview made before its source (live or the environment it was copied\nfrom) changed. A preview behind its source is redeployed from it. One with\ndeploys of its own keeps them unless you pass --replace; its build stays in its\ndeploy history, so roll back brings it back.\n\n--copy-env also copies the env keys that differ from the source.",
+    "needs": [
+      "target:backends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional service name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live service. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live service's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "preview",
+        "type": "string",
+        "required": false,
+        "description": "Which preview. Picked when the service has only one."
+      },
+      {
+        "name": "copy-env",
+        "type": "boolean",
+        "required": false,
+        "description": "Also copy env keys that differ from the source."
+      },
+      {
+        "name": "replace",
+        "type": "boolean",
+        "required": false,
+        "description": "Take the source's build even when the preview has deploys of its own."
+      }
+    ]
+  },
+  "service preview conflicts": {
+    "usage": "pbc service preview conflicts [<name>|--name <name>|--id <id>] [--preview <name>]",
+    "summary": "List the files a preview and live both changed in the same place.",
+    "details": "Updating a preview or reopening a draft combines edits to different parts of a\nfile by itself. Edits to the same lines are left for you: resolve each with\n`pbc service preview resolve <file>`. --out <dir> writes each text file\nthere three times: <path> (yours, edit this one), <path>.live and\n<path>.original; then run `resolve <file> --from <dir>/<path>`.",
+    "needs": [
+      "target:backends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional service name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live service. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live service's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "preview",
+        "type": "string",
+        "required": false,
+        "description": "Which preview. Picked when the service has only one."
+      },
+      {
+        "name": "out",
+        "type": "path",
+        "required": false,
+        "description": "Write the versions of each file to this folder."
+      }
+    ]
+  },
+  "service preview resolve": {
+    "usage": "pbc service preview resolve <file> (--mine|--live|--from <path>) [--name <name>|--id <id>] [--preview <name>]",
+    "summary": "Settle one file a preview and live both changed.",
+    "details": "--mine keeps the preview's version, --live takes live's (or deletes the file\nwhen live deleted it), and --from saves the content of a local file you edited.\nShipping waits until no file is left; list them with\n`pbc service preview conflicts`.",
+    "needs": [
+      "target:backends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "file",
+        "required": true,
+        "description": "Path such as pb_hooks/main.pb.js"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live service. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live service's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "preview",
+        "type": "string",
+        "required": false,
+        "description": "Which preview. Picked when the service has only one."
+      },
+      {
+        "name": "mine",
+        "type": "boolean",
+        "required": false,
+        "description": "Keep the preview's version."
+      },
+      {
+        "name": "live",
+        "type": "boolean",
+        "required": false,
+        "description": "Take live's version."
+      },
+      {
+        "name": "from",
+        "type": "path",
+        "required": false,
+        "description": "Save this local file's content."
+      }
+    ]
+  },
+  "service preview extend": {
+    "usage": "pbc service preview extend [<name>|--name <name>|--id <id>] [--preview <name>]",
+    "summary": "Keep a preview for another full lifetime from now.",
+    "needs": [
+      "target:backends",
+      {
+        "explicit": true
+      }
+    ],
+    "args": [
+      {
+        "name": "name",
+        "required": false,
+        "description": "Positional service name, alternative to --name/--id"
+      }
+    ],
+    "flags": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Which live service. Asked for when omitted."
+      },
+      {
+        "name": "id",
+        "type": "string",
+        "required": false,
+        "description": "The live service's id, alternative to --name."
+      },
+      {
+        "name": "env",
+        "type": "string",
+        "required": false,
+        "description": "Which pbc.json environment to target."
+      },
+      {
+        "name": "preview",
+        "type": "string",
+        "required": false,
+        "description": "Which preview. Picked when the service has only one."
+      }
+    ]
+  },
+  "website deploy": {
+    "usage": "pbc website deploy [--name <name>|--new <name>] [flags]",
     "summary": "Build, package, and deploy a static site.",
-    "details": "Runs the build command, zips the output directory, and uploads it. Both\ncome from the \"build\" block in pbc.json, inferred from the directory\n(vite/svelte/angular/next config, package.json build script) and written\nthere on the first deploy.\n\nFrontends have no cloud env store — build-time variables are baked into the\nbundle, so there is no --env-file flag here.\n\nA site is served from an address the platform assigns and never changes:\n<id>.<compute>.pocketbasecloud.com. To put a domain of your own in front of\nit, use pbc frontend domain add.",
+    "details": "Runs the build command, zips the output directory, and uploads it. Both\ncome from the \"build\" block in pbc.json, inferred from the directory\n(vite/svelte/angular/next config, package.json build script) and written\nthere on the first deploy.\n\nWith --source, the directory's source is uploaded instead (without\nnode_modules, .git, .env files or the build output) and the platform runs the\nbuild. The source is kept, so pbc website revisions and pbc website pull work\non it and it can be edited from the portal or an AI assistant. A Next.js app\nwith a server is a service: deploy it with pbc service deploy.\n\nFrontends have no cloud env store — build-time variables are baked into the\nbundle, so there is no --env-file flag here.\n\nA site is served from an address the platform assigns and never changes:\n<id>.<compute>.pocketbasecloud.com. To put a domain of your own in front of\nit, use pbc website domain add.",
     "needs": [
       "target:frontends",
       {
@@ -2617,6 +4028,12 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "type": "boolean",
         "required": false,
         "description": "Package without running the build command."
+      },
+      {
+        "name": "source",
+        "type": "boolean",
+        "required": false,
+        "description": "Upload the source instead of building here; the platform builds it and keeps it, so it can be edited from the portal or an AI assistant."
       },
       {
         "name": "location",
@@ -2655,10 +4072,10 @@ export const COMMANDS: Record<string, CommandSpec> = {
       }
     ]
   },
-  "backend deploy": {
-    "usage": "pbc backend deploy [--name <name>|--new <name>] [flags]",
-    "summary": "Build, package, and deploy a backend.",
-    "details": "Runs the build command and uploads the result. The runtime, build command,\nand output directory come from the \"build\" block in pbc.json, inferred from the\ndirectory (deno.json, bun.lockb, next.config.*, package.json, or a python\nmanifest or script) and written there on the first deploy.\n\ndeno, bun, and nodejs ship their source — the platform installs dependencies\non start, so node_modules is excluded. Where there is a build command, deploy\ninstalls its dependencies first when they are missing, with the package\nmanager the lockfile names. Python ships the same way: the platform installs\ndependencies into a virtualenv on start with the tool the lockfile names (uv.lock,\npoetry.lock, Pipfile, requirements.txt, or pyproject.toml). The start command\ncomes from a Procfile web: line, else from the framework (Django, Flask, FastAPI,\nStarlette, Litestar, Quart, Sanic, Bottle, Falcon, Dash, Streamlit, Gradio,\nCelery) served on $PORT, else python <entry>. The Python version is detected on\nevery deploy (.python-version, runtime.txt, requires-python, Pipfile) unless\n--python-version or build.pythonVersion pins it; Python 2 is refused.\nVirtualenvs and __pycache__ are excluded.\n\nnextjs ships a prebuilt bundle: deploy adds output: \"standalone\" to\nnext.config.* before building (and says so) unless the config already sets\noutput, then assembles .next/standalone, .next/static, and public, starting\nwith node server.js. output: \"export\" is a static site — deploy it with\npbc frontend deploy instead.",
+  "service deploy": {
+    "usage": "pbc service deploy [--name <name>|--new <name>] [flags]",
+    "summary": "Build, package, and deploy a service.",
+    "details": "Runs the build command and uploads the result. The runtime, build command,\nand output directory come from the \"build\" block in pbc.json, inferred from the\ndirectory (deno.json, bun.lockb, next.config.*, package.json, or a python\nmanifest or script) and written there on the first deploy.\n\ndeno, bun, and nodejs ship their source — the platform installs dependencies\non start, so node_modules is excluded. Where there is a build command, deploy\ninstalls its dependencies first when they are missing, with the package\nmanager the lockfile names. Python ships the same way: the platform installs\ndependencies into a virtualenv on start with the tool the lockfile names (uv.lock,\npoetry.lock, Pipfile, requirements.txt, or pyproject.toml). The start command\ncomes from a Procfile web: line, else from the framework (Django, Flask, FastAPI,\nStarlette, Litestar, Quart, Sanic, Bottle, Falcon, Dash, Streamlit, Gradio,\nCelery) served on $PORT, else python <entry>. The Python version is detected on\nevery deploy (.python-version, runtime.txt, requires-python, Pipfile) unless\n--python-version or build.pythonVersion pins it; Python 2 is refused.\nVirtualenvs and __pycache__ are excluded.\n\nnextjs ships a prebuilt bundle: deploy adds output: \"standalone\" to\nnext.config.* before building (and says so) unless the config already sets\noutput, then assembles .next/standalone, .next/static, and public, starting\nwith node server.js. output: \"export\" is a static site — deploy it with\npbc website deploy instead.",
     "needs": [
       "target:backends",
       {
@@ -2769,14 +4186,14 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ]
   },
   "deploy": {
-    "usage": "pbc deploy [pocketbase|frontend|backend] [<name>] [flags]",
+    "usage": "pbc deploy [pocketbase|website|service] [<name>] [flags]",
     "summary": "Deploy this directory, detecting what kind of resource it is.",
-    "details": "Works out whether the directory holds a PocketBase instance, a static\nsite, or a backend, then runs that kind's deploy — `pbc pocketbase deploy`,\n`pbc frontend deploy`, or `pbc backend deploy`. Every flag those commands\naccept works here and is passed straight through.\n\nThe first of these that applies decides:\n\n  1. The \"kind\" recorded in pbc.json by a previous deploy — never re-guessed.\n  2. pb_hooks/, pb_migrations/, or pb_public/ — a PocketBase instance.\n  3. next.config.*: \"output\": \"export\" is a static site, anything else a backend.\n  4. vite / svelte / vue config, or angular.json — a frontend.\n  5. deno.json(c) — a backend.\n  6. package.json dependencies, then its scripts: a server dep or a \"start\"\n     script is a backend; a bundler dep or a lone \"build\" script a frontend.\n  7. index.html in the directory or public/, dist/, build/, or out/ — a frontend.\n\nThe detected kind and the file that decided it are printed before the deploy\nruns. A leading kind word overrides the detection outright:\n\n  pbc deploy backend            # deploy as a backend, whatever is here\n  pbc deploy frontend web       # …and redeploy the existing \"web\"\n\nEnv vars are pushed only from the dotenv file each environment names —\nnothing by default. The first deploy of an environment asks which file (or\nnone) and records it in pbc.json. Pushing merges, keeping cloud-only keys;\n--delete-missing makes the file the whole truth, and --skip-env pushes\nnothing this run. An unchanged file is not re-uploaded without --force-env.\n\nWhen nothing in the directory points either way you are asked on a terminal;\nunder --no-input or --json you get an error naming the three explicit\ncommands.",
+    "details": "Works out whether the directory holds a PocketBase instance, a\nwebsite, or a service, then runs that kind's deploy — `pbc pocketbase deploy`,\n`pbc website deploy`, or `pbc service deploy`. Every flag those commands\naccept works here and is passed straight through.\n\nThe first of these that applies decides:\n\n  1. The \"kind\" recorded in pbc.json by a previous deploy — never re-guessed.\n  2. pb_hooks/, pb_migrations/, or pb_public/ — a PocketBase instance.\n  3. next.config.*: \"output\": \"export\" is a static site, anything else a service.\n  4. vite / svelte / vue config, or angular.json — a website.\n  5. deno.json(c) — a service.\n  6. package.json dependencies, then its scripts: a server dep or a \"start\"\n     script is a service; a bundler dep or a lone \"build\" script a website.\n  7. index.html in the directory or public/, dist/, build/, or out/ — a website.\n\nThe detected kind and the file that decided it are printed before the deploy\nruns. A leading kind word overrides the detection outright:\n\n  pbc deploy service            # deploy as a service, whatever is here\n  pbc deploy website web        # …and redeploy the existing \"web\"\n\nEnv vars are pushed only from the dotenv file each environment names —\nnothing by default. The first deploy of an environment asks which file (or\nnone) and records it in pbc.json. Pushing merges, keeping cloud-only keys;\n--delete-missing makes the file the whole truth, and --skip-env pushes\nnothing this run. An unchanged file is not re-uploaded without --force-env.\n\nWhen nothing in the directory points either way you are asked on a terminal;\nunder --no-input or --json you get an error naming the three explicit\ncommands.",
     "args": [
       {
         "name": "kind",
         "required": false,
-        "description": "pocketbase, frontend, or backend; detected from the directory when omitted"
+        "description": "pocketbase, website, or service; detected from the directory when omitted"
       },
       {
         "name": "name",
@@ -2928,6 +4345,12 @@ export const COMMANDS: Record<string, CommandSpec> = {
         }
       },
       {
+        "name": "source",
+        "type": "boolean",
+        "required": false,
+        "description": "Upload the source instead of building here; the platform builds it and keeps it, so it can be edited from the portal or an AI assistant."
+      },
+      {
         "name": "runtime",
         "type": "string",
         "required": false,
@@ -3010,14 +4433,14 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "locations": {
     "usage": "pbc locations",
     "summary": "List the regions a deploy can actually land in.",
-    "details": "The regions of the shared platform pool for the plan a deploy is placed\nagainst — what `--location <loc>` accepts on `pocketbase create` and\n`frontend deploy`. Not the provider catalog: most regions a\nprovider sells hold no server of ours, and a deploy aimed at one fails\nwith `noServerAvailable`.\n\nWith `--project`, the answer is for that project's owner (org-aware);\nwithout it, for the caller.",
+    "details": "The regions of the shared platform pool for the plan a deploy is placed\nagainst — what `--location <loc>` accepts on `pocketbase create` and\n`website deploy`. Not the provider catalog: most regions a\nprovider sells hold no server of ours, and a deploy aimed at one fails\nwith `noServerAvailable`.\n\nWith `--project`, the answer is for that project's owner (org-aware);\nwithout it, for the caller.",
     "args": [],
     "flags": []
   },
   "env ls": {
-    "usage": "pbc env ls --target pocketbase|frontend|backend --name <n> [--env <name>]",
+    "usage": "pbc env ls --target pocketbase|website|service --name <n> [--env <name>]",
     "summary": "List environment variables.",
-    "details": "Names only. The platform stores values encrypted and its list endpoint\nnever returns plaintext, so there is nothing for the CLI to show —\nread a value from the app itself, or overwrite it with `env set`.\nWithout --name/--id, a terminal offers a picker.\n--target frontend manages build variables: they are set while the\nplatform builds the frontend from source (GitHub pushes, templates);\n`pbc deploy` builds locally with your own shell environment instead.\nThey are stored unencrypted, limited to 10 KB in total, and names your\nframework exposes to the browser (VITE_, NEXT_PUBLIC_, …) end up in\nthe public bundle.",
+    "details": "Names only. The platform stores values encrypted and its list endpoint\nnever returns plaintext, so there is nothing for the CLI to show —\nread a value from the app itself, or overwrite it with `env set`.\nWithout --name/--id, a terminal offers a picker.\n--target website manages build variables: they are set while the\nplatform builds the website from source (GitHub pushes, templates);\n`pbc deploy` builds locally with your own shell environment instead.\nThey are stored unencrypted, limited to 10 KB in total, and names your\nframework exposes to the browser (VITE_, NEXT_PUBLIC_, …) end up in\nthe public bundle.",
     "args": [],
     "flags": [
       {
@@ -3026,10 +4449,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "required": true,
         "choices": [
           "pocketbase",
+          "pb",
+          "website",
           "frontend",
+          "service",
           "backend"
         ],
-        "description": "pocketbase or frontend or backend — which kind's variables. Defaults to the kind pbc.json is bound to."
+        "description": "pocketbase or website or service — which kind's variables. Defaults to the kind pbc.json is bound to."
       },
       {
         "name": "name",
@@ -3052,7 +4478,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ]
   },
   "env set": {
-    "usage": "pbc env set KEY=VALUE --target pocketbase|frontend|backend --name <n> [--env <name>]",
+    "usage": "pbc env set KEY=VALUE --target pocketbase|website|service --name <n> [--env <name>]",
     "summary": "Set an environment variable.",
     "args": [
       {
@@ -3067,10 +4493,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "required": true,
         "choices": [
           "pocketbase",
+          "pb",
+          "website",
           "frontend",
+          "service",
           "backend"
         ],
-        "description": "pocketbase or frontend or backend — which kind's variables. Defaults to the kind pbc.json is bound to."
+        "description": "pocketbase or website or service — which kind's variables. Defaults to the kind pbc.json is bound to."
       },
       {
         "name": "name",
@@ -3093,7 +4522,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ]
   },
   "env rm": {
-    "usage": "pbc env rm KEY --target pocketbase|frontend|backend --name <n> [--env <name>]",
+    "usage": "pbc env rm KEY --target pocketbase|website|service --name <n> [--env <name>]",
     "summary": "Remove an environment variable.",
     "args": [
       {
@@ -3108,10 +4537,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "required": true,
         "choices": [
           "pocketbase",
+          "pb",
+          "website",
           "frontend",
+          "service",
           "backend"
         ],
-        "description": "pocketbase or frontend or backend — which kind's variables. Defaults to the kind pbc.json is bound to."
+        "description": "pocketbase or website or service — which kind's variables. Defaults to the kind pbc.json is bound to."
       },
       {
         "name": "name",
@@ -3134,7 +4566,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ]
   },
   "env import": {
-    "usage": "pbc env import <.env> --target pocketbase|frontend|backend --name <n> [--delete-missing] [--env <name>]",
+    "usage": "pbc env import <.env> --target pocketbase|website|service --name <n> [--delete-missing] [--env <name>]",
     "summary": "Bulk-import variables from a .env file.",
     "details": "Merges: keys in the file are written, cloud-only keys are left alone.\n--delete-missing makes the file the whole truth — cloud variables it does not\nlist are removed too, after a confirmation that --no-input does not waive\n(without a way to ask, the import stops and names --yes).",
     "args": [
@@ -3150,10 +4582,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
         "required": true,
         "choices": [
           "pocketbase",
+          "pb",
+          "website",
           "frontend",
+          "service",
           "backend"
         ],
-        "description": "pocketbase or frontend or backend — which kind's variables. Defaults to the kind pbc.json is bound to."
+        "description": "pocketbase or website or service — which kind's variables. Defaults to the kind pbc.json is bound to."
       },
       {
         "name": "name",
@@ -3184,17 +4619,17 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "environments": {
     "usage": "pbc environments",
     "summary": "List the environments recorded in ./pbc.json.",
-    "details": "Shows which cloud resource each environment of this directory deploys\nto, and which one a bare deploy targets. Reads the file only — no\nlogin, no network call.\n\nEnvironments are created by deploying or linking with --env:\n  pbc frontend deploy --env staging --name web-staging",
+    "details": "Shows which cloud resource each environment of this directory deploys\nto, and which one a bare deploy targets. Reads the file only — no\nlogin, no network call.\n\nEnvironments are created by deploying or linking with --env:\n  pbc website deploy --env staging --name web-staging",
     "args": [],
     "flags": []
   },
   "logs": {
-    "usage": "pbc logs [pocketbase|backend] --name <n> [-f] [--lines <n>] [--env <name>]",
-    "summary": "Stream logs for a PocketBase instance or backend.",
+    "usage": "pbc logs [pocketbase|service] --name <n> [-f] [--lines <n>] [--env <name>]",
+    "summary": "Stream logs for a PocketBase instance or service.",
     "details": "Prints the last --lines entries (50 by default, 1000 max) and stops; with\n--follow it keeps printing until interrupted. The kind defaults to the one\npbc.json is bound to.",
     "args": [
       {
-        "name": "pocketbase|backend",
+        "name": "pocketbase|service",
         "required": false
       }
     ],
@@ -3232,14 +4667,14 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ]
   },
   "init": {
-    "usage": "pbc init [pocketbase|frontend|backend] [--force] [--env <name>]",
+    "usage": "pbc init [pocketbase|website|service] [--force] [--env <name>]",
     "summary": "Write this directory's build config into pbc.json.",
     "details": "Inspects the directory and records how it should be built and packaged: the\nbuild command, output directory, backend runtime, or a PocketBase project's\npb_public / pb_hooks / pb_migrations paths. Nothing in the cloud is touched,\nand no login is needed.\n\nDeploy infers the same block when pbc.json has none, so this command is\noptional — it lets you see and edit the guess before anything ships. An\nexisting block is left alone unless --force is passed.\n\nOn a terminal it also asks which environment this directory deploys to and\nrecords it as the default.",
     "args": [
       {
         "name": "kind",
         "required": false,
-        "description": "pocketbase, frontend, or backend; defaults to the bound resource"
+        "description": "pocketbase, website, or service; defaults to the bound resource"
       }
     ],
     "flags": [

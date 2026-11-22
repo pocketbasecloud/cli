@@ -15,7 +15,7 @@ export function makeLocationCommands(
       details:
         "The regions of the shared platform pool for the plan a deploy is placed\n" +
         "against — what `--location <loc>` accepts on `pocketbase create` and\n" +
-        "`frontend deploy`. Not the provider catalog: most regions a\n" +
+        "`website deploy`. Not the provider catalog: most regions a\n" +
         "provider sells hold no server of ours, and a deploy aimed at one fails\n" +
         "with `noServerAvailable`.\n\n" +
         "With `--project`, the answer is for that project's owner (org-aware);\n" +

@@ -58,7 +58,7 @@ Deno.test("ls lists only the kind it was built for", async () => {
   try {
     const cmds = makeResourceCommands(deps(client, p.id), KINDS.frontends);
     assertEquals(
-      await cmds["frontend ls"].run({}, {
+      await cmds["website ls"].run({}, {
         args: [],
         flags: flags({ project: p.id }),
       }),
@@ -79,7 +79,7 @@ Deno.test("rm marks the resource deleted through the kind's own collection", asy
     project: p.id,
   });
   const cmds = makeResourceCommands(deps(client, p.id), KINDS.backends);
-  const code = await cmds["backend rm"].run({ name: "api" }, {
+  const code = await cmds["service rm"].run({ name: "api" }, {
     args: [],
     flags: flags({ project: p.id }),
   });
@@ -184,7 +184,7 @@ Deno.test("domain status sends no domain and reports the platform's answer", asy
   try {
     const cmds = makeResourceCommands(deps(client, p.id), KINDS.backends);
     assertEquals(
-      await cmds["backend domain status"].run({ name: "api" }, {
+      await cmds["service domain status"].run({ name: "api" }, {
         args: [],
         flags: flags({ project: p.id }),
       }),
@@ -304,7 +304,7 @@ Deno.test("deployedBy names you, a teammate, the commit author or GitHub", () =>
 
 Deno.test("deployments marks the live deployment", async () => {
   const { run } = await rollbackSetup(history);
-  const { data } = await run("frontend deployments", {});
+  const { data } = await run("website deployments", {});
   assertEquals(
     (data as { id: string; live: boolean }[]).map((d) => [d.id, d.live]),
     [["d4", false], ["d3", true], ["d2", false], ["d1", false]],
@@ -313,7 +313,7 @@ Deno.test("deployments marks the live deployment", async () => {
 
 Deno.test("rollback without --to goes back to the success before the live one", async () => {
   const { run, posted } = await rollbackSetup(history);
-  const { code, data } = await run("frontend rollback", {});
+  const { code, data } = await run("website rollback", {});
   assertEquals(code, 0);
   assertEquals(posted, [["/api/deployments/rollback", { deploymentId: "d1" }]]);
   assertEquals(data, { deploymentId: "dep_1", rollbackOf: "d1" });
@@ -327,7 +327,7 @@ Deno.test("rollback --push-to-git reports the commit that put the old source bac
     sha: "f00d1234",
   };
   const { run, posted } = await rollbackSetup(history, repository);
-  const { data } = await run("frontend rollback", { "push-to-git": true });
+  const { data } = await run("website rollback", { "push-to-git": true });
   assertEquals(posted, [["/api/deployments/rollback", {
     deploymentId: "d1",
     pushToGit: true,
@@ -366,7 +366,7 @@ Deno.test("repositoryLine says where the rollback went, or why the next push rep
 Deno.test("rollback refuses a deployment of another resource", async () => {
   const { run, posted } = await rollbackSetup(history);
   const error = await assertRejects(
-    () => run("frontend rollback", { to: "elsewhere" }),
+    () => run("website rollback", { to: "elsewhere" }),
     CliError,
   );
   assertEquals(error.code, "INVALID_VALUE");
@@ -378,7 +378,7 @@ Deno.test("rollback with nothing earlier says so", async () => {
     { id: "d1", resourceId, status: "success", created: "" },
   ]);
   const error = await assertRejects(
-    () => run("frontend rollback", {}),
+    () => run("website rollback", {}),
     CliError,
   );
   assertEquals(error.code, "NOT_FOUND");
@@ -386,7 +386,7 @@ Deno.test("rollback with nothing earlier says so", async () => {
 
 Deno.test("rollback to the live deployment changes nothing", async () => {
   const { run, posted } = await rollbackSetup(history);
-  const { data } = await run("frontend rollback", { to: "d3" });
+  const { data } = await run("website rollback", { to: "d3" });
   assertEquals(posted, []);
   assertEquals(data, { deploymentId: null, rollbackOf: "d3" });
 });
@@ -395,7 +395,7 @@ Deno.test("a failed rollback surfaces the platform's reason", async () => {
   const { run, deploy } = await rollbackSetup(history);
   deploy.setStatus("failed", "Server is unreachable");
   const error = await assertRejects(
-    () => run("frontend rollback", { to: "d1" }),
+    () => run("website rollback", { to: "d1" }),
     CliError,
   );
   assertEquals(error.code, "PLATFORM_ERROR");
@@ -429,7 +429,7 @@ Deno.test("access verbs post the whole setting, keeping what the verb does not c
   });
   const cmds = makeResourceCommands(deps(client, p.id), KINDS.frontends);
   const run = (verb: string, args: string[]) =>
-    cmds[`frontend access ${verb}`].run({ name: "site" }, {
+    cmds[`website access ${verb}`].run({ name: "site" }, {
       args,
       flags: flags({ project: p.id }),
     });
@@ -464,7 +464,7 @@ Deno.test("access add requires at least one email", async () => {
   const cmds = makeResourceCommands(deps(client, p.id), KINDS.backends);
   await assertRejects(
     () =>
-      cmds["backend access add"].run({ name: "api" }, {
+      cmds["service access add"].run({ name: "api" }, {
         args: [],
         flags: flags({ project: p.id }),
       }),

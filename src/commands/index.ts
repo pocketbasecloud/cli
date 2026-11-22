@@ -4,7 +4,7 @@ import { makeAuthCommands } from "./auth.ts";
 import { type CloudCmdDeps, makeProjectCommands } from "./project.ts";
 import { makePbCommands } from "./pb.ts";
 import { makePbMoveCommands } from "./pb-move.ts";
-import { makePbPreviewCommands } from "./pb-preview.ts";
+import { makePreviewCommands } from "./pb-preview.ts";
 import { makeRevisionCommands } from "./revisions.ts";
 import { makeResourceCommands } from "./resource.ts";
 import { ALL_KINDS } from "../kinds.ts";
@@ -150,13 +150,13 @@ export function registerCommands(registry: CommandRegistry): void {
     ...pb,
     ...makeRevisionCommands(cloud),
     ...makePbMoveCommands(cloud),
-    ...makePbPreviewCommands(cloud),
+    ...makePreviewCommands(cloud),
     ...frontend,
     ...backend,
     ...makeDeployCommands(cloud, {
       pocketbases: pb["pocketbase deploy"],
-      frontends: frontend["frontend deploy"],
-      backends: backend["backend deploy"],
+      frontends: frontend["website deploy"],
+      backends: backend["service deploy"],
     }),
     ...makeProjectCommands(cloud),
     ...makeServerCommands(cloud),

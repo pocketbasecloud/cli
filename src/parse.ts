@@ -139,8 +139,13 @@ export function parseCommand(
       continue;
     }
 
+    const store = (value: string) => {
+      seen[name] = spec.type === "string" && spec.repeatable
+        ? [...((seen[name] as string[] | undefined) ?? []), value]
+        : value;
+    };
     if (inline !== undefined) {
-      seen[name] = inline;
+      store(inline);
       i++;
       continue;
     }
@@ -150,7 +155,7 @@ export function parseCommand(
       i++;
       continue;
     }
-    seen[name] = value;
+    store(value);
     i += 2;
   }
 

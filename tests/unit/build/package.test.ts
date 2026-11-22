@@ -586,3 +586,28 @@ Deno.test("a frontend ignores .pbcignore and keeps its source maps", async () =>
     ["app.js.map", "index.html"],
   );
 });
+
+Deno.test("the build command gets the build env it is given, and installs do not", async () => {
+  const cwd = dir({
+    "package.json": JSON.stringify({ dependencies: { next: "15" } }),
+    "package-lock.json": "{}",
+    "dist/index.html": "x",
+  });
+  const calls: [string, Record<string, string> | undefined][] = [];
+  await packageResource({
+    cwd,
+    kind: "frontends",
+    build: { command: "npm run build", outputDir: "dist" },
+    skipBuild: false,
+    log: noop,
+    buildEnv: { VITE_POCKETBASE_URL: "https://copy.example.com" },
+    run: (command, _at, env) => {
+      calls.push([command, env]);
+      return Promise.resolve({ code: 0 });
+    },
+  });
+  assertEquals(calls, [
+    ["npm install", undefined],
+    ["npm run build", { VITE_POCKETBASE_URL: "https://copy.example.com" }],
+  ]);
+});

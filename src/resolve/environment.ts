@@ -1,6 +1,14 @@
 import { type EnvEntry, envVar, type LinkFile } from "../config.ts";
 import { CliError } from "../errors.ts";
 import { canPrompt, prompt, type PromptIO } from "../ui/prompt.ts";
+import type { ICloudClient } from "../clients/cloud.ts";
+import type { Resource, ResourceKind } from "../clients/types.ts";
+import {
+  KIND_WORD,
+  listPreviews,
+  MEMBER_KIND_OF,
+} from "../clients/previews.ts";
+import { KINDS } from "../kinds.ts";
 
 export const DEFAULT_ENVIRONMENT = "production";
 
@@ -100,4 +108,50 @@ export function entryFor(
 ): EnvEntry | undefined {
   if (!link || link.kind !== kind) return undefined;
   return link.environments?.[choice.name];
+}
+
+export function boundIdsOf(
+  link: Partial<LinkFile> | null,
+  kind: LinkFile["kind"],
+): string[] {
+  if (!link || link.kind !== kind) return [];
+  return Object.values(link.environments ?? {}).map((entry) => entry.id);
+}
+
+function isMember(resource: Resource): boolean {
+  return Boolean((resource as { previewOf?: string }).previewOf);
+}
+
+export async function findServerEnvironmentMember(
+  client: ICloudClient,
+  opts: {
+    projectId: string;
+    kind: ResourceKind;
+    name: string;
+    liveIds?: string[];
+  },
+): Promise<Resource | null> {
+  const live = (await client.listResources(opts.kind, {
+    project: opts.projectId,
+  })).filter((resource) => !isMember(resource));
+  const linked = live.filter((resource) => opts.liveIds?.includes(resource.id));
+  const kind = MEMBER_KIND_OF[opts.kind];
+  const found: { owner: Resource; copyId: string }[] = [];
+  for (const owner of linked.length > 0 ? linked : live) {
+    const copy = (await listPreviews(client, owner.id, kind))
+      .find((entry) => entry.name === opts.name)?.members
+      .find((member) => member.kind === kind);
+    if (copy) found.push({ owner, copyId: copy.id });
+  }
+  if (found.length === 0) return null;
+  if (found.length === 1) {
+    return await client.getResource(opts.kind, found[0].copyId);
+  }
+  const word = KIND_WORD[kind];
+  throw new CliError(
+    `More than one ${word} has ${JSON.stringify(opts.name)} (${
+      found.map((entry) => entry.owner.name).join(", ")
+    }). Deploy from the directory linked to the live ${word}, or pass --name.`,
+    { code: "CONFLICT", hint: `pbc ${KINDS[opts.kind].noun} preview ls` },
+  );
 }

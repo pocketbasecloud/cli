@@ -96,9 +96,9 @@ Deno.test("frontend deploy uploads the built bundle to the deploy endpoint", asy
   const d = deps(client, p.id, cwd);
   const cmds = makeFrontendCommands(d);
 
-  const code = await cmds["frontend deploy"].run({ new: "web" }, {
-      args: [],
-      flags: flags(p.id),
+  const code = await cmds["website deploy"].run({ new: "web" }, {
+    args: [],
+    flags: flags(p.id),
   });
 
   assertEquals(code, 0);
@@ -124,9 +124,9 @@ Deno.test("frontend redeploy creates a deployment row, not an uploading record",
   const d = deps(client, p.id, cwd);
   const cmds = makeFrontendCommands(d);
 
-  await cmds["frontend deploy"].run({ name: "web" }, {
-      args: [],
-      flags: flags(p.id),
+  await cmds["website deploy"].run({ name: "web" }, {
+    args: [],
+    flags: flags(p.id),
   });
 
   const [, id, data] = client.calls.updateResource[0];
@@ -158,9 +158,12 @@ Deno.test("--zip uploads the given archive and skips packaging", async () => {
   const d = deps(client, p.id, cwd);
   const cmds = makeFrontendCommands(d);
 
-  const code = await cmds["frontend deploy"].run({ new: "web", zip: join(cwd, "prebuilt.zip") }, {
-      args: [],
-      flags: flags(p.id),
+  const code = await cmds["website deploy"].run({
+    new: "web",
+    zip: join(cwd, "prebuilt.zip"),
+  }, {
+    args: [],
+    flags: flags(p.id),
   });
 
   assertEquals(code, 0);
@@ -186,7 +189,7 @@ Deno.test("--zip leaves out OS metadata before uploading", async () => {
   const d = deps(client, p.id, cwd);
   const cmds = makeFrontendCommands(d);
 
-  const code = await cmds["frontend deploy"].run({
+  const code = await cmds["website deploy"].run({
     new: "web",
     zip: join(cwd, "site.zip"),
   }, {
@@ -206,9 +209,9 @@ Deno.test("--zip with a missing path is a usage error", async () => {
 
   const err = await assertRejects(
     () =>
-      cmds["frontend deploy"].run({ new: "web", zip: join(cwd, "nope.zip") }, {
-          args: [],
-          flags: flags(p.id),
+      cmds["website deploy"].run({ new: "web", zip: join(cwd, "nope.zip") }, {
+        args: [],
+        flags: flags(p.id),
       }),
     CliError,
     "--zip file not found",
@@ -230,9 +233,9 @@ Deno.test("a failing build exits 7 and creates no resource", async () => {
 
   const err = await assertRejects(
     () =>
-      cmds["frontend deploy"].run({ new: "web" }, {
-          args: [],
-          flags: flags(p.id),
+      cmds["website deploy"].run({ new: "web" }, {
+        args: [],
+        flags: flags(p.id),
       }),
     CliError,
     "Build failed",
@@ -254,9 +257,9 @@ Deno.test("backend deploy infers the runtime and assembles a Next.js bundle", as
   const d = backendDeps(client, p.id, cwd);
   const cmds = makeBackendCommands(d);
 
-  const code = await cmds["backend deploy"].run({ new: "api" }, {
-      args: [],
-      flags: flags(p.id),
+  const code = await cmds["service deploy"].run({ new: "api" }, {
+    args: [],
+    flags: flags(p.id),
   });
 
   assertEquals(code, 0);
@@ -282,9 +285,12 @@ Deno.test("an explicit --start beats the packager's suggestion", async () => {
   });
   const cmds = makeBackendCommands(backendDeps(client, p.id, cwd));
 
-  await cmds["backend deploy"].run({ new: "api", start: "node server.js --port 3000" }, {
-      args: [],
-      flags: flags(p.id),
+  await cmds["service deploy"].run({
+    new: "api",
+    start: "node server.js --port 3000",
+  }, {
+    args: [],
+    flags: flags(p.id),
   });
 
   const [, data] = client.calls.createResource[0];
@@ -301,10 +307,11 @@ Deno.test("backend deploy pushes nothing when no env file is configured", async 
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   runningNow(client);
-  await makeBackendCommands(backendDeps(client, p.id, cwd))["backend deploy"].run({ new: "api" }, {
+  await makeBackendCommands(backendDeps(client, p.id, cwd))["service deploy"]
+    .run({ new: "api" }, {
       args: [],
       flags: flags(p.id),
-  });
+    });
   assertEquals(
     client.calls.ext.some(([path]) => path === "/api/env/bulk-set"),
     false,
@@ -323,10 +330,11 @@ Deno.test("backend deploy pushes --env-file and records it for the environment",
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   runningNow(client);
-  await makeBackendCommands(backendDeps(client, p.id, cwd))["backend deploy"].run({ new: "api", envFile: ".env.prod", env: "prod" }, {
+  await makeBackendCommands(backendDeps(client, p.id, cwd))["service deploy"]
+    .run({ new: "api", envFile: ".env.prod", env: "prod" }, {
       args: [],
       flags: flags(p.id),
-  });
+    });
 
   const push = client.calls.ext.find(([path]) => path === "/api/env/bulk-set");
   assertEquals((push?.[1] as { variables: Record<string, string> }).variables, {
@@ -358,10 +366,11 @@ Deno.test("backend deploy pushes the environment's configured file, and --skip-e
   const client = createMockCloudClient();
   const p = await client.createProject("app");
   runningNow(client);
-  await makeBackendCommands(backendDeps(client, p.id, cwd))["backend deploy"].run({ new: "api" }, {
+  await makeBackendCommands(backendDeps(client, p.id, cwd))["service deploy"]
+    .run({ new: "api" }, {
       args: [],
       flags: flags(p.id),
-  });
+    });
   const push = client.calls.ext.find(([path]) => path === "/api/env/bulk-set");
   assertEquals((push?.[1] as { variables: Record<string, string> }).variables, {
     A: "1",
@@ -371,10 +380,11 @@ Deno.test("backend deploy pushes the environment's configured file, and --skip-e
   const client2 = createMockCloudClient();
   const p2 = await client2.createProject("app");
   runningNow(client2);
-  await makeBackendCommands(backendDeps(client2, p2.id, cwd2))["backend deploy"].run(
-    { new: "api", skipEnv: true },
-    { args: [], flags: flags(p2.id) },
-  );
+  await makeBackendCommands(backendDeps(client2, p2.id, cwd2))["service deploy"]
+    .run(
+      { new: "api", skipEnv: true },
+      { args: [], flags: flags(p2.id) },
+    );
   assertEquals(
     client2.calls.ext.some(([path]) => path === "/api/env/bulk-set"),
     false,
@@ -388,7 +398,7 @@ Deno.test("no dotenv file means no env push and no error", async () => {
   const cwd = seed({ "deno.json": START_TASK, "main.ts": "x" });
 
   const code = await makeBackendCommands(backendDeps(client, p.id, cwd))[
-    "backend deploy"
+    "service deploy"
   ].run(
     { new: "api" },
     { args: [], flags: flags(p.id) },
@@ -409,10 +419,13 @@ Deno.test("a named env file that is missing fails before anything is created", a
 
   await assertRejects(
     () =>
-      makeBackendCommands(backendDeps(client, p.id, cwd))["backend deploy"].run({ new: "api", envFile: ".env.production" }, {
+      makeBackendCommands(backendDeps(client, p.id, cwd))["service deploy"].run(
+        { new: "api", envFile: ".env.production" },
+        {
           args: [],
           flags: flags(p.id),
-      }),
+        },
+      ),
     CliError,
     "Env file not found",
   );
@@ -438,10 +451,13 @@ Deno.test("a pbc.json-configured env file that is missing fails the same way", a
 
   await assertRejects(
     () =>
-      makeBackendCommands(backendDeps(client, p.id, cwd))["backend deploy"].run({ new: "api" }, {
+      makeBackendCommands(backendDeps(client, p.id, cwd))["service deploy"].run(
+        { new: "api" },
+        {
           args: [],
           flags: flags(p.id),
-      }),
+        },
+      ),
     CliError,
     "Env file not found: .env.prod",
   );
@@ -514,7 +530,9 @@ Deno.test("pb redeploy sends hooks inside the archive, not through the hooks rou
   assertEquals(data.status, undefined);
   const dec = new TextDecoder();
   assertEquals(
-    dec.decode(await extractEntry(uploadedArchive(d), "pb_migrations/1_init.js")),
+    dec.decode(
+      await extractEntry(uploadedArchive(d), "pb_migrations/1_init.js"),
+    ),
     "// migration",
   );
   assertEquals(
@@ -694,10 +712,13 @@ Deno.test("pb redeploy refuses a --zip holding neither pb_migrations nor pb_publ
 
   const err = await assertRejects(
     () =>
-      cmds["pocketbase deploy"].run({ name: "db", zip: join(cwd, "site.zip") }, {
-        args: [],
-        flags: flags(p.id),
-      }),
+      cmds["pocketbase deploy"].run(
+        { name: "db", zip: join(cwd, "site.zip") },
+        {
+          args: [],
+          flags: flags(p.id),
+        },
+      ),
     CliError,
     "pb_migrations",
   );
@@ -756,4 +777,73 @@ Deno.test("a failed deploy reports the platform's own message, not just the sub-
     "unsupported file type",
   );
   assertEquals(err.message.includes("pb_hooks/lib/helpers.js"), true);
+});
+
+Deno.test("website deploy --env naming a server environment builds its copy with the copy's own env as it is", async () => {
+  const client = createMockCloudClient();
+  const p = await client.createProject("app");
+  const web = await client.createResource("frontends", {
+    name: "web",
+    project: p.id,
+  });
+  const webCopy = await client.createResource("frontends", {
+    name: "web-staging",
+    project: p.id,
+  });
+  await client.updateResource("frontends", webCopy.id, {
+    previewOf: web.id,
+    buildEnv: {
+      API_KEY: "staging-key",
+      VITE_POCKETBASE_URL: "https://db-staging.example.com",
+    },
+  });
+  client.calls.updateResource.length = 0;
+  client.ext = (_path, _body, opts) =>
+    Promise.resolve(Response.json({
+      success: true,
+      data: {
+        previews: opts?.query?.resourceId === web.id
+          ? [{
+            id: "prev1",
+            name: "staging",
+            lifetime: "permanent",
+            members: [
+              { id: webCopy.id, kind: "frontend", previewOf: web.id },
+            ],
+          }]
+          : [],
+      },
+    }));
+  runningNow(client);
+  const cwd = seed({
+    "pbc.json": JSON.stringify({
+      projectId: p.id,
+      kind: "frontends",
+      environments: { production: { id: web.id, name: "web" } },
+      build: {
+        command:
+          'mkdir -p dist && printf %s "$VITE_POCKETBASE_URL|$NEXT_PUBLIC_POCKETBASE_URL|$API_KEY" > dist/index.html',
+        outputDir: "dist",
+        install: "",
+      },
+    }),
+  });
+  const d = deps(client, p.id, cwd);
+  const cmds = makeFrontendCommands(d);
+
+  const code = await cmds["website deploy"].run({ env: "staging" }, {
+    args: [],
+    flags: flags(p.id),
+  });
+
+  assertEquals(code, 0);
+  assertEquals(client.calls.updateResource[0][1], webCopy.id);
+  assertEquals(
+    new TextDecoder().decode(
+      await extractEntry(uploadedArchive(d), "index.html"),
+    ),
+    "https://db-staging.example.com||staging-key",
+  );
+  const link = JSON.parse(Deno.readTextFileSync(join(cwd, "pbc.json")));
+  assertEquals(Object.keys(link.environments), ["production"]);
 });

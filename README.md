@@ -50,15 +50,18 @@ deno install -g -A -c deno.json -n pbc ./main.ts
 ## Deploy
 
 `pbc deploy` detects what the directory holds — a PocketBase instance, a
-frontend, or a backend — and runs the matching deploy. `pbc init` records the
+website, or a service — and runs the matching deploy. `pbc init` records the
 guess in `pbc.json` without deploying; the first deploy of a directory writes
 its binding there, so redeploys need no flags:
 
 ```sh
 pbc deploy                # detect what this directory is
-pbc frontend deploy       # or name the kind outright
+pbc website deploy        # or name the kind outright
 pbc deploy --env staging  # one directory, several environments
 ```
+
+`pbc frontend` and `pbc backend` still work as older spellings of
+`pbc website` and `pbc service`.
 
 The project is picked at runtime: the CLI asks which one to use until the
 directory is linked, and `--project <id>` answers without a prompt.
@@ -70,7 +73,7 @@ detection, build config, and the env-push flags.
 ```sh
 export PBC_TOKEN=…              # portal → Account → CLI access token
 pbc whoami --json               # preflight
-pbc frontend deploy --no-input --json
+pbc website deploy --no-input --json
 ```
 
 - `pbc login --token <t>` saves that same access token to the local config instead of exporting it — handy on a headless box you'll run several sessions on.

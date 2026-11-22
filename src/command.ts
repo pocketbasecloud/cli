@@ -14,6 +14,7 @@ type StringFlag = {
   conflicts?: readonly string[];
   source?: FlagSource;
   retired?: { since: string; note: string };
+  repeatable?: boolean;
 };
 
 type PathFlag = {
@@ -85,7 +86,9 @@ export function canonicalKeys(registry: CommandRegistry): string[] {
 }
 
 export type FlagValue<S extends FlagSpec> =
-  S extends { type: "boolean" } ? boolean : string | undefined;
+  S extends { type: "boolean" } ? boolean
+    : S extends { repeatable: true } ? string[] | undefined
+    : string | undefined;
 
 export type InferInput<F extends Record<string, FlagSpec>> = {
   [K in keyof F as F[K] extends { renamedTo: string } ? never
@@ -98,6 +101,13 @@ export function str(o: {
   short?: string; source?: FlagSource; conflicts?: readonly string[];
 }): StringFlag {
   return { type: "string", required: false, ...o };
+}
+
+export function list(o: {
+  description: string; required?: boolean; short?: string;
+  conflicts?: readonly string[];
+}): StringFlag & { repeatable: true } {
+  return { type: "string", required: false, ...o, repeatable: true };
 }
 
 export function path(o: {

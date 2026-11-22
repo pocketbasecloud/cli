@@ -164,6 +164,7 @@ async function writeBuildEnv(
 
 const ENV_KINDS = kindsWith("env");
 const ENV_NOUNS = ENV_KINDS.map((k) => k.noun);
+const ENV_TARGETS = [...new Set(ENV_KINDS.flatMap((k) => [k.noun, ...k.aliases]))];
 
 async function targetOf(
   input: { target?: string },
@@ -215,7 +216,7 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Command> {
   const targetFlag = str({
     description: `${ENV_NOUNS.join(" or ")} — which kind's variables. ` +
       "Defaults to the kind pbc.json is bound to.",
-    choices: ENV_NOUNS,
+    choices: ENV_TARGETS,
     required: true,
   });
   const nameFlag = str({
@@ -239,8 +240,8 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Command> {
         "never returns plaintext, so there is nothing for the CLI to show —\n" +
         "read a value from the app itself, or overwrite it with `env set`.\n" +
         "Without --name/--id, a terminal offers a picker.\n" +
-        "--target frontend manages build variables: they are set while the\n" +
-        "platform builds the frontend from source (GitHub pushes, templates);\n" +
+        "--target website manages build variables: they are set while the\n" +
+        "platform builds the website from source (GitHub pushes, templates);\n" +
         "`pbc deploy` builds locally with your own shell environment instead.\n" +
         "They are stored unencrypted, limited to 10 KB in total, and names your\n" +
         "framework exposes to the browser (VITE_, NEXT_PUBLIC_, …) end up in\n" +
@@ -351,7 +352,7 @@ export function makeEnvCommands(deps: CloudCmdDeps): Record<string, Command> {
             targetId,
           );
           if (removed === undefined) {
-            throw new CliError(`${key} is not set on this frontend.`, {
+            throw new CliError(`${key} is not set on this website.`, {
               code: "NOT_FOUND",
             });
           }

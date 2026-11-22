@@ -66,7 +66,7 @@ Deno.test("a multi-paragraph command (auth) reconstructs identically to the orig
 });
 
 Deno.test("cloud backend deploy has a choices-constrained runtime flag", () => {
-  const spec = COMMANDS["backend deploy"];
+  const spec = COMMANDS["service deploy"];
   const runtime = spec.flags.find((f) => f.name === "runtime");
   assertEquals(runtime?.choices, ["deno", "bun", "nodejs", "nextjs", "python"]);
   assertEquals(runtime?.required, false);
@@ -86,6 +86,15 @@ Deno.test("no command spec repeats a global flag", () => {
       if (GLOBAL_FLAG_NAMES.has(f.name)) {
         throw new Error(`${key} lists global flag --${f.name}`);
       }
+    }
+  }
+});
+
+Deno.test("every preview command's details wrap within 80 columns", () => {
+  for (const [key, spec] of Object.entries(COMMANDS)) {
+    if (!key.includes(" preview ")) continue;
+    for (const line of (spec.details ?? "").split("\n")) {
+      assertEquals(line.length <= 80, true, `${key}: ${line}`);
     }
   }
 });

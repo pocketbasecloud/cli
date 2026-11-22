@@ -7,7 +7,12 @@ import { nearestCommand } from "../parse.ts";
 import { chooseFromMenu } from "../ui/menu.ts";
 import { canPrompt } from "../ui/prompt.ts";
 import type { PromptIO } from "../ui/prompt.ts";
-import { assertConfigured, resolveEnvironmentName } from "./environment.ts";
+import {
+  assertConfigured,
+  boundIdsOf,
+  findServerEnvironmentMember,
+  resolveEnvironmentName,
+} from "./environment.ts";
 import { matchProject } from "./project.ts";
 
 export type ResourceTargetCtx = {
@@ -181,12 +186,31 @@ export async function resolveResourceTarget(
 ): Promise<ResolvedResource> {
   const link = await readLinkFile(ctx.cwd);
   const envChoice = resolveEnvironmentName(link, { flag: ctx.envFlag });
-  assertConfigured(envChoice, link);
+  const serverLookup = envChoice.explicit && !envChoice.configured &&
+    !ctx.id && !ctx.name;
+  if (!serverLookup) assertConfigured(envChoice, link);
   const environment = envChoice.name;
 
   const scope = ctx.id && !ctx.projectFilter
     ? undefined
     : await resolveProjectScope(ctx, link);
+  if (serverLookup) {
+    const member = scope
+      ? await findServerEnvironmentMember(ctx.client, {
+        projectId: scope.id,
+        kind: ctx.spec.kind,
+        name: environment,
+        liveIds: boundIdsOf(link, ctx.spec.kind),
+      })
+      : null;
+    if (member) {
+      ctx.log?.(
+        `${ctx.spec.label}: ${member.name} (${member.id}) — environment ${environment}`,
+      );
+      return { resource: member, environment };
+    }
+    assertConfigured(envChoice, link);
+  }
   const candidates = await ctx.client.listResources(
     ctx.spec.kind,
     scope ? { project: scope.id } : undefined,

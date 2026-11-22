@@ -1,4 +1,5 @@
 import type { ICloudClient } from "./cloud.ts";
+import type { ResourceKind } from "./types.ts";
 
 export type RepoLink = {
   repoFullName: string;
@@ -8,12 +9,13 @@ export type RepoLink = {
 
 export async function linkedRepository(
   client: ICloudClient,
-  pocketbaseId: string,
+  resourceId: string,
+  resourceKind: ResourceKind = "pocketbases",
 ): Promise<RepoLink | null> {
   try {
     const res = await client.ext("/api/github/links", undefined, {
       method: "GET",
-      query: { resourceKind: "pocketbases", resourceId: pocketbaseId },
+      query: { resourceKind, resourceId },
     });
     if (!res.ok) {
       await res.body?.cancel();
@@ -29,8 +31,12 @@ export async function linkedRepository(
   }
 }
 
-export function linkedWarning(name: string, link: RepoLink): string {
-  return `${name} deploys from ${link.repoFullName} (${link.branch}). The next push there replaces what you change here. To keep it, commit it to the repository, or use Push to GitHub on the instance's Code page.`;
+export function linkedWarning(
+  name: string,
+  link: RepoLink,
+  idNoun = "instance",
+): string {
+  return `${name} deploys from ${link.repoFullName} (${link.branch}). The next push there replaces what you change here. To keep it, commit it to the repository, or use Push to GitHub on the ${idNoun}'s Code page.`;
 }
 
 export type RepositoryResult =

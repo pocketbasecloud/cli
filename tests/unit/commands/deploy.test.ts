@@ -111,9 +111,9 @@ Deno.test("the detected kind and its evidence are printed before the deploy", as
     log.restore();
   }
   assertEquals(log.lines.length, 1);
-  assertStringIncludes(log.lines[0], "Detected a frontend");
+  assertStringIncludes(log.lines[0], "Detected a website");
   assertStringIncludes(log.lines[0], "vite.config.ts");
-  assertStringIncludes(log.lines[0], "`pbc frontend deploy`");
+  assertStringIncludes(log.lines[0], "`pbc website deploy`");
 });
 
 Deno.test("nothing is printed under --json, where stdout carries the deploy's object", async () => {
@@ -234,8 +234,8 @@ Deno.test("an undetectable directory errors with the three explicit commands", a
   assertEquals(err.exitCode, 2);
   assertStringIncludes(err.message, cwd);
   assertStringIncludes(err.message, "pbc pocketbase deploy");
-  assertStringIncludes(err.message, "pbc frontend deploy");
-  assertStringIncludes(err.message, "pbc backend deploy");
+  assertStringIncludes(err.message, "pbc website deploy");
+  assertStringIncludes(err.message, "pbc service deploy");
   assertStringIncludes(err.message, "pbc init");
   assertEquals(s.seen, []);
 });
@@ -315,8 +315,8 @@ function realDeploy(d: CloudCmdDeps) {
   const backend = makeBackendCommands(d);
   return makeDeployCommands(d, {
     pocketbases: pb["pocketbase deploy"],
-    frontends: frontend["frontend deploy"],
-    backends: backend["backend deploy"],
+    frontends: frontend["website deploy"],
+    backends: backend["service deploy"],
   })["deploy"];
 }
 
@@ -440,7 +440,8 @@ for (const kind of ["pocketbases", "backends"] as const) {
           cwd: () => cwd,
           fetch: deploy.fetchFn,
         };
-        const noun = kind === "pocketbases" ? "pocketbase" : "backend";
+        const noun = kind === "pocketbases" ? "pocketbase" : "service";
+        const apiType = kind === "pocketbases" ? "pocketbase" : "backend";
         const commands = kind === "pocketbases" ? makePbCommands(deps) : makeBackendCommands(deps);
         const stderr: string[] = [];
         const stdout = captureLog();
@@ -462,7 +463,7 @@ for (const kind of ["pocketbases", "backends"] as const) {
             assertEquals(await run(), 0);
           }
           assertStringIncludes(stderr.join(""), "Startup output");
-          assertEquals(requests, [{ target_id: resource.id, type: noun, initial_lines: 50 }]);
+          assertEquals(requests, [{ target_id: resource.id, type: apiType, initial_lines: 50 }]);
           if (json && status === "success") {
             assertEquals(stdout.lines.length, 1);
             assertEquals(JSON.parse(stdout.lines[0]).data.id, resource.id);

@@ -324,7 +324,7 @@ export function makeResourceCommands(
         }
         const next = nextAccess(verb, current, takesEmails ? ctx.args : []);
         const res = await client.ext(
-          `/api/access/${spec.noun}/${found.id}`,
+          `/api/access/${spec.routeNoun}/${found.id}`,
           next,
         );
         if (!res.ok) throw await httpError(res, `Access ${verb}`);

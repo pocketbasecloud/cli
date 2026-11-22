@@ -227,8 +227,8 @@ portal's Account page, saved as the repository secret PBC_TOKEN.`,
         if (!own.projectId) {
           throw new CliError(
             `No pbc.json here. Deploy once from your computer first — ` +
-              `\`pbc pocketbase deploy\`, \`pbc frontend deploy\`, or ` +
-              `\`pbc backend deploy\` — then run \`pbc ci init\` again.`,
+              `\`pbc pocketbase deploy\`, \`pbc website deploy\`, or ` +
+              `\`pbc service deploy\` — then run \`pbc ci init\` again.`,
               { code: "USAGE" });
         }
 

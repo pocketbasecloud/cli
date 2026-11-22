@@ -18,19 +18,23 @@ import {
   awaitReachable,
   buildBundle,
   computeChooser,
+  copyBuildEnv,
   deploymentFailure,
   deployProgress,
   deployResource,
   deployTargetLine,
+  isServerEnvironment,
   reportUrl,
   resolveDeployIntent,
   resolveEnvironmentTarget,
   resolveOwnerId,
+  sourceHints,
   uploadLabel,
   validateLocationChoice,
 } from "./deploy-helper.ts";
 import { deployArchive, waitForDeployment } from "../clients/deployments.ts";
 import { assertDeployableAs } from "../build/misdirected.ts";
+import { buildOverSourceWarning, editedAsSource } from "./revisions.ts";
 
 export function makeFrontendCommands(
   deps: CloudCmdDeps,
@@ -49,10 +53,10 @@ export function makeFrontendCommands(
   }
 
   return {
-    "frontend deploy": defineCommand({
-      path: ["frontend", "deploy"],
+    "website deploy": defineCommand({
+      path: ["website", "deploy"],
       needs: ["target:frontends", { explicit: true }],
-      usage: "pbc frontend deploy [--name <name>|--new <name>] [flags]",
+      usage: "pbc website deploy [--name <name>|--new <name>] [flags]",
       summary: "Build, package, and deploy a static site.",
       details:
         `Runs the build command, zips the output directory, and uploads it. Both
@@ -60,12 +64,18 @@ come from the "build" block in pbc.json, inferred from the directory
 (vite/svelte/angular/next config, package.json build script) and written
 there on the first deploy.
 
+With --source, the directory's source is uploaded instead (without
+node_modules, .git, .env files or the build output) and the platform runs the
+build. The source is kept, so pbc website revisions and pbc website pull work
+on it and it can be edited from the portal or an AI assistant. A Next.js app
+with a server is a service: deploy it with pbc service deploy.
+
 Frontends have no cloud env store — build-time variables are baked into the
 bundle, so there is no --env-file flag here.
 
 A site is served from an address the platform assigns and never changes:
 <id>.<compute>.pocketbasecloud.com. To put a domain of your own in front of
-it, use pbc frontend domain add.`,
+it, use pbc website domain add.`,
       args: [],
       flags: {
         name: str({
@@ -83,6 +93,12 @@ it, use pbc frontend domain add.`,
         }),
         skipBuild: bool({
           description: "Package without running the build command.",
+        }),
+        source: bool({
+          description:
+            "Upload the source instead of building here; the platform builds it " +
+            "and keeps it, so it can be edited from the portal or an AI assistant.",
+          conflicts: ["zip", "skipBuild"],
         }),
         location: str({
           description:
@@ -142,6 +158,24 @@ it, use pbc frontend domain add.`,
         });
         const log = (m: string) => progress.log(m);
         log(deployTargetLine(target, KINDS.frontends.label));
+        if (
+          !target.create && !input.source &&
+          await editedAsSource(client, "frontends", target.resource.id)
+        ) {
+          log(buildOverSourceWarning(target.resource.name, "frontends"));
+        }
+        const buildEnv = target.create
+          ? undefined
+          : copyBuildEnv(target.resource);
+        if (
+          buildEnv && !input.zip && input.skipBuild !== true && !input.source
+        ) {
+          log(
+            `Building with this copy's env (${
+              Object.keys(buildEnv).length
+            } value(s)).`,
+          );
+        }
         const bundle = await buildBundle({
           cwd,
           kind: "frontends",
@@ -150,6 +184,8 @@ it, use pbc frontend domain add.`,
           environment: target.environment,
           log,
           progress,
+          buildEnv,
+          source: input.source === true,
         });
         const data: Record<string, unknown> = { project: p.id };
         if (input.location) data.location = input.location;
@@ -187,6 +223,12 @@ it, use pbc frontend domain add.`,
               kind: "frontends",
               resourceId: out.resource.id,
               bytes: bundle.bytes,
+              ...(input.source
+                ? {
+                  input: "source" as const,
+                  hints: sourceHints(bundle.build, buildEnv),
+                }
+                : {}),
               git: await readDeployCommit(cwd),
               onProgress: (f) =>
                 step.update(`Uploading — ${Math.round(f * 100)}%`),
@@ -215,17 +257,19 @@ it, use pbc frontend domain add.`,
         );
 
         const { resource, created } = outcome;
-        await upsertEnvironment(cwd, {
-          projectId: p.id,
-          kind: "frontends",
-          environment: target.environment,
-          entry: { id: resource.id, name: resource.name },
-        });
+        if (!isServerEnvironment(target)) {
+          await upsertEnvironment(cwd, {
+            projectId: p.id,
+            kind: "frontends",
+            environment: target.environment,
+            entry: { id: resource.id, name: resource.name },
+          });
+        }
         const final = await awaitDeployment(client, "frontends", resource, {
           progress,
           created,
-          label: "frontend",
-          checkCommand: "frontend",
+          label: "website",
+          checkCommand: "website",
         });
         reportUrl(final, { log });
         const reachable = await awaitReachable(client, {

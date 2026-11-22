@@ -16,8 +16,10 @@ import {
 } from "../config.ts";
 import {
   assertConfigured,
+  boundIdsOf,
   chooseEnvironment,
   entryFor,
+  findServerEnvironmentMember,
   resolveEnvironmentName,
 } from "../resolve/environment.ts";
 import { chooseFromMenu } from "../ui/menu.ts";
@@ -45,7 +47,7 @@ import {
   lastEnvDigest,
   recordEnvDigest,
 } from "../env-state.ts";
-import { parseDotenv, prunedKeysOf } from "./env.ts";
+import { buildEnvOf, parseDotenv, prunedKeysOf } from "./env.ts";
 import { stripOsJunkFromZip } from "../build/os-junk.ts";
 import type { PackedFile } from "../build/package.ts";
 import { writeZip } from "../build/zip.ts";
@@ -56,6 +58,7 @@ export type Target = {
   fromBinding: boolean;
   environment: string;
   hasEnvironments: boolean;
+  serverEnvironment?: { liveIds: string[] };
 };
 
 export async function resolveEnvironmentTarget(
@@ -102,13 +105,25 @@ export async function resolveEnvironmentTarget(
   if (token.name) return { name: token.name, fromBinding: false, ...base };
   const entry = entryFor(link, kind, choice);
   if (entry) return { id: entry.id, fromBinding: true, ...base };
+  if (choice.explicit && !choice.configured) {
+    return {
+      fromBinding: false,
+      ...base,
+      serverEnvironment: { liveIds: boundIdsOf(link, kind) },
+    };
+  }
   return { fromBinding: false, ...base };
 }
 
 export type DeployIntent =
   & { environment: string; hasEnvironments: boolean }
   & (
-    | { create: false; resource: Resource; fromBinding: boolean }
+    | {
+      create: false;
+      resource: Resource;
+      fromBinding: boolean;
+      serverEnvironment?: boolean;
+    }
     | { create: true; name: string }
   );
 
@@ -168,6 +183,24 @@ export async function resolveDeployIntent(
     return { ...base, create: true, name: o.newName };
   }
 
+  if (target.serverEnvironment) {
+    const member = await findServerEnvironmentMember(o.client, {
+      projectId: o.projectId,
+      kind: o.spec.kind,
+      name: target.environment,
+      liveIds: target.serverEnvironment.liveIds,
+    });
+    if (member) {
+      return {
+        ...base,
+        create: false,
+        resource: member,
+        fromBinding: false,
+        serverEnvironment: true,
+      };
+    }
+  }
+
   if (target.fromBinding && target.id) {
     const found = list.find((r) => r.id === target.id);
     if (found) {
@@ -199,6 +232,17 @@ export async function resolveDeployIntent(
   }
 
   const opts = { noInput: o.noInput, io: o.io };
+  if (!canPrompt(opts) && target.serverEnvironment) {
+    throw new CliError(
+      `No environment named "${target.environment}": pbc.json does not ` +
+        `list it and no ${label} here has a preview or environment by ` +
+        `that name.\n` +
+        `  list them:   pbc ${noun} preview ls\n` +
+        `  create one:  pbc ${noun} preview create ${target.environment} --permanent\n` +
+        `  bind a new ${label}:  pbc ${noun} deploy --env ${target.environment} --new <name>`,
+      { code: "NO_TARGET", hint: `pbc ${noun} preview ls` },
+    );
+  }
   if (!canPrompt(opts)) {
     throw new CliError(
       `No deploy target. This directory has no pbc.json binding.\n` +
@@ -241,6 +285,19 @@ export async function resolveDeployIntent(
     opts,
   );
   return { ...base, create: true, name: answer || suggested };
+}
+
+export function copyBuildEnv(
+  website: Resource,
+): Record<string, string> | undefined {
+  if (!(website as Resource & { previewOf?: string }).previewOf) {
+    return undefined;
+  }
+  return buildEnvOf(website);
+}
+
+export function isServerEnvironment(intent: DeployIntent): boolean {
+  return !intent.create && intent.serverEnvironment === true;
 }
 
 export function deployTargetLine(
@@ -359,7 +416,7 @@ export async function ensureBackendProject(
 
     const reason =
       `Project "${current.name}" is on the ${ownerPlan} plan, which cannot ` +
-      `host a backend — backends run on a Pro organization's compute.`;
+      `host a service — services run on a Pro organization's compute.`;
     const others = (await client.listProjects()).filter(
       (p) => !rejected.has(p.id),
     );
@@ -379,7 +436,7 @@ export async function ensureBackendProject(
 
     o.log(reason);
     current = await select(
-      "Deploy the backend into which project instead?",
+      "Deploy the service into which project instead?",
       others,
       (p) => `${p.name} (${p.id})`,
       { noInput: o.noInput, io: o.io },
@@ -495,6 +552,8 @@ export type BundleOptions = {
   progress?: Progress;
   run?: CommandRunner;
   archive?: boolean;
+  buildEnv?: Record<string, string>;
+  source?: boolean;
 };
 
 export type Bundle = {
@@ -576,12 +635,14 @@ export async function buildBundle(o: BundleOptions): Promise<Bundle> {
   const packed = await packageResource({
     cwd: o.cwd,
     kind: o.kind,
-    build,
-    skipBuild: o.skipBuild,
+    build: o.source ? sourceBuild(build) : build,
+    skipBuild: o.skipBuild || o.source === true,
     log: o.log,
     progress: o.progress,
     run: o.run,
     archive: o.archive,
+    buildEnv: o.buildEnv,
+    ...(o.source ? { strategy: "source" as const } : {}),
   });
   assertArchiveWithinLimit(packed.bytes, packed.fileName);
   return {
@@ -591,6 +652,29 @@ export async function buildBundle(o: BundleOptions): Promise<Bundle> {
     fileName: packed.fileName,
     empty: packed.fileCount === 0,
     startCommand: packed.startCommand,
+  };
+}
+
+function sourceBuild(build: BuildConfig): BuildConfig {
+  return {
+    ...build,
+    outputDir: undefined,
+    exclude: [
+      ...(build.exclude ?? []),
+      ...(build.outputDir ? [build.outputDir] : []),
+      ".next",
+    ],
+  };
+}
+
+export function sourceHints(
+  build: BuildConfig,
+  env?: Record<string, string>,
+): Record<string, unknown> {
+  return {
+    ...(build.command ? { command: build.command } : {}),
+    ...(build.outputDir ? { outputDir: build.outputDir } : {}),
+    ...(env ? { env } : {}),
   };
 }
 

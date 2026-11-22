@@ -1,10 +1,14 @@
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import {
   assertConfigured,
+  boundIdsOf,
   chooseEnvironment,
   entryFor,
+  findServerEnvironmentMember,
   resolveEnvironmentName,
 } from "../../src/resolve/environment.ts";
+import type { PreviewSummary } from "../../src/clients/previews.ts";
+import { createMockCloudClient } from "../mocks/cloud.mock.ts";
 import type { PromptIO } from "../../src/ui/prompt.ts";
 import { CliError } from "../../src/errors.ts";
 import type { LinkFile } from "../../src/config.ts";
@@ -219,4 +223,165 @@ Deno.test("a pre-0.6.0 PB_ENV still selects the environment", () => {
     }).name,
     "production",
   );
+});
+
+async function serverEnvironments(
+  previewsOf: (query: Record<string, string>) => PreviewSummary[],
+) {
+  const client = createMockCloudClient();
+  const project = await client.createProject("app");
+  const db = await client.createResource("pocketbases", {
+    name: "db",
+    project: project.id,
+  });
+  const web = await client.createResource("frontends", {
+    name: "web",
+    project: project.id,
+  });
+  const admin = await client.createResource("frontends", {
+    name: "admin",
+    project: project.id,
+  });
+  const webCopy = await client.createResource("frontends", {
+    name: "web-staging",
+    project: project.id,
+  });
+  await client.updateResource("frontends", webCopy.id, { previewOf: web.id });
+  const adminCopy = await client.createResource("frontends", {
+    name: "admin-staging",
+    project: project.id,
+  });
+  await client.updateResource("frontends", adminCopy.id, {
+    previewOf: admin.id,
+  });
+  client.ext = (path, body, opts) => {
+    client.calls.ext.push([path, body ?? opts?.query]);
+    return Promise.resolve(Response.json({
+      success: true,
+      data: { previews: previewsOf(opts?.query ?? {}) },
+    }));
+  };
+  return { client, project, db, web, admin, webCopy, adminCopy };
+}
+
+function environment(
+  name: string,
+  members: PreviewSummary["members"],
+): PreviewSummary {
+  return {
+    id: `prev-${name}`,
+    name,
+    status: "ready",
+    statusMessage: "",
+    lifetime: "permanent",
+    expiresAt: "",
+    data: "copy",
+    crons: "off",
+    created: "",
+    members,
+  };
+}
+
+function copyOf(
+  kind: PreviewSummary["members"][number]["kind"],
+  id: string,
+  name: string,
+  previewOf: string,
+): PreviewSummary["members"][number] {
+  return {
+    id,
+    kind,
+    name,
+    previewOf,
+    baseUrl: `https://${id}.example.com`,
+    status: "running",
+    statusMessage: "",
+  };
+}
+
+Deno.test("a server environment is found by name among the live website's own previews", async () => {
+  let ids: Record<string, string> = {};
+  const fx = await serverEnvironments((query) =>
+    query.resourceId === ids.web && query.kind === "frontend"
+      ? [environment("staging", [
+        copyOf("frontend", ids.webCopy, "web-staging", ids.web),
+      ])]
+      : []
+  );
+  ids = { web: fx.web.id, webCopy: fx.webCopy.id };
+  const found = await findServerEnvironmentMember(fx.client, {
+    projectId: fx.project.id,
+    kind: "frontends",
+    name: "staging",
+  });
+  assertEquals(found?.id, fx.webCopy.id);
+  assertEquals(
+    await findServerEnvironmentMember(fx.client, {
+      projectId: fx.project.id,
+      kind: "frontends",
+      name: "qa",
+    }),
+    null,
+  );
+});
+
+Deno.test("when several live websites have the environment, the directory's live one wins", async () => {
+  let ids: Record<string, string> = {};
+  const fx = await serverEnvironments((query) =>
+    query.resourceId === ids.web
+      ? [environment("staging", [
+        copyOf("frontend", ids.webCopy, "web-staging", ids.web),
+      ])]
+      : query.resourceId === ids.admin
+      ? [environment("staging", [
+        copyOf("frontend", ids.adminCopy, "admin-staging", ids.admin),
+      ])]
+      : []
+  );
+  ids = {
+    web: fx.web.id,
+    admin: fx.admin.id,
+    webCopy: fx.webCopy.id,
+    adminCopy: fx.adminCopy.id,
+  };
+  const found = await findServerEnvironmentMember(fx.client, {
+    projectId: fx.project.id,
+    kind: "frontends",
+    name: "staging",
+    liveIds: [fx.admin.id],
+  });
+  assertEquals(found?.id, fx.adminCopy.id);
+  const err = await assertRejects(
+    () =>
+      findServerEnvironmentMember(fx.client, {
+        projectId: fx.project.id,
+        kind: "frontends",
+        name: "staging",
+      }),
+    CliError,
+  );
+  assertEquals(err.code, "CONFLICT");
+  assertEquals(err.hint, "pbc website preview ls");
+});
+
+Deno.test("only the live resources of the deploying kind are asked for their previews", async () => {
+  const fx = await serverEnvironments(() => []);
+  await findServerEnvironmentMember(fx.client, {
+    projectId: fx.project.id,
+    kind: "frontends",
+    name: "staging",
+  });
+  assertEquals(
+    fx.client.calls.ext.map(([, query]) => query),
+    [
+      { kind: "frontend", resourceId: fx.web.id },
+      { kind: "frontend", resourceId: fx.admin.id },
+    ],
+  );
+});
+
+Deno.test("boundIdsOf lists the directory's bound ids of its own kind only", () => {
+  assertEquals(boundIdsOf(TWO, "frontends"), ["fe1", "fe2"]);
+  assertEquals(boundIdsOf(TWO, "backends"), []);
+  assertEquals(boundIdsOf(null, "frontends"), []);
 });

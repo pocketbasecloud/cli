@@ -35,11 +35,14 @@ async function post<T>(
   return json.data as T;
 }
 
+export type DeploymentInput = "artifact" | "source";
+
 export async function uploadArtifact(
   opts: {
     kind: ResourceKind;
     resourceId: string;
     bytes: Uint8Array;
+    input?: DeploymentInput;
     onProgress?: (fraction: number) => void;
   },
   cfg: DeployClientConfig,
@@ -47,7 +50,11 @@ export async function uploadArtifact(
   const fetchFn = cfg.fetchFn ?? fetch;
   const { key, uploadUrl } = await post<{ key: string; uploadUrl: string }>(
     "/api/deployments/upload-url",
-    { kind: opts.kind, resourceId: opts.resourceId, input: "artifact" },
+    {
+      kind: opts.kind,
+      resourceId: opts.resourceId,
+      input: opts.input ?? "artifact",
+    },
     cfg,
   );
   opts.onProgress?.(0);
@@ -68,7 +75,8 @@ export async function deployArchive(
     kind: ResourceKind;
     resourceId: string;
     bytes: Uint8Array;
-    hints?: { pythonVersion?: string };
+    input?: DeploymentInput;
+    hints?: Record<string, unknown>;
     baseRevision?: number;
     git?: DeployCommit | null;
     onProgress?: (fraction: number) => void;
@@ -76,13 +84,14 @@ export async function deployArchive(
   cfg: DeployClientConfig,
 ): Promise<{ deploymentId: string }> {
   const key = await uploadArtifact(opts, cfg);
+  const input = opts.input ?? "artifact";
   return post<{ deploymentId: string }>(
     "/api/deployments",
     {
       kind: opts.kind,
       resourceId: opts.resourceId,
-      input: "artifact",
-      artifactKey: key,
+      input,
+      [input === "source" ? "sourceKey" : "artifactKey"]: key,
       ...(opts.hints ? { hints: opts.hints } : {}),
       ...(opts.baseRevision !== undefined
         ? { baseRevision: opts.baseRevision }

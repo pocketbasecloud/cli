@@ -49,14 +49,14 @@ Deno.test("long-form command documentation keeps the facts, not the length", () 
     throw new Error("pocketbase create details lost the backup restore path");
   }
 
-  const frontend = details("frontend deploy");
+  const frontend = details("website deploy");
   for (const fact of ["build", "no cloud env store", "domain"]) {
     if (!frontend.includes(fact)) {
       throw new Error(`frontend deploy details lost "${fact}"`);
     }
   }
 
-  const backend = details("backend deploy");
+  const backend = details("service deploy");
   for (const fact of ["nextjs", "standalone", "node_modules"]) {
     if (!backend.includes(fact)) {
       throw new Error(`backend deploy details lost "${fact}"`);

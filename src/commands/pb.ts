@@ -18,8 +18,8 @@ import {
   deployToPreview,
   PREVIEW_SIZES,
   type PreviewSize,
-  previewUrl,
 } from "./pb-preview.ts";
+import { pocketbaseMember, previewUrl } from "../clients/previews.ts";
 import { printResult, renderTable } from "../ui/output.ts";
 import { canPrompt, prompt } from "../ui/prompt.ts";
 import { resolveProject } from "../resolve/project.ts";
@@ -50,6 +50,7 @@ import {
   deployTargetLine,
   envFileEntry,
   findExisting,
+  isServerEnvironment,
   pushEnvFile,
   reportUrl,
   resolveAdminCredentials,
@@ -932,7 +933,8 @@ merge and --delete-missing/--skip-env/--force-env rules.`,
             {
               preview: shipped.name,
               url: previewUrl(shipped),
-              instanceId: shipped.members[0]?.id ?? null,
+              instanceId: pocketbaseMember(shipped)?.id ?? null,
+              lifetime: shipped.lifetime,
               expiresAt: shipped.expiresAt,
             },
             [
@@ -1050,16 +1052,18 @@ merge and --delete-missing/--skip-env/--force-env rules.`,
             return out;
           },
         );
-        await upsertEnvironment(cwd, {
-          projectId: p.id,
-          kind: "pocketbases",
-          environment: target.environment,
-          entry: {
-            id: resource.id,
-            name: resource.name,
-            ...await envFileEntry(cwd, target.environment, env, log),
-          },
-        });
+        if (!isServerEnvironment(target)) {
+          await upsertEnvironment(cwd, {
+            projectId: p.id,
+            kind: "pocketbases",
+            environment: target.environment,
+            entry: {
+              id: resource.id,
+              name: resource.name,
+              ...await envFileEntry(cwd, target.environment, env, log),
+            },
+          });
+        }
         const revision = await currentRevision(client, resource.id);
         if (revision !== undefined) {
           await rememberRevision(cwd, target.environment, resource, revision);
@@ -1288,7 +1292,8 @@ allows a restore to any point in time. A paid plan is required to enable it.`,
       usage: "pbc pocketbase email status [--name <instance>]",
       summary: "Show managed email status, sender level and usage.",
       details: `Managed email sends the instance's verification, password reset
-and sign-in code emails with no mail server setup. Starter and Pro only.`,
+and sign-in code emails with no mail server setup. Starter and Pro include
+50 emails a day and 500 a month; an email add-on raises the limits.`,
       args: [],
       flags: {
         name: str({
@@ -1651,6 +1656,10 @@ interface ManagedEmailState {
   senderAddress: string;
   limits: { daily: number; monthly: number } | null;
   usage: { today: number; month: number };
+  account?: {
+    limits: { daily: number; monthly: number };
+    usage: { today: number; month: number };
+  } | null;
 }
 
 interface ManagedEmailMessage {
@@ -1713,6 +1722,20 @@ function describeManagedEmail(state: ManagedEmailState): string {
     `Status: ${status}${reason}`,
     `Sender level: ${state.trust}`,
     `Sender address: ${state.senderAddress}`,
+    ...(state.account
+      ? [
+        usageLine(
+          "Sent today, all instances",
+          state.account.usage.today,
+          state.account.limits.daily,
+        ),
+        usageLine(
+          "Sent this month, all instances",
+          state.account.usage.month,
+          state.account.limits.monthly,
+        ),
+      ]
+      : []),
     usageLine("Sent today", state.usage.today, state.limits?.daily),
     usageLine("Sent this month", state.usage.month, state.limits?.monthly),
   ].join("\n");

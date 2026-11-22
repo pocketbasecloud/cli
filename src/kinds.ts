@@ -13,6 +13,7 @@ export type Capability =
 export type KindSpec = {
   kind: ResourceKind;
   noun: string;
+  routeNoun: string;
   aliases: readonly string[];
   label: string;
   display: string;
@@ -49,6 +50,7 @@ export const KINDS: Record<ResourceKind, KindSpec> = {
   pocketbases: {
     kind: "pocketbases",
     noun: "pocketbase",
+    routeNoun: "pocketbase",
     aliases: ["pb", "pocketbase"],
     label: "PocketBase",
     display: "PocketBase instance",
@@ -100,10 +102,11 @@ export const KINDS: Record<ResourceKind, KindSpec> = {
   },
   frontends: {
     kind: "frontends",
-    noun: "frontend",
-    aliases: ["frontend"],
-    label: "frontend",
-    display: "frontend",
+    noun: "website",
+    routeNoun: "frontend",
+    aliases: ["website", "frontend"],
+    label: "website",
+    display: "website",
     idNoun: "site",
     idField: "frontend_id",
     deploy: "static | source",
@@ -135,11 +138,12 @@ export const KINDS: Record<ResourceKind, KindSpec> = {
   },
   backends: {
     kind: "backends",
-    noun: "backend",
-    aliases: ["backend"],
-    label: "backend",
-    display: "backend",
-    idNoun: "backend",
+    noun: "service",
+    routeNoun: "backend",
+    aliases: ["service", "backend"],
+    label: "service",
+    display: "service",
+    idNoun: "service",
     idField: "backend_id",
     apiType: "backend",
     deploy: "standalone",

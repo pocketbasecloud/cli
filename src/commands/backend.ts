@@ -26,6 +26,7 @@ import {
   deployTargetLine,
   ensureBackendProject,
   envFileEntry,
+  isServerEnvironment,
   pushEnvFile,
   reportUrl,
   resolveDeployIntent,
@@ -37,6 +38,7 @@ import {
 import { deployArchive, waitForDeployment } from "../clients/deployments.ts";
 import { reportDeploymentLogs } from "./logs.ts";
 import { assertDeployableAs } from "../build/misdirected.ts";
+import { buildOverSourceWarning, editedAsSource } from "./revisions.ts";
 
 export function makeBackendCommands(
   deps: CloudCmdDeps,
@@ -55,11 +57,11 @@ export function makeBackendCommands(
   }
 
   return {
-    "backend deploy": defineCommand({
-      path: ["backend", "deploy"],
+    "service deploy": defineCommand({
+      path: ["service", "deploy"],
       needs: ["target:backends", { explicit: true }],
-      usage: "pbc backend deploy [--name <name>|--new <name>] [flags]",
-      summary: "Build, package, and deploy a backend.",
+      usage: "pbc service deploy [--name <name>|--new <name>] [flags]",
+      summary: "Build, package, and deploy a service.",
       details:
         `Runs the build command and uploads the result. The runtime, build command,
 and output directory come from the "build" block in pbc.json, inferred from the
@@ -83,7 +85,7 @@ nextjs ships a prebuilt bundle: deploy adds output: "standalone" to
 next.config.* before building (and says so) unless the config already sets
 output, then assembles .next/standalone, .next/static, and public, starting
 with node server.js. output: "export" is a static site — deploy it with
-pbc frontend deploy instead.`,
+pbc website deploy instead.`,
       args: [],
       flags: {
         name: str({
@@ -221,6 +223,12 @@ pbc frontend deploy instead.`,
             { code: "USAGE" },
           );
         }
+        if (
+          !target.create && runtime === "nextjs" &&
+          await editedAsSource(client, "backends", target.resource.id)
+        ) {
+          log(buildOverSourceWarning(target.resource.name, "backends"));
+        }
         const pythonVersion = input.pythonVersion ?? bundle.build.pythonVersion;
         if (pythonVersion && runtime !== "python") {
           throw new CliError(
@@ -313,16 +321,18 @@ pbc frontend deploy instead.`,
             return out;
           },
         );
-        await upsertEnvironment(cwd, {
-          projectId: deployProject.id,
-          kind: "backends",
-          environment: target.environment,
-          entry: {
-            id: resource.id,
-            name: resource.name,
-            ...await envFileEntry(cwd, target.environment, env, log),
-          },
-        });
+        if (!isServerEnvironment(target)) {
+          await upsertEnvironment(cwd, {
+            projectId: deployProject.id,
+            kind: "backends",
+            environment: target.environment,
+            entry: {
+              id: resource.id,
+              name: resource.name,
+              ...await envFileEntry(cwd, target.environment, env, log),
+            },
+          });
+        }
         if (env.push) {
           await pushEnvFile(client, {
             targetId: resource.id,
@@ -339,8 +349,8 @@ pbc frontend deploy instead.`,
         const final = await awaitDeployment(client, "backends", resource, {
           progress,
           created,
-          label: "backend",
-          checkCommand: "backend",
+          label: "service",
+          checkCommand: "service",
         });
         reportUrl(final, { log });
         const reachable = await awaitReachable(client, {

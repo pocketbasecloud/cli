@@ -291,10 +291,10 @@ Deno.test("an unreadable package.json is treated as absent", async () => {
 Deno.test("every kind has a label and the command group that deploys it", () => {
   assertEquals(kindDisplay("pocketbases"), "PocketBase instance");
   assertEquals(kindCommand("pocketbases"), "pocketbase");
-  assertEquals(kindDisplay("frontends"), "frontend");
-  assertEquals(kindCommand("frontends"), "frontend");
-  assertEquals(kindDisplay("backends"), "backend");
-  assertEquals(kindCommand("backends"), "backend");
+  assertEquals(kindDisplay("frontends"), "website");
+  assertEquals(kindCommand("frontends"), "website");
+  assertEquals(kindDisplay("backends"), "service");
+  assertEquals(kindCommand("backends"), "service");
 });
 
 Deno.test("a start script too long to be a command is skipped without scanning it", async () => {

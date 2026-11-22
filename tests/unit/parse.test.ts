@@ -11,6 +11,7 @@ import {
   bool,
   path,
   renamed,
+  list,
 } from "../../src/command.ts";
 import type { CommandRegistry } from "../../src/command.ts";
 
@@ -273,4 +274,28 @@ Deno.test("conflicting flags are matched by their declaration key", () => {
     );
   }
   assertEquals(parseCommand(CMD, ["--env-file", ".env"], [], {}).ok, true);
+});
+
+Deno.test("a repeatable flag collects every value in order, a plain one keeps the last", () => {
+  const cmd = defineCommand({
+    path: ["x"],
+    usage: "pbc x",
+    summary: "",
+    flags: {
+      env: list({ description: "e" }),
+      name: str({ description: "n" }),
+    },
+    run: () => Promise.resolve(0),
+  });
+  const out = parseCommand(
+    cmd,
+    ["--env", "web:A=1", "--name", "a", "--env=api:B=2", "--name", "b"],
+    [],
+    {},
+  );
+  assertEquals(out.ok, true);
+  if (out.ok) {
+    assertEquals(out.input.env, ["web:A=1", "api:B=2"]);
+    assertEquals(out.input.name, "b");
+  }
 });

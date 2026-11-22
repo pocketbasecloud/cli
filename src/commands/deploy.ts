@@ -15,8 +15,8 @@ const KINDS: ResourceKind[] = ["pocketbases", "frontends", "backends"];
 export function ambiguousMessage(cwd: string): string {
   return `Could not tell what is in ${cwd}. Deploy it explicitly:\n` +
     `  pbc pocketbase deploy   (a PocketBase instance)\n` +
-    `  pbc frontend deploy     (a static site)\n` +
-    `  pbc backend deploy      (a Deno/Bun/Node/Next.js server)\n` +
+    `  pbc website deploy      (a static site)\n` +
+    `  pbc service deploy      (a Deno/Bun/Node/Next.js server)\n` +
     `Or run \`pbc init <kind>\` once to record it in pbc.json.`;
 }
 
@@ -37,29 +37,29 @@ export function makeDeployCommands(
   return {
     deploy: defineCommand({
       path: ["deploy"],
-      usage: "pbc deploy [pocketbase|frontend|backend] [<name>] [flags]",
+      usage: "pbc deploy [pocketbase|website|service] [<name>] [flags]",
       summary: "Deploy this directory, detecting what kind of resource it is.",
-      details: `Works out whether the directory holds a PocketBase instance, a static
-site, or a backend, then runs that kind's deploy — \`pbc pocketbase deploy\`,
-\`pbc frontend deploy\`, or \`pbc backend deploy\`. Every flag those commands
+      details: `Works out whether the directory holds a PocketBase instance, a
+website, or a service, then runs that kind's deploy — \`pbc pocketbase deploy\`,
+\`pbc website deploy\`, or \`pbc service deploy\`. Every flag those commands
 accept works here and is passed straight through.
 
 The first of these that applies decides:
 
   1. The "kind" recorded in pbc.json by a previous deploy — never re-guessed.
   2. pb_hooks/, pb_migrations/, or pb_public/ — a PocketBase instance.
-  3. next.config.*: "output": "export" is a static site, anything else a backend.
-  4. vite / svelte / vue config, or angular.json — a frontend.
-  5. deno.json(c) — a backend.
+  3. next.config.*: "output": "export" is a static site, anything else a service.
+  4. vite / svelte / vue config, or angular.json — a website.
+  5. deno.json(c) — a service.
   6. package.json dependencies, then its scripts: a server dep or a "start"
-     script is a backend; a bundler dep or a lone "build" script a frontend.
-  7. index.html in the directory or public/, dist/, build/, or out/ — a frontend.
+     script is a service; a bundler dep or a lone "build" script a website.
+  7. index.html in the directory or public/, dist/, build/, or out/ — a website.
 
 The detected kind and the file that decided it are printed before the deploy
 runs. A leading kind word overrides the detection outright:
 
-  pbc deploy backend            # deploy as a backend, whatever is here
-  pbc deploy frontend web       # …and redeploy the existing "web"
+  pbc deploy service            # deploy as a service, whatever is here
+  pbc deploy website web        # …and redeploy the existing "web"
 
 Env vars are pushed only from the dotenv file each environment names —
 nothing by default. The first deploy of an environment asks which file (or
@@ -71,7 +71,7 @@ When nothing in the directory points either way you are asked on a terminal;
 under --no-input or --json you get an error naming the three explicit
 commands.`,
       args: [
-        { name: "kind", required: false, description: "pocketbase, frontend, or backend; detected from the directory when omitted" },
+        { name: "kind", required: false, description: "pocketbase, website, or service; detected from the directory when omitted" },
         { name: "name", required: false, description: "The existing resource to redeploy, same as --name; create with --new" },
       ],
       flags: sharedFlags(handlers),

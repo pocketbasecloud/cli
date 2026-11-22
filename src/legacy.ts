@@ -4,8 +4,10 @@ export type LegacyRename = { old: string; new: string };
 
 export const LEGACY_RENAMES: LegacyRename[] = [
   { old: "cloud pb", new: "pocketbase" },
-  { old: "cloud frontend", new: "frontend" },
-  { old: "cloud backend", new: "backend" },
+  { old: "cloud frontend", new: "website" },
+  { old: "cloud backend", new: "service" },
+  { old: "frontend", new: "website" },
+  { old: "backend", new: "service" },
   { old: "cloud deploy", new: "deploy" },
   { old: "cloud env", new: "env" },
   { old: "cloud environments", new: "environments" },

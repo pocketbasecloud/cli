@@ -452,3 +452,72 @@ Deno.test("a stale binding is NOT_FOUND with the recreate hint", async () => {
   assertEquals(err.code, "NOT_FOUND");
   assertEquals(err.message.includes("no longer exists"), true);
 });
+
+async function stagingFixture() {
+  const { client, cwd, projectId } = await fixture({
+    projects: [["p1", "acme"]],
+    resources: [{ name: "db", project: "acme" }],
+  });
+  const [db] = await client.listResources("pocketbases");
+  const copy = await client.createResource("pocketbases", {
+    name: "db-staging",
+    project: projectId("acme"),
+  });
+  await client.updateResource("pocketbases", copy.id, { previewOf: db.id });
+  client.ext = (_path, _body, opts) =>
+    Promise.resolve(Response.json({
+      success: true,
+      data: {
+        previews: opts?.query?.resourceId === db.id
+          ? [{
+            id: "prev1",
+            name: "staging",
+            members: [{ id: copy.id, kind: "pocketbase", previewOf: db.id }],
+          }]
+          : [],
+      },
+    }));
+  Deno.writeTextFileSync(
+    join(cwd, "pbc.json"),
+    JSON.stringify({
+      projectId: projectId("acme"),
+      kind: "pocketbases",
+      environments: { production: { id: db.id, name: "db" } },
+    }),
+  );
+  return { client, cwd, copy };
+}
+
+Deno.test("--env naming a server environment, not a pbc.json one, resolves its copy", async () => {
+  const { client, cwd, copy } = await stagingFixture();
+  const resolved = await resolveResourceTarget({
+    client,
+    spec: KINDS.pocketbases,
+    cwd,
+    envFlag: "staging",
+    explicit: true,
+    noInput: true,
+  });
+  assertEquals(resolved, { resource: copy, environment: "staging" });
+});
+
+Deno.test("--env naming neither a pbc.json nor a server environment stays an unknown environment", async () => {
+  const { client, cwd } = await stagingFixture();
+  const err = await assertRejects(
+    () =>
+      resolveResourceTarget({
+        client,
+        spec: KINDS.pocketbases,
+        cwd,
+        envFlag: "qa",
+        explicit: true,
+        noInput: true,
+      }),
+    CliError,
+  );
+  assertEquals(err.code, "NOT_FOUND");
+  assertEquals(
+    err.message,
+    'Unknown environment "qa". Configured: production.',
+  );
+});

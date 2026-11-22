@@ -1,4 +1,4 @@
-import { dirname, join, resolve } from "@std/path";
+import { basename, dirname, join, resolve } from "@std/path";
 import {
   bool,
   type CmdCtx,
@@ -9,18 +9,22 @@ import {
 } from "../command.ts";
 import type { CloudCmdDeps } from "./project.ts";
 import type { ICloudClient } from "../clients/cloud.ts";
-import { KINDS } from "../kinds.ts";
+import type { ResourceKind } from "../clients/types.ts";
+import { ALL_KINDS, type KindSpec } from "../kinds.ts";
 import { CliError, httpError } from "../errors.ts";
 import { emit } from "../envelope.ts";
 import { printResult } from "../ui/output.ts";
 import { confirm } from "../ui/prompt.ts";
 import { extractFiles } from "../local/unzip.ts";
-import { readOwnLinkFile, upsertEnvironment } from "../config.ts";
+import { linkFilePath, readOwnLinkFile, upsertEnvironment } from "../config.ts";
 import { makeResourceResolver } from "./resource.ts";
 import { linkedRepository, linkedWarning } from "../clients/repo-link.ts";
+import { waitForDeployment } from "../clients/deployments.ts";
+import { deploymentFailure } from "./deploy-helper.ts";
 
 const REVISION_DIRS = ["pb_hooks", "pb_migrations", "pb_public"];
 const MAX_EXPORT_BYTES = 200 * 1024 * 1024;
+const MAX_LISTED_PATHS = 5;
 
 const SOURCE_LABELS: Record<string, string> = {
   portal: "portal",
@@ -33,8 +37,11 @@ const SOURCE_LABELS: Record<string, string> = {
   backfill: "history start",
 };
 
+type Owner = { kind: ResourceKind; id: string };
+
 type Revision = {
   number: number;
+  status?: string;
   source: string;
   author?: string;
   gitAuthor?: string;
@@ -53,37 +60,66 @@ type Diff = {
 type RestorePreview = {
   number: number;
   current?: number;
-  hooksWritten: string[];
-  hooksRemoved: string[];
-  publicReplaced: boolean;
-  migrationsReverted: string[];
-  schemaBlocker: string | null;
+  hooksWritten?: string[];
+  hooksRemoved?: string[];
+  publicReplaced?: boolean;
+  migrationsReverted?: string[];
+  schemaBlocker?: string | null;
+  filesWritten?: string[];
+  filesRemoved?: string[];
 };
 
 export function describeRestore(preview: RestorePreview): string[] {
   const lines: string[] = [];
-  if (preview.hooksWritten.length > 0) {
-    lines.push(`  write   ${preview.hooksWritten.join(", ")}`);
+  const hooksWritten = preview.hooksWritten ?? [];
+  const hooksRemoved = preview.hooksRemoved ?? [];
+  const migrationsReverted = preview.migrationsReverted ?? [];
+  if (hooksWritten.length > 0) {
+    lines.push(`  write   ${hooksWritten.join(", ")}`);
   }
-  if (preview.hooksRemoved.length > 0) {
-    lines.push(`  remove  ${preview.hooksRemoved.join(", ")}`);
+  if (hooksRemoved.length > 0) {
+    lines.push(`  remove  ${hooksRemoved.join(", ")}`);
   }
   if (preview.publicReplaced) lines.push("  replace pb_public");
-  if (preview.migrationsReverted.length > 0) {
+  if (migrationsReverted.length > 0) {
     lines.push(
-      `  revert  ${
-        preview.migrationsReverted.join(", ")
-      } (down parts, newest first)`,
+      `  revert  ${migrationsReverted.join(", ")} (down parts, newest first)`,
     );
   }
   return lines;
 }
 
-export function isPullablePath(path: string): boolean {
+export function describeSourceRestore(preview: RestorePreview): string[] {
+  const lines: string[] = [];
+  const written = preview.filesWritten ?? [];
+  const removed = preview.filesRemoved ?? [];
+  if (written.length > 0) lines.push(`  write   ${listPaths(written)}`);
+  if (removed.length > 0) lines.push(`  remove  ${listPaths(removed)}`);
+  return lines;
+}
+
+function listPaths(paths: string[]): string {
+  const rest = paths.length - MAX_LISTED_PATHS;
+  return paths.slice(0, MAX_LISTED_PATHS).join(", ") +
+    (rest > 0 ? `, and ${rest} more` : "");
+}
+
+async function localLinkFileName(root: string): Promise<string | null> {
+  const path = await linkFilePath(root);
+  return await readLocal(path) ? basename(path) : null;
+}
+
+export function isPullablePath(
+  path: string,
+  kind: ResourceKind = "pocketbases",
+): boolean {
   const segments = path.split("/");
-  return REVISION_DIRS.includes(segments[0]) && segments.length > 1 &&
-    !path.includes("\\") &&
-    segments.slice(1).every((s) => s !== "" && s !== "." && s !== "..");
+  const inside = kind === "pocketbases"
+    ? REVISION_DIRS.includes(segments[0]) && segments.length > 1
+    : segments[0] !== "";
+  return inside && !path.includes("\\") &&
+    segments.slice(1).every((s) => s !== "" && s !== "." && s !== "..") &&
+    segments[0] !== "." && segments[0] !== "..";
 }
 
 export function authorLabel(author: string | undefined, me: string): string {
@@ -91,13 +127,75 @@ export function authorLabel(author: string | undefined, me: string): string {
   return author === me ? "you" : "teammate";
 }
 
+function revisionRoute(owner: Owner, action: string): string {
+  return owner.kind === "pocketbases"
+    ? `/api/pocketbases/revisions/${action}`
+    : `/api/revisions/${action}`;
+}
+
+function ownerBody(owner: Owner): Record<string, string> {
+  return owner.kind === "pocketbases"
+    ? { pocketbaseId: owner.id }
+    : { kind: owner.kind, resourceId: owner.id };
+}
+
+export type LiveBuild = {
+  deploymentId: string;
+  created: string;
+  via: "cli" | "upload";
+};
+
+export function liveBuildLine(build: LiveBuild): string {
+  const day = build.created.slice(0, 10);
+  const what = build.via === "cli"
+    ? `a build uploaded with the CLI on ${day}`
+    : `a finished build uploaded on ${day}`;
+  return `Live runs ${what}, not this source. The next save in PocketBase Cloud builds this source and replaces it.`;
+}
+
+export function buildOverSourceWarning(
+  name: string,
+  kind: "frontends" | "backends",
+): string {
+  return `${name} is edited as source in PocketBase Cloud. This build replaces it until the next save there; ${
+    kind === "frontends"
+      ? "use --source to keep them in sync."
+      : "deploy its source from the portal or GitHub to keep them in sync."
+  }`;
+}
+
+export async function editedAsSource(
+  client: ICloudClient,
+  kind: "frontends" | "backends",
+  id: string,
+): Promise<boolean> {
+  const res = await client.ext("/api/revisions/list", {
+    kind,
+    resourceId: id,
+    page: 1,
+    perPage: 1,
+  }).catch(() => null);
+  if (!res?.ok) {
+    await res?.body?.cancel();
+    return false;
+  }
+  const json = await res.json().catch(() => null) as
+    | { data?: { sourceManaged?: boolean } }
+    | null;
+  return json?.data?.sourceManaged === true;
+}
+
 async function revisionCall<T>(
   client: ICloudClient,
+  owner: Owner,
   action: string,
   body: Record<string, unknown>,
   label: string,
 ): Promise<T> {
-  const res = await client.ext(`/api/pocketbases/revisions/${action}`, body);
+  const res = await client.ext(revisionRoute(owner, action), {
+    ...ownerBody(owner),
+    ...body,
+  });
   if (!res.ok) throw await httpError(res, label);
   const json = await res.json() as { data?: T };
   if (json.data === undefined) {
@@ -143,13 +241,14 @@ export async function rememberRevision(
   environment: string,
   instance: { id: string; name: string },
   revision: number,
+  kind: ResourceKind = "pocketbases",
 ): Promise<void> {
   const link = await readOwnLinkFile(cwd);
   const entry = link.environments?.[environment];
   if (!link.projectId || entry?.id !== instance.id) return;
   await upsertEnvironment(cwd, {
     projectId: link.projectId,
-    kind: "pocketbases",
+    kind,
     environment,
     entry: { id: instance.id, name: entry.name ?? instance.name, revision },
   });
@@ -178,37 +277,60 @@ export async function currentRevision(
 export function makeRevisionCommands(
   deps: CloudCmdDeps,
 ): Record<string, Command> {
-  const { resolveOne } = makeResourceResolver(deps, KINDS.pocketbases);
-  const target: Need = "target:pocketbases";
+  return Object.assign(
+    {},
+    ...ALL_KINDS.map((spec) => revisionCommandsFor(deps, spec)),
+  );
+}
+
+const SOURCE_DETAILS =
+  "Every change to the source is a numbered revision, whether it came from\n" +
+  "the portal, this CLI, an AI assistant or a GitHub deploy. A revision is\n" +
+  "building until its deployment finishes, then applied or failed.";
+
+function revisionCommandsFor(
+  deps: CloudCmdDeps,
+  spec: KindSpec,
+): Record<string, Command> {
+  const { resolveOne } = makeResourceResolver(deps, spec);
+  const instanceKind = spec.kind === "pocketbases";
+  const noun = spec.noun;
+  const target: Need = `target:${spec.kind}`;
   const nameFlag = str({
-    description: "Which instance. Defaults to the directory's binding.",
+    description: `Which ${spec.idNoun}. Defaults to the directory's binding.`,
   });
   const idFlag = str({
-    description: "The instance's id, alternative to --name.",
+    description: `The ${spec.idNoun}'s id, alternative to --name.`,
   });
   const envFlag = str({ description: "Which pbc.json environment to target." });
+  const nameUsage = `[--name <${spec.idNoun}>]`;
 
-  async function instance(
+  async function resolved(
     ctx: CmdCtx,
     input: Record<string, unknown>,
     args: string[],
+    needs: readonly Need[] = [target],
   ) {
-    return await resolveOne(
+    const out = await resolveOne(
       ctx,
       input as { name?: string; id?: string; env?: string },
-      { needs: [target], args },
+      { needs, args },
     );
+    return { ...out, owner: { kind: spec.kind, id: out.found.id } as Owner };
   }
 
   return {
-    "pocketbase revisions ls": defineCommand({
-      path: ["pocketbase", "revisions", "ls"],
-      usage: "pbc pocketbase revisions ls [--name <instance>] [--page <n>]",
-      summary: "List the version history of an instance's files.",
-      details:
-        "Every change to pb_hooks, pb_migrations and pb_public is a numbered\n" +
-        "revision, whether it came from the portal, this CLI, an AI assistant,\n" +
-        "a GitHub deploy, or the instance writing a migration itself.",
+    [`${noun} revisions ls`]: defineCommand({
+      path: [noun, "revisions", "ls"],
+      usage: `pbc ${noun} revisions ls ${nameUsage} [--page <n>]`,
+      summary: instanceKind
+        ? "List the version history of an instance's files."
+        : `List the version history of a ${spec.label}'s source.`,
+      details: instanceKind
+        ? "Every change to pb_hooks, pb_migrations and pb_public is a numbered\n" +
+          "revision, whether it came from the portal, this CLI, an AI assistant,\n" +
+          "a GitHub deploy, or the instance writing a migration itself."
+        : SOURCE_DETAILS,
       needs: [target],
       args: [],
       flags: {
@@ -218,19 +340,19 @@ export function makeRevisionCommands(
         page: str({ description: "Page of 30 revisions, newest first." }),
       },
       run: async (input, ctx) => {
-        const { client, auth, found } = await instance(ctx, input, ctx.args);
+        const { client, auth, owner } = await resolved(ctx, input, ctx.args);
         const page = input.page ? revisionNumber(input.page, "--page <n>") : 1;
         const data = await revisionCall<{
           items: Revision[];
           page: number;
           totalPages: number;
-        }>(client, "list", {
-          pocketbaseId: found.id,
-          page,
-          perPage: 30,
-        }, "Revision list");
+          liveBuild?: LiveBuild | null;
+        }>(client, owner, "list", { page, perPage: 30 }, "Revision list");
         printResult(data.items, [
           { header: "#", get: (r) => String(r.number) },
+          ...(instanceKind
+            ? []
+            : [{ header: "STATUS", get: (r: Revision) => r.status ?? "" }]),
           { header: "WHEN", get: (r) => r.created },
           { header: "FROM", get: (r) => SOURCE_LABELS[r.source] ?? r.source },
           {
@@ -239,6 +361,9 @@ export function makeRevisionCommands(
           },
           { header: "CHANGE", get: (r) => r.message ?? "" },
         ], ctx.flags.json);
+        if (!ctx.flags.json && data.liveBuild) {
+          console.error(liveBuildLine(data.liveBuild));
+        }
         if (!ctx.flags.json && data.totalPages > data.page) {
           console.error(`Older revisions: --page ${data.page + 1}`);
         }
@@ -246,10 +371,10 @@ export function makeRevisionCommands(
       },
     }),
 
-    "pocketbase revisions diff": defineCommand({
-      path: ["pocketbase", "revisions", "diff"],
+    [`${noun} revisions diff`]: defineCommand({
+      path: [noun, "revisions", "diff"],
       usage:
-        "pbc pocketbase revisions diff <revision> [--against <revision>] [--name <instance>]",
+        `pbc ${noun} revisions diff <revision> [--against <revision>] ${nameUsage}`,
       summary: "Show which files a revision added, changed and removed.",
       needs: [target],
       args: [{ name: "revision", required: true }],
@@ -262,14 +387,17 @@ export function makeRevisionCommands(
         }),
       },
       run: async (input, ctx) => {
-        const usage = "pbc pocketbase revisions diff <revision>";
+        const usage = `pbc ${noun} revisions diff <revision>`;
         const number = revisionNumber(ctx.args[0], usage);
         const against = input.against === undefined
           ? undefined
           : Number(input.against);
-        const { client, found } = await instance(ctx, input, ctx.args.slice(1));
-        const diff = await revisionCall<Diff>(client, "diff", {
-          pocketbaseId: found.id,
+        const { client, owner } = await resolved(
+          ctx,
+          input,
+          ctx.args.slice(1),
+        );
+        const diff = await revisionCall<Diff>(client, owner, "diff", {
           number,
           against,
         }, "Revision diff");
@@ -304,10 +432,9 @@ export function makeRevisionCommands(
       },
     }),
 
-    "pocketbase revisions show": defineCommand({
-      path: ["pocketbase", "revisions", "show"],
-      usage:
-        "pbc pocketbase revisions show <revision> <path> [--name <instance>]",
+    [`${noun} revisions show`]: defineCommand({
+      path: [noun, "revisions", "show"],
+      usage: `pbc ${noun} revisions show <revision> <path> ${nameUsage}`,
       summary: "Print one file as it was in a revision.",
       details:
         "Text up to 1 MB prints to stdout; a larger or binary file prints a\n" +
@@ -319,27 +446,30 @@ export function makeRevisionCommands(
       ],
       flags: { name: nameFlag, id: idFlag, env: envFlag },
       run: async (input, ctx) => {
-        const usage = "pbc pocketbase revisions show <revision> <path>";
+        const usage = `pbc ${noun} revisions show <revision> <path>`;
         const number = revisionNumber(ctx.args[0], usage);
         const path = ctx.args[1];
-        if (!path || !isPullablePath(path)) {
+        if (!path || !isPullablePath(path, spec.kind)) {
           throw new CliError(
-            `Usage: ${usage} (path starts with ${REVISION_DIRS.join("/, ")}/)`,
+            instanceKind
+              ? `Usage: ${usage} (path starts with ${
+                REVISION_DIRS.join("/, ")
+              }/)`
+              : `Usage: ${usage} (a relative path such as src/main.ts)`,
             { code: "USAGE" },
           );
         }
-        const { client, found } = await instance(ctx, input, ctx.args.slice(2));
+        const { client, owner } = await resolved(
+          ctx,
+          input,
+          ctx.args.slice(2),
+        );
         const file = await revisionCall<{
           path: string;
           size: number;
           content?: string;
           downloadUrl?: string;
-        }>(
-          client,
-          "file",
-          { pocketbaseId: found.id, number, path },
-          "Revision file",
-        );
+        }>(client, owner, "file", { number, path }, "Revision file");
         emit(
           ctx.flags.json,
           file,
@@ -350,49 +480,62 @@ export function makeRevisionCommands(
       },
     }),
 
-    "pocketbase revisions restore": defineCommand({
-      path: ["pocketbase", "revisions", "restore"],
-      usage:
-        "pbc pocketbase revisions restore <revision> [--schema] [--yes] [--name <instance>]",
-      summary: "Put hooks and public files back as they were in a revision.",
-      details:
-        "Changed hooks are rewritten and hooks added since are removed, which\n" +
-        "restarts the instance; pb_public is replaced. Without --schema,\n" +
-        "migrations and the database schema stay as they are. With --schema,\n" +
-        "migrations added since the revision are reverted with their down\n" +
-        "parts first (PocketBase 0.32.0 or later); the database is copied aside\n" +
-        "before, and put back if a down part fails. The restore is itself a new\n" +
-        "revision, so it can be undone the same way.",
+    [`${noun} revisions restore`]: defineCommand({
+      path: [noun, "revisions", "restore"],
+      usage: instanceKind
+        ? `pbc ${noun} revisions restore <revision> [--schema] [--yes] ${nameUsage}`
+        : `pbc ${noun} revisions restore <revision> [--yes] ${nameUsage}`,
+      summary: instanceKind
+        ? "Put hooks and public files back as they were in a revision."
+        : `Put a ${spec.label}'s source back as it was in a revision.`,
+      details: instanceKind
+        ? "Changed hooks are rewritten and hooks added since are removed, which\n" +
+          "restarts the instance; pb_public is replaced. Without --schema,\n" +
+          "migrations and the database schema stay as they are. With --schema,\n" +
+          "migrations added since the revision are reverted with their down\n" +
+          "parts first (PocketBase 0.32.0 or later); the database is copied aside\n" +
+          "before, and put back if a down part fails. The restore is itself a new\n" +
+          "revision, so it can be undone the same way."
+        : `The ${spec.label} is rebuilt from that source and deployed. The restore\n` +
+          "is itself a new revision, so it can be undone the same way.",
       needs: [target, { explicit: true }],
       args: [{ name: "revision", required: true }],
       flags: {
         name: nameFlag,
         id: idFlag,
         env: envFlag,
-        schema: bool({
-          description:
-            "Also revert migrations added since, with their down parts.",
-        }),
+        ...(instanceKind
+          ? {
+            schema: bool({
+              description:
+                "Also revert migrations added since, with their down parts.",
+            }),
+          }
+          : {}),
       },
       run: async (input, ctx) => {
-        const usage = "pbc pocketbase revisions restore <revision>";
+        const usage = `pbc ${noun} revisions restore <revision>`;
         const number = revisionNumber(ctx.args[0], usage);
-        const { client, found } = await resolveOne(
+        const { client, auth, found, owner } = await resolved(
           ctx,
-          input as { name?: string; id?: string; env?: string },
-          { needs: [target, { explicit: true }], args: ctx.args.slice(1) },
+          input,
+          ctx.args.slice(1),
+          [target, { explicit: true }],
         );
         const mode = input.schema ? "filesAndSchema" : "files";
         const preview = await revisionCall<RestorePreview>(
           client,
+          owner,
           "restore-preview",
-          { pocketbaseId: found.id, number, mode },
+          { number, mode },
           "Restore preview",
         );
         if (preview.schemaBlocker) {
           throw new CliError(preview.schemaBlocker, { code: "CONFLICT" });
         }
-        const plan = describeRestore(preview);
+        const plan = instanceKind
+          ? describeRestore(preview)
+          : describeSourceRestore(preview);
         if (plan.length === 0) {
           emit(
             ctx.flags.json,
@@ -401,13 +544,15 @@ export function makeRevisionCommands(
           );
           return 0;
         }
-        const link = await linkedRepository(client, found.id);
-        if (link) console.error(linkedWarning(found.name, link));
+        const link = await linkedRepository(client, found.id, spec.kind);
+        if (link) console.error(linkedWarning(found.name, link, spec.idNoun));
         console.error(`Restoring ${found.name} to revision #${number}:`);
         for (const line of plan) console.error(line);
         if (
           !await confirm(
-            preview.migrationsReverted.length > 0
+            !instanceKind
+              ? `The ${spec.label} is rebuilt and deployed. Continue?`
+              : (preview.migrationsReverted ?? []).length > 0
               ? "The instance stops while the schema is reverted, then restarts. Continue?"
               : "The instance restarts; migrations and the schema stay as they are. Continue?",
             {
@@ -419,41 +564,62 @@ export function makeRevisionCommands(
           console.error("Aborted.");
           return 0;
         }
-        const data = await revisionCall<{ revision: number | null }>(
+        const data = await revisionCall<
+          { revision: number | null; deploymentId?: string }
+        >(
           client,
+          owner,
           "restore",
-          {
-            pocketbaseId: found.id,
-            number,
-            mode,
-            baseRevision: preview.current,
-          },
+          { number, mode, baseRevision: preview.current },
           "Restore",
         );
+        if (data.revision !== null && data.deploymentId) {
+          console.error(`Building ${found.name} (${data.deploymentId})…`);
+          const outcome = await waitForDeployment(data.deploymentId, {
+            baseUrl: auth.backendUrl,
+            token: auth.userToken,
+            fetchFn: deps.fetch,
+          });
+          if (outcome.status === "failed") {
+            throw await deploymentFailure(
+              client,
+              spec.kind,
+              found.id,
+              outcome.statusMessage,
+            );
+          }
+        }
         emit(
           ctx.flags.json,
-          { restored: data.revision !== null, revision: data.revision },
+          {
+            restored: data.revision !== null,
+            revision: data.revision,
+            ...(data.deploymentId ? { deploymentId: data.deploymentId } : {}),
+          },
           data.revision === null
             ? `Files already match revision #${number}.`
             : `Restored revision #${number} as revision #${data.revision}. ` +
-              `Undo with: pbc pocketbase revisions restore ${
-                data.revision - 1
-              }`,
+              `Undo with: pbc ${noun} revisions restore ${data.revision - 1}`,
         );
         return 0;
       },
     }),
 
-    "pocketbase pull": defineCommand({
-      path: ["pocketbase", "pull"],
+    [`${noun} pull`]: defineCommand({
+      path: [noun, "pull"],
       usage:
-        "pbc pocketbase pull [--revision <n>] [--dir <path>] [--yes] [--name <instance>]",
-      summary: "Download an instance's hooks, migrations and public files.",
-      details:
-        "Writes pb_hooks/, pb_migrations/ and pb_public/ as they are on the\n" +
-        "instance now, or as they were in --revision, into --dir (default: this\n" +
+        `pbc ${noun} pull [--revision <n>] [--dir <path>] [--yes] ${nameUsage}`,
+      summary: instanceKind
+        ? "Download an instance's hooks, migrations and public files."
+        : `Download a ${spec.label}'s source.`,
+      details: (instanceKind
+        ? "Writes pb_hooks/, pb_migrations/ and pb_public/ as they are on the\n" +
+          "instance now, or as they were in --revision, into --dir (default: this\n"
+        : `Writes the ${spec.label}'s source as it is now, or as it was in\n` +
+          "--revision, into --dir (default: this\n") +
         "directory). Local files that differ are overwritten after confirmation;\n" +
-        "files that exist only locally are left alone.",
+        "files that exist only locally are left alone" +
+        (instanceKind ? "." : ", and so is a pbc.json\nalready there."),
       needs: [target],
       args: [],
       flags: {
@@ -469,7 +635,7 @@ export function makeRevisionCommands(
         const number = input.revision === undefined
           ? undefined
           : revisionNumber(input.revision, "--revision <n>");
-        const { client, found, environment } = await instance(
+        const { client, found, environment, owner } = await resolved(
           ctx,
           input,
           ctx.args,
@@ -478,7 +644,7 @@ export function makeRevisionCommands(
           number: number;
           files: number;
           downloadUrl: string;
-        }>(client, "export", { pocketbaseId: found.id, number }, "Export");
+        }>(client, owner, "export", { number }, "Export");
 
         const res = await (deps.fetch ?? fetch)(exported.downloadUrl);
         if (!res.ok) {
@@ -495,10 +661,14 @@ export function makeRevisionCommands(
         }
         const files = await extractFiles(zip);
         const root = resolve(deps.cwd(), input.dir ?? ".");
+        const ownLink = await localLinkFileName(root);
+        if (ownLink) {
+          files.delete(ownLink);
+        }
 
         const changed: string[] = [];
         for (const [path, bytes] of files) {
-          if (!isPullablePath(path)) {
+          if (!isPullablePath(path, spec.kind)) {
             throw new CliError(
               `The download holds an unexpected path: ${path}`,
               {
@@ -507,7 +677,9 @@ export function makeRevisionCommands(
             );
           }
           const local = await readLocal(join(root, path));
-          if (local && !sameBytes(local, bytes)) changed.push(path);
+          if (local && !sameBytes(local, bytes)) {
+            changed.push(path);
+          }
         }
         if (
           changed.length > 0 &&
@@ -537,6 +709,7 @@ export function makeRevisionCommands(
             environment,
             found,
             exported.number,
+            spec.kind,
           );
         }
         emit(

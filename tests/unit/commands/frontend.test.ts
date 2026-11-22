@@ -76,7 +76,7 @@ Deno.test("frontend deploy --env creates a second resource, leaving the first bo
   await bind(d, p.id, { production: { id: fe.id, name: "web" } });
   Deno.writeTextFileSync(`${d.cwd()}/index.html`, "<html></html>");
   runningNow(client);
-  const code = await makeFrontendCommands(d)["frontend deploy"].run({ env: "staging", new: "web-staging", skipBuild: true }, {
+  const code = await makeFrontendCommands(d)["website deploy"].run({ env: "staging", new: "web-staging", skipBuild: true }, {
       args: [],
       flags: flags({ project: p.id }),
   });
@@ -102,12 +102,12 @@ Deno.test("a stale binding clears only its own environment", async () => {
   Deno.writeTextFileSync(`${d.cwd()}/index.html`, "<html></html>");
   await assertRejects(
     () =>
-      makeFrontendCommands(d)["frontend deploy"].run({ env: "staging", skipBuild: true }, {
+      makeFrontendCommands(d)["website deploy"].run({ env: "staging", skipBuild: true }, {
           args: [],
           flags: flags({ project: p.id }),
       }),
     Error,
-    'The frontend bound to environment "staging" no longer exists',
+    'The website bound to environment "staging" no longer exists',
   );
   const file = JSON.parse(await Deno.readTextFile(`${d.cwd()}/pbc.json`));
   assertEquals(file.environments, { production: { id: fe.id, name: "web" } });
@@ -142,7 +142,7 @@ Deno.test("a bare deploy asks for a name and creates the frontend", async () => 
   const code = await withTTY(
     ["", "web"],
     () =>
-      makeFrontendCommands(d)["frontend deploy"].run({ skipBuild: true }, {
+      makeFrontendCommands(d)["website deploy"].run({ skipBuild: true }, {
           args: [],
           flags: flags({ project: p.id, json: false, noInput: false }),
       }),
@@ -167,7 +167,7 @@ Deno.test("a bare deploy can pick an existing frontend to redeploy", async () =>
   const code = await withTTY(
     ["", "2"],
     () =>
-      makeFrontendCommands(d)["frontend deploy"].run({ skipBuild: true }, {
+      makeFrontendCommands(d)["website deploy"].run({ skipBuild: true }, {
           args: [],
           flags: flags({ project: p.id, json: false, noInput: false }),
       }),
@@ -186,7 +186,7 @@ Deno.test("a first deploy records the environment it was told to use", async () 
   const code = await withTTY(
     ["staging", "web"],
     () =>
-      makeFrontendCommands(d)["frontend deploy"].run({ skipBuild: true }, {
+      makeFrontendCommands(d)["website deploy"].run({ skipBuild: true }, {
           args: [],
           flags: flags({ project: p.id, json: false, noInput: false }),
       }),
@@ -211,7 +211,7 @@ Deno.test("a directory that already names an environment is not asked again", as
   const code = await withTTY(
     ["staging"],
     () =>
-      makeFrontendCommands(d)["frontend deploy"].run({ skipBuild: true }, {
+      makeFrontendCommands(d)["website deploy"].run({ skipBuild: true }, {
           args: [],
           flags: flags({ project: p.id, json: false, noInput: false }),
       }),
@@ -227,7 +227,7 @@ Deno.test("a bare deploy still errors without a terminal to ask on", async () =>
   const d = deps(client, p.id);
   await assertRejects(
     () =>
-      makeFrontendCommands(d)["frontend deploy"].run({ skipBuild: true }, {
+      makeFrontendCommands(d)["website deploy"].run({ skipBuild: true }, {
           args: [],
           flags: flags({ project: p.id }),
       }),
@@ -242,7 +242,7 @@ Deno.test("creating a frontend sends the owner and status, and no subdomain", as
   const d = deps(client, p.id);
   Deno.writeTextFileSync(`${d.cwd()}/index.html`, "<html></html>");
   runningNow(client);
-  const code = await makeFrontendCommands(d)["frontend deploy"].run({ new: "My Site", skipBuild: true }, {
+  const code = await makeFrontendCommands(d)["website deploy"].run({ new: "My Site", skipBuild: true }, {
       args: [],
       flags: flags({ project: p.id }),
   });
@@ -264,7 +264,7 @@ Deno.test("a --subdomain left in a pinned script is ignored, not sent", async ()
   const code = await dispatch(
     makeFrontendCommands(d),
     [
-      "frontend", "deploy",
+      "website", "deploy",
       "--new", "web",
       "--subdomain", "tom-web",
       "--skip-build",
@@ -286,7 +286,7 @@ Deno.test("a redeploy leaves the owner and address alone", async () => {
   await bind(d, p.id, { production: { id: fe.id, name: "web" } });
   Deno.writeTextFileSync(`${d.cwd()}/index.html`, "<html></html>");
   runningNow(client);
-  const code = await makeFrontendCommands(d)["frontend deploy"].run({ skipBuild: true }, {
+  const code = await makeFrontendCommands(d)["website deploy"].run({ skipBuild: true }, {
       args: [],
       flags: flags({ project: p.id }),
   });
@@ -312,7 +312,7 @@ Deno.test("frontend deploy refuses a directory bound to another kind", async () 
   );
   await assertRejects(
     () =>
-      makeFrontendCommands(d)["frontend deploy"].run({ name: "web" }, {
+      makeFrontendCommands(d)["website deploy"].run({ name: "web" }, {
           args: [],
           flags: flags({ project: p.id }),
       }),
@@ -342,7 +342,7 @@ Deno.test("creating a frontend uses the owner's Pro compute", async () => {
   Deno.writeTextFileSync(`${d.cwd()}/index.html`, "<html></html>");
   runningNow(client);
   withComputes(client, [{ id: "srv9", name: "pro-1", location: "GRA" }]);
-  const code = await makeFrontendCommands(d)["frontend deploy"].run({ new: "web", skipBuild: true }, {
+  const code = await makeFrontendCommands(d)["website deploy"].run({ new: "web", skipBuild: true }, {
       args: [],
       flags: flags({ project: p.id }),
   });
@@ -364,7 +364,7 @@ Deno.test("creating a frontend passes --location for a shared-pool plan", async 
       servers: [],
       locations: ["fsn1"],
     });
-  const code = await makeFrontendCommands(d)["frontend deploy"].run({
+  const code = await makeFrontendCommands(d)["website deploy"].run({
     new: "web",
     location: "fsn1",
     skipBuild: true,
@@ -388,7 +388,7 @@ Deno.test("creating a frontend in an org project uses the organization's compute
     ownerPlan: "free",
     organization: "org1",
   });
-  const code = await makeFrontendCommands(d)["frontend deploy"].run({ new: "web", skipBuild: true }, {
+  const code = await makeFrontendCommands(d)["website deploy"].run({ new: "web", skipBuild: true }, {
       args: [],
       flags: flags({ project: p.id }),
   });
@@ -407,7 +407,7 @@ Deno.test("a frontend redeploy never re-picks the compute", async () => {
   client.deployContext = () => {
     throw new Error("deploy-context must not be called on a redeploy");
   };
-  const code = await makeFrontendCommands(d)["frontend deploy"].run({ name: "web", skipBuild: true }, {
+  const code = await makeFrontendCommands(d)["website deploy"].run({ name: "web", skipBuild: true }, {
       args: [],
       flags: flags({ project: p.id }),
   });
@@ -430,7 +430,7 @@ Deno.test("frontend ls announces the project resolved from config.currentProject
   const cmds = makeResourceCommands(deps(client, p.id), KINDS.frontends);
   const log = captureLog();
   try {
-    const code = await cmds["frontend ls"].run({}, {
+    const code = await cmds["website ls"].run({}, {
         args: [],
         flags: flags({ json: false }),
     });
@@ -448,7 +448,7 @@ Deno.test("frontend ls does not announce the project when --project names it", a
   const cmds = makeResourceCommands(deps(client, p.id), KINDS.frontends);
   const log = captureLog();
   try {
-    await cmds["frontend ls"].run({}, {
+    await cmds["website ls"].run({}, {
         args: [],
         flags: flags({ json: false, project: p.id }),
     });

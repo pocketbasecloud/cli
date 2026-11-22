@@ -3,8 +3,12 @@ import { join } from "@std/path";
 import {
   authorLabel,
   boundRevision,
+  buildOverSourceWarning,
   describeRestore,
+  describeSourceRestore,
+  editedAsSource,
   isPullablePath,
+  liveBuildLine,
   makeRevisionCommands,
   rememberRevision,
 } from "../../../src/commands/revisions.ts";
@@ -26,7 +30,14 @@ const PREVIEW = {
   schemaBlocker: null,
 };
 
-async function setup(routes: Record<string, (body: unknown) => unknown>) {
+async function setup(
+  routes: Record<string, (body: unknown) => unknown>,
+  o: {
+    files?: [string, string][];
+    deployment?: string;
+    deploymentMessage?: string;
+  } = {},
+) {
   const posted: [string, unknown][] = [];
   const client = createMockCloudClient({
     ext: (path, body) => {
@@ -56,16 +67,30 @@ async function setup(routes: Record<string, (body: unknown) => unknown>) {
     currentProject: p.id,
   };
   const cwd = await Deno.makeTempDir();
-  const zip = await writeZip([
-    { name: "pb_hooks/main.pb.js", body: text("hook v1") },
-    { name: "pb_public/index.html", body: text("<h1>") },
-  ]);
+  const web = await client.createResource("frontends", {
+    name: "web",
+    project: p.id,
+  });
+  const zip = await writeZip(
+    (o.files ?? [
+      ["pb_hooks/main.pb.js", "hook v1"],
+      ["pb_public/index.html", "<h1>"],
+    ]).map(([name, body]) => ({ name, body: text(body) })),
+  );
   const deps: CloudCmdDeps = {
     requireAuth: () => Promise.resolve({ client, config, auth: config.cloud! }),
     loadConfig: () => Promise.resolve(config),
     saveConfig: () => Promise.resolve(),
     cwd: () => cwd,
-    fetch: () => Promise.resolve(new Response(zip as BodyInit)),
+    fetch: (input) =>
+      Promise.resolve(
+        String(input).includes("/deployments/records/")
+          ? Response.json({
+            status: o.deployment ?? "success",
+            statusMessage: o.deploymentMessage ?? "",
+          })
+          : new Response(zip as BodyInit),
+      ),
   };
   const cmds = makeRevisionCommands(deps);
   const lines: string[] = [];
@@ -97,7 +122,7 @@ async function setup(routes: Record<string, (body: unknown) => unknown>) {
     }
   };
   const lastData = () => JSON.parse(lines[lines.length - 1]).data;
-  return { run, posted, cwd, db, lastData };
+  return { run, posted, cwd, db, web, lastData };
 }
 
 Deno.test("revisions ls labels the source and the author", async () => {
@@ -312,4 +337,236 @@ Deno.test("rememberRevision never creates a binding that does not exist", async 
     await Deno.stat(join(cwd, "pbc.json")).then(() => true, () => false),
     false,
   );
+});
+
+Deno.test("website revisions use the owner route of their kind", async () => {
+  const { run, posted, web, lastData } = await setup({
+    list: () => ({
+      page: 1,
+      totalPages: 1,
+      items: [{ number: 2, status: "building", source: "cli", created: "c" }],
+    }),
+  });
+  assertEquals(await run("website revisions ls", [], { name: "web" }), 0);
+  assertEquals(posted[0], [
+    "/api/revisions/list",
+    { kind: "frontends", resourceId: web.id, page: 1, perPage: 30 },
+  ]);
+  assertEquals(lastData()[0].status, "building");
+});
+
+Deno.test("website revisions show takes any relative source path", async () => {
+  const { run, posted } = await setup({
+    file: () => ({ path: "src/App.tsx", size: 2, content: "hi" }),
+  });
+  await run("website revisions show", ["3", "src/App.tsx"], { name: "web" });
+  assertEquals(posted[0][0], "/api/revisions/file");
+  await assertRejects(
+    () => run("website revisions show", ["3", "../x"], { name: "web" }),
+    CliError,
+    "relative path",
+  );
+});
+
+Deno.test("website revisions restore waits for the build and reports it", async () => {
+  const { run, posted, lastData } = await setup({
+    "restore-preview": () => ({
+      number: 1,
+      current: 4,
+      filesWritten: ["src/App.tsx"],
+      filesRemoved: [],
+    }),
+    restore: () => ({ revision: 5, deploymentId: "dep1" }),
+  });
+  await run("website revisions restore", ["1"], { name: "web" }, {
+    yes: true,
+  });
+  assertEquals(lastData(), {
+    restored: true,
+    revision: 5,
+    deploymentId: "dep1",
+  });
+  const restore = posted.find(([path]) => path === "/api/revisions/restore")!;
+  assertEquals(restore[1], {
+    kind: "frontends",
+    resourceId: (restore[1] as { resourceId: string }).resourceId,
+    number: 1,
+    mode: "files",
+    baseRevision: 4,
+  });
+});
+
+Deno.test("website revisions restore fails with the build's own message", async () => {
+  const { run } = await setup({
+    "restore-preview": () => ({
+      number: 1,
+      current: 4,
+      filesWritten: ["src/App.tsx"],
+      filesRemoved: [],
+    }),
+    restore: () => ({ revision: 5, deploymentId: "dep1" }),
+  }, {
+    deployment: "failed",
+    deploymentMessage: "Build failed: vite exited 1",
+  });
+  await assertRejects(
+    () =>
+      run("website revisions restore", ["1"], { name: "web" }, { yes: true }),
+    CliError,
+    "vite exited 1",
+  );
+});
+
+Deno.test("website revisions restore stops when the source already matches", async () => {
+  const { run, posted, lastData } = await setup({
+    "restore-preview": () => ({
+      number: 1,
+      current: 4,
+      filesWritten: [],
+      filesRemoved: [],
+    }),
+  });
+  assertEquals(
+    await run("website revisions restore", ["1"], { name: "web" }),
+    0,
+  );
+  assertEquals(lastData(), { restored: false, revision: null });
+  assertEquals(
+    posted.some(([path]) => path === "/api/revisions/restore"),
+    false,
+  );
+});
+
+Deno.test("a source restore plan names the files and counts the rest", () => {
+  const preview = {
+    number: 1,
+    filesWritten: ["a.ts", "b.ts", "c.ts", "d.ts", "e.ts", "f.ts", "g.ts"],
+    filesRemoved: ["old.ts"],
+  };
+  assertEquals(describeSourceRestore(preview), [
+    "  write   a.ts, b.ts, c.ts, d.ts, e.ts, and 2 more",
+    "  remove  old.ts",
+  ]);
+  assertEquals(describeSourceRestore({ number: 1 }), []);
+});
+
+Deno.test("only a PocketBase restore has --schema", () => {
+  const cmds = makeRevisionCommands({} as CloudCmdDeps);
+  assertEquals("schema" in cmds["pocketbase revisions restore"].flags, true);
+  assertEquals("schema" in cmds["service revisions restore"].flags, false);
+});
+
+Deno.test("website pull writes the source and remembers its revision", async () => {
+  const { run, cwd, web } = await setup({
+    export: () => ({ number: 6, files: 2, downloadUrl: "https://r2/x.zip" }),
+  }, { files: [["src/main.ts", "v1"], ["package.json", "{}"]] });
+  await Deno.writeTextFile(
+    join(cwd, "pbc.json"),
+    JSON.stringify({
+      projectId: web.project,
+      kind: "frontends",
+      defaultEnvironment: "production",
+      environments: { production: { id: web.id, name: "web" } },
+    }),
+  );
+  await run("website pull", [], { name: undefined });
+  assertEquals(await Deno.readTextFile(join(cwd, "src", "main.ts")), "v1");
+  assertEquals(await boundRevision(cwd, "production", web.id), 6);
+});
+
+Deno.test("website pull keeps the directory's own pbc.json", async () => {
+  const { run, cwd, web, lastData } = await setup({
+    export: () => ({ number: 6, files: 2, downloadUrl: "https://r2/x.zip" }),
+  }, {
+    files: [["src/main.ts", "v1"], ["pbc.json", JSON.stringify({ kind: "x" })]],
+  });
+  const binding = {
+    projectId: web.project,
+    kind: "frontends",
+    defaultEnvironment: "production",
+    environments: { production: { id: web.id, name: "web" } },
+  };
+  await Deno.writeTextFile(join(cwd, "pbc.json"), JSON.stringify(binding));
+  assertEquals(await run("website pull", [], { name: undefined }), 0);
+  assertEquals(await Deno.readTextFile(join(cwd, "src", "main.ts")), "v1");
+  assertEquals(await boundRevision(cwd, "production", web.id), 6);
+  assertEquals(lastData().overwritten, 0);
+  assertEquals(lastData().files, 1);
+});
+
+Deno.test("website pull writes pbc.json where there is none", async () => {
+  const { run, cwd } = await setup({
+    export: () => ({ number: 6, files: 2, downloadUrl: "https://r2/x.zip" }),
+  }, {
+    files: [["src/main.ts", "v1"], ["pbc.json", JSON.stringify({ kind: "x" })]],
+  });
+  await run("website pull", [], { name: "web" });
+  assertEquals(await Deno.readTextFile(join(cwd, "pbc.json")), '{"kind":"x"}');
+});
+
+Deno.test("source paths can be pulled anywhere inside the directory", () => {
+  assertEquals(isPullablePath("src/a/b.ts", "frontends"), true);
+  assertEquals(isPullablePath("package.json", "backends"), true);
+  for (const bad of ["../x", "/etc/passwd", "a//b", "a\\b", "./a", "a/./b"]) {
+    assertEquals(isPullablePath(bad, "frontends"), false, bad);
+  }
+});
+
+Deno.test("the live build line names how it was uploaded and that a save replaces it", () => {
+  assertEquals(
+    liveBuildLine({
+      deploymentId: "d9",
+      created: "2026-11-02 09:00:00.000Z",
+      via: "cli",
+    }),
+    "Live runs a build uploaded with the CLI on 2026-11-02, not this source. The next save in PocketBase Cloud builds this source and replaces it.",
+  );
+  assertEquals(
+    liveBuildLine({
+      deploymentId: "d9",
+      created: "2026-11-02 09:00:00.000Z",
+      via: "upload",
+    }).startsWith("Live runs a finished build uploaded on 2026-11-02,"),
+    true,
+  );
+});
+
+Deno.test("a build over source warns and names the way to keep them in sync", () => {
+  assertEquals(
+    buildOverSourceWarning("web", "frontends"),
+    "web is edited as source in PocketBase Cloud. This build replaces it until the next save there; use --source to keep them in sync.",
+  );
+  assertEquals(
+    buildOverSourceWarning("shop", "backends").endsWith(
+      "deploy its source from the portal or GitHub to keep them in sync.",
+    ),
+    true,
+  );
+});
+
+Deno.test("only a resource the platform answers as source-managed is edited as source", async () => {
+  const answers: Record<string, Response> = {
+    managed: Response.json({ success: true, data: { sourceManaged: true } }),
+    built: Response.json(
+      { success: false, code: "notSourceManaged" },
+      { status: 409 },
+    ),
+  };
+  const posted: unknown[] = [];
+  const client = createMockCloudClient({
+    ext: (path, body) => {
+      posted.push([path, body]);
+      const id = (body as { resourceId: string }).resourceId;
+      return id === "down"
+        ? Promise.reject(new Error("offline"))
+        : Promise.resolve(answers[id]);
+    },
+  });
+  assertEquals(await editedAsSource(client, "frontends", "managed"), true);
+  assertEquals(await editedAsSource(client, "frontends", "built"), false);
+  assertEquals(await editedAsSource(client, "backends", "down"), false);
+  assertEquals(posted[0], [
+    "/api/revisions/list",
+    { kind: "frontends", resourceId: "managed", page: 1, perPage: 1 },
+  ]);
 });

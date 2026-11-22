@@ -99,3 +99,36 @@ Deno.test("deployArchive sends the base revision only when given", async () => {
   await deployArchive({ kind: "pocketbases", resourceId: "pb1", bytes }, cfg);
   assertEquals(bodies.map((b) => b.baseRevision), [5, undefined]);
 });
+
+Deno.test("deployArchive uploads source for a server build under sourceKey", async () => {
+  const bodies: Record<string, unknown>[] = [];
+  const fetchFn = ((input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url === "https://r2/put") return Promise.resolve(new Response(null));
+    bodies.push(JSON.parse(String(init?.body)));
+    if (url.endsWith("/upload-url")) {
+      return Promise.resolve(Response.json({
+        success: true,
+        data: { key: "sources/fe1/x.zip", uploadUrl: "https://r2/put" },
+      }));
+    }
+    return Promise.resolve(
+      Response.json({ success: true, data: { deploymentId: "d1" } }),
+    );
+  }) as typeof fetch;
+  await deployArchive({
+    kind: "frontends",
+    resourceId: "fe1",
+    bytes: new Uint8Array([1]),
+    input: "source",
+    hints: { command: "npm run build", outputDir: "dist" },
+  }, { baseUrl: "https://ext", token: "t", fetchFn });
+  assertEquals(bodies[0].input, "source");
+  assertEquals(bodies[1], {
+    kind: "frontends",
+    resourceId: "fe1",
+    input: "source",
+    sourceKey: "sources/fe1/x.zip",
+    hints: { command: "npm run build", outputDir: "dist" },
+  });
+});

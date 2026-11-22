@@ -782,6 +782,26 @@ async function runCommand(
   return log.lines;
 }
 
+Deno.test("pb email status prints the account quota shared by every instance", async () => {
+  const { client, projectId } = await managedEmailClient({
+    ...MANAGED_EMAIL_STATE,
+    account: {
+      limits: { daily: 300, monthly: 3000 },
+      usage: { today: 12, month: 90 },
+    },
+  });
+  const lines = await runCommand(
+    client,
+    projectId,
+    "pocketbase email status",
+    false,
+  );
+  const text = lines.join("\n");
+  assertStringIncludes(text, "Sent today, all instances: 12 / 300");
+  assertStringIncludes(text, "Sent this month, all instances: 90 / 3000");
+  assertStringIncludes(text, "Sent today: 3 / 100");
+});
+
 Deno.test("pb email status returns the platform state", async () => {
   const { client, projectId, resourceId } = await managedEmailClient(
     MANAGED_EMAIL_STATE,

@@ -21,7 +21,7 @@ import {
   resolveEnvironmentName,
 } from "../resolve/environment.ts";
 
-export const INIT_USAGE = "Usage: pbc init [pocketbase|frontend|backend]";
+export const INIT_USAGE = "Usage: pbc init [pocketbase|website|service]";
 
 export function makeCloudInitCommands(
   deps: { cwd: () => string; io?: PromptIO },
@@ -29,7 +29,7 @@ export function makeCloudInitCommands(
   return {
     init: defineCommand({
       path: ["init"],
-      usage: "pbc init [pocketbase|frontend|backend] [--force] [--env <name>]",
+      usage: "pbc init [pocketbase|website|service] [--force] [--env <name>]",
       summary: "Write this directory's build config into pbc.json.",
       details: `Inspects the directory and records how it should be built and packaged: the
 build command, output directory, backend runtime, or a PocketBase project's
@@ -45,7 +45,7 @@ records it as the default.`,
       args: [{
         name: "kind",
         required: false,
-        description: "pocketbase, frontend, or backend; defaults to the bound resource",
+        description: "pocketbase, website, or service; defaults to the bound resource",
       }],
       flags: {
         force: bool({ description: "Overwrite an existing build block." }),

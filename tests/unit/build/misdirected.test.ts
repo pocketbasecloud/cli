@@ -73,14 +73,14 @@ Deno.test("a static site deployed as a backend is sent to a frontend", async () 
   const message = await misdirectedDeploy("backends", {
     cwd: dir({ "index.html": "<p>" }),
   });
-  assertStringIncludes(message ?? "", "pbc frontend deploy");
+  assertStringIncludes(message ?? "", "pbc website deploy");
 });
 
 Deno.test("a deno backend deployed as a frontend is sent to a backend", async () => {
   const message = await misdirectedDeploy("frontends", {
     cwd: dir({ "deno.json": "{}", "main.ts": "" }),
   });
-  assertStringIncludes(message ?? "", "pbc backend deploy");
+  assertStringIncludes(message ?? "", "pbc service deploy");
 });
 
 Deno.test("a PocketBase directory deployed as a frontend is sent to PocketBase", async () => {
@@ -150,7 +150,7 @@ Deno.test("a python zip deployed as PocketBase is sent to a backend", async () =
     zipPath,
   });
   assertStringIncludes(message ?? "", "requirements.txt");
-  assertStringIncludes(message ?? "", "pbc backend deploy --zip");
+  assertStringIncludes(message ?? "", "pbc service deploy --zip");
 });
 
 Deno.test("the suggested command quotes a zip path a shell would split", async () => {

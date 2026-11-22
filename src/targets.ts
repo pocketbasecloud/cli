@@ -10,8 +10,8 @@ const ANY: readonly CommandTarget[] = ["cloud", "local", "external"];
 const BY_FAMILY: Record<string, readonly CommandTarget[]> = {
   cloud: CLOUD,
   pocketbase: CLOUD,
-  frontend: CLOUD,
-  backend: CLOUD,
+  website: CLOUD,
+  service: CLOUD,
   env: CLOUD,
   environments: CLOUD,
   locations: CLOUD,

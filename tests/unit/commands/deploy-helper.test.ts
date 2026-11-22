@@ -10,11 +10,13 @@ import {
   awaitReachable,
   chooseCompute,
   computeChooser,
+  copyBuildEnv,
   deploymentFailure,
   deployResource,
   deployTargetLine,
   ensureBackendProject,
   findExisting,
+  isServerEnvironment,
   MAX_ARCHIVE_BYTES,
   pollStatus,
   reportUrl,
@@ -822,13 +824,13 @@ Deno.test("awaitDeployment points a frontend without logs at its info", async ()
       awaitDeployment(client, "frontends", r, {
         progress: plainProgress(() => {}),
         created: false,
-        label: "frontend",
-        checkCommand: "frontend",
+        label: "website",
+        checkCommand: "website",
         intervalMs: 0,
       }),
     CliError,
   );
-  assertEquals(err.hint, "pbc frontend info --name web");
+  assertEquals(err.hint, "pbc website info --name web");
 });
 
 Deno.test("deployTargetLine names the environment and the resource it redeploys", () => {
@@ -1173,4 +1175,94 @@ Deno.test("deploymentFailure keeps the deployment's message when the record is u
     "Build failed.",
   );
   assertEquals(err.message, "Build failed.");
+});
+
+Deno.test("resolveEnvironmentTarget: an unknown --env on a deploy asks the server, with the directory's bound ids", async () => {
+  const dir = await withBinding(true);
+  try {
+    assertEquals(
+      await resolveEnvironmentTarget({}, "frontends", dir, {
+        envFlag: "qa",
+        allowNewEnvironment: true,
+      }),
+      {
+        fromBinding: false,
+        environment: "qa",
+        hasEnvironments: true,
+        serverEnvironment: { liveIds: ["fe1", "fe2"] },
+      },
+    );
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+async function withServerEnvironment() {
+  const { c, projectId } = await feClient(["web"]);
+  const [web] = await c.listResources("frontends", { project: projectId });
+  const copy = await c.createResource("frontends", {
+    name: "web-qa",
+    project: projectId,
+  });
+  c.ext = (path, body, opts) => {
+    c.calls.ext.push([path, body ?? opts?.query]);
+    return Promise.resolve(Response.json({
+      success: true,
+      data: {
+        previews: opts?.query?.resourceId === web.id
+          ? [{
+            id: "prev1",
+            name: "qa",
+            lifetime: "permanent",
+            members: [{
+              id: copy.id,
+              kind: "frontend",
+              name: "web-qa",
+              previewOf: web.id,
+            }],
+          }]
+          : [],
+      },
+    }));
+  };
+  return { c, projectId, copy };
+}
+
+Deno.test("copyBuildEnv keeps a copy's own build env as it is and leaves live alone", () => {
+  const buildEnv = { VITE_POCKETBASE_URL: "https://live.example.com", A: "1" };
+  assertEquals(
+    copyBuildEnv(
+      { id: "c1", previewOf: "web1", buildEnv } as unknown as Resource,
+    ),
+    buildEnv,
+  );
+  assertEquals(
+    copyBuildEnv({ id: "web1", buildEnv } as unknown as Resource),
+    undefined,
+  );
+});
+
+Deno.test("resolveDeployIntent: a server environment's copy is the deploy target and is not bound", async () => {
+  const { c, projectId, copy } = await withServerEnvironment();
+  const intent = await resolveDeployIntent(
+    { ...EMPTY, environment: "qa", serverEnvironment: { liveIds: [] } },
+    intentCtx({ client: c, projectId, noInput: true }),
+  );
+  assertEquals(intent.create === false && intent.resource.id, copy.id);
+  assertEquals(isServerEnvironment(intent), true);
+});
+
+Deno.test("resolveDeployIntent: an environment the server lacks keeps the old no-target path", async () => {
+  const { c, projectId } = await withServerEnvironment();
+  const err = await assertRejects(
+    () =>
+      resolveDeployIntent(
+        { ...EMPTY, environment: "other", serverEnvironment: { liveIds: [] } },
+        intentCtx({ client: c, projectId, noInput: true }),
+      ),
+    CliError,
+  );
+  assertEquals(err.code, "NO_TARGET");
+  assertStringIncludes(err.message, 'No environment named "other"');
+  assertStringIncludes(err.message, "pbc website preview create other");
 });

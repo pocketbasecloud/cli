@@ -36,7 +36,7 @@ export function makeEnvironmentsCommands(
         "to, and which one a bare deploy targets. Reads the file only — no\n" +
         "login, no network call.\n\n" +
         "Environments are created by deploying or linking with --env:\n" +
-        "  pbc frontend deploy --env staging --name web-staging",
+        "  pbc website deploy --env staging --name web-staging",
       args: [],
       flags: {},
       run: async (_input, ctx) => {

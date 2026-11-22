@@ -61,14 +61,20 @@ Deno.test("aliases resolve to their kind and nothing else does", () => {
 Deno.test("the prose a kind is described with lives in one row", () => {
   assertEquals(KINDS.pocketbases.label, "PocketBase");
   assertEquals(KINDS.pocketbases.display, "PocketBase instance");
-  assertEquals(KINDS.frontends.display, "frontend");
-  assertEquals(KINDS.backends.display, "backend");
+  assertEquals(KINDS.frontends.display, "website");
+  assertEquals(KINDS.backends.display, "service");
 });
 
 Deno.test("env and logs accept exactly the kinds whose capability is true", () => {
-  const envNouns = kindsWith("env").map((k) => k.noun);
+  const envKinds = kindsWith("env");
   const target = COMMANDS["env ls"].flags.find((f) => f.name === "target");
-  assertEquals(target?.choices, envNouns);
+  assertEquals(
+    target?.choices,
+    [...new Set(envKinds.flatMap((k) => [k.noun, ...k.aliases]))],
+  );
+  for (const legacy of ["frontend", "backend", "website", "service"]) {
+    assertEquals(target?.choices?.includes(legacy), true);
+  }
 
   const logNouns = kindsWith("logs").map((k) => k.noun);
   assertEquals(COMMANDS["logs"].args[0].name, logNouns.join("|"));
@@ -84,7 +90,7 @@ Deno.test("target layers follow the canonical first segment", () => {
   const registry: CommandRegistry = {};
   registerCommands(registry);
   assertEquals(targetsOf(registry["pocketbase ls"]), ["cloud"]);
-  assertEquals(targetsOf(registry["frontend ls"]), ["cloud"]);
+  assertEquals(targetsOf(registry["website ls"]), ["cloud"]);
   assertEquals(targetsOf(registry["deploy"]), ["cloud"]);
   assertEquals(targetsOf(registry["init"]), ["cloud"]);
   assertEquals(targetsOf(registry["plan"]), ["cloud"]);

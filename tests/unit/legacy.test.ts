@@ -97,3 +97,15 @@ Deno.test("LEGACY_RENAMES pairs each old spelling with its new root", () => {
     assertEquals(olds.includes(expected), true, `${expected} is in LEGACY_RENAMES`);
   }
 });
+
+Deno.test("frontend and backend keep working as spellings of website and service", () => {
+  const registry: CommandRegistry = {
+    "website deploy": cmd(["website", "deploy"]),
+    "service ls": cmd(["service", "ls"]),
+  };
+  applyLegacyAliases(registry, LEGACY_RENAMES);
+  assertEquals(registry["frontend deploy"], registry["website deploy"]);
+  assertEquals(registry["cloud frontend deploy"], registry["website deploy"]);
+  assertEquals(registry["backend ls"], registry["service ls"]);
+  assertEquals(canonicalKeys(registry).sort(), ["service ls", "website deploy"]);
+});

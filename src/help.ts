@@ -4,7 +4,7 @@ import { GLOBAL_FLAGS } from "./globals.ts";
 import { manifestEntry, type ManifestEntry } from "./router.ts";
 
 export const CLOUD_FAMILIES = new Set([
-  "pocketbase", "frontend", "backend", "env", "environments", "locations",
+  "pocketbase", "website", "service", "env", "environments", "locations",
   "project", "compute", "server", "deploy", "init", "plan", "cloud",
   "logs", "ci", "login", "logout", "whoami", "self-driving",
 ]);

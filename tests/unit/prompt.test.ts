@@ -121,9 +121,9 @@ Deno.test("the commands that offer a picker still declare their flags required",
     "env rm": ["target", "name"],
     "env set": ["target", "name"],
     "logs": ["name"],
-    "frontend domain add": ["name"],
-    "frontend domain remove": ["name"],
-    "frontend domain verify": ["name"],
+    "website domain add": ["name"],
+    "website domain remove": ["name"],
+    "website domain verify": ["name"],
   };
   for (const [command, names] of Object.entries(expected)) {
     const spec = COMMANDS[command];

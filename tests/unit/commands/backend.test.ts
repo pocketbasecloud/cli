@@ -47,7 +47,7 @@ Deno.test("backend deploy sends runtime and start command", async () => {
     envStatePath: tempStatePath(),
     fetch: deploy.fetchFn,
   });
-  const code = await cmds["backend deploy"].run({
+  const code = await cmds["service deploy"].run({
     new: "api",
     runtime: "deno",
     start: "deno task start",
@@ -102,7 +102,7 @@ Deno.test("backend rm keeps a binding it did not resolve", async () => {
       environments: { production: { id: bound.id, name: "api" } },
     }),
   );
-  const code = await makeResourceCommands(d, KINDS.backends)["backend rm"].run({
+  const code = await makeResourceCommands(d, KINDS.backends)["service rm"].run({
     name: "api-old",
   }, {
     args: [],
@@ -145,7 +145,7 @@ Deno.test("backend deploy forwards --compute, which Pro deploys cannot do withou
     cwd: () => cwd,
     envStatePath: tempStatePath(),
     fetch: deploy.fetchFn,
-  })["backend deploy"].run({
+  })["service deploy"].run({
     new: "api",
     runtime: "deno",
     compute: "srv1",
@@ -202,7 +202,7 @@ Deno.test("backend deploy passes the python version through as a hint", async ()
   Deno.writeTextFileSync(`${cwd}/.python-version`, "3.11.4\n");
   const deps = backendDeps(client, cwd, p.id);
   const cmds = makeBackendCommands(deps);
-  const code = await cmds["backend deploy"].run({ new: "api" }, {
+  const code = await cmds["service deploy"].run({ new: "api" }, {
     args: [],
     flags: deployFlags(p.id),
   });
@@ -227,7 +227,7 @@ Deno.test("backend deploy refuses --python-version on a non-python runtime", asy
   const cmds = makeBackendCommands(deps);
   await assertRejects(
     () =>
-      cmds["backend deploy"].run(
+      cmds["service deploy"].run(
         { new: "api", runtime: "deno", pythonVersion: "3.11" },
         { args: [], flags: deployFlags(p.id) },
       ),
@@ -252,7 +252,7 @@ Deno.test("backend deploy uses the inferred start command with no --start", asyn
     status: "running",
   });
   const cmds = makeBackendCommands(backendDeps(client, cwd, p.id));
-  const code = await cmds["backend deploy"].run({ new: "api" }, {
+  const code = await cmds["service deploy"].run({ new: "api" }, {
     args: [],
     flags: deployFlags(p.id),
   });
@@ -275,7 +275,7 @@ Deno.test("backend deploy records --start over the detected one and keeps it on 
   Deno.writeTextFileSync(`${cwd}/server.js`, "console.log(1);\n");
   const cmds = makeBackendCommands(backendDeps(client, cwd, p.id));
   assertEquals(
-    await cmds["backend deploy"].run(
+    await cmds["service deploy"].run(
       { new: "api", runtime: "nodejs", start: "node server.js", skipEnv: true },
       { args: [], flags: deployFlags(p.id) },
     ),
@@ -290,7 +290,7 @@ Deno.test("backend deploy records --start over the detected one and keeps it on 
   assertEquals(link.build.runtime, "nodejs");
 
   assertEquals(
-    await cmds["backend deploy"].run({ skipEnv: true }, {
+    await cmds["service deploy"].run({ skipEnv: true }, {
       args: [],
       flags: deployFlags(p.id),
     }),
@@ -319,7 +319,7 @@ Deno.test("backend deploy shows why the backend did not finish setting up", asyn
   const cmds = makeBackendCommands(deps);
   await assertRejects(
     () =>
-      cmds["backend deploy"].run(
+      cmds["service deploy"].run(
         { new: "api", runtime: "deno", start: "deno task start" },
         { args: [], flags: deployFlags(p.id) },
       ),
@@ -359,7 +359,7 @@ Deno.test("backend deploy creates on the owner's compute with no --compute", asy
   withComputes(client, [{ id: "srv9", name: "pro-1", location: "GRA" }]);
   const cwd = seedSource();
   const cmds = makeBackendCommands(backendDeps(client, cwd, p.id));
-  const code = await cmds["backend deploy"].run({
+  const code = await cmds["service deploy"].run({
     new: "api",
     runtime: "deno",
     start: "deno task start",
@@ -381,7 +381,7 @@ Deno.test("backend deploy works for an org developer on the owner's Pro compute"
   });
   const cwd = seedSource();
   const cmds = makeBackendCommands(backendDeps(client, cwd, p.id));
-  const code = await cmds["backend deploy"].run({
+  const code = await cmds["service deploy"].run({
     new: "api",
     runtime: "deno",
     start: "deno task start",
@@ -400,7 +400,7 @@ Deno.test("backend deploy errors when the only project cannot host a backend", a
   const cmds = makeBackendCommands(backendDeps(client, cwd, p.id));
   await assertRejects(
     () =>
-      cmds["backend deploy"].run({
+      cmds["service deploy"].run({
         new: "api",
         runtime: "deno",
         start: "deno task start",
@@ -409,7 +409,7 @@ Deno.test("backend deploy errors when the only project cannot host a backend", a
         flags: deployFlags(p.id),
       }),
     Error,
-    "cannot host a backend",
+    "cannot host a service",
   );
   assertEquals(client.calls.createResource.length, 0);
 });
@@ -429,7 +429,7 @@ Deno.test("backend deploy tells a non-interactive caller to pass --project", asy
   const cmds = makeBackendCommands(backendDeps(client, cwd, free.id));
   await assertRejects(
     () =>
-      cmds["backend deploy"].run({
+      cmds["service deploy"].run({
         new: "api",
         runtime: "deno",
         start: "deno task start",
@@ -461,7 +461,7 @@ Deno.test("backend deploy lets an interactive user switch to a Pro project", asy
     ...backendDeps(client, cwd, free.id),
     io: fakeIO(["1"]),
   });
-  const code = await cmds["backend deploy"].run({
+  const code = await cmds["service deploy"].run({
     new: "api",
     runtime: "deno",
     start: "deno task start",
@@ -486,7 +486,7 @@ Deno.test("backend redeploy never re-picks the compute", async () => {
   };
   const cwd = seedSource();
   const cmds = makeBackendCommands(backendDeps(client, cwd, p.id));
-  const code = await cmds["backend deploy"].run({
+  const code = await cmds["service deploy"].run({
     name: "api",
     runtime: "deno",
     start: "deno task start",
@@ -517,7 +517,7 @@ Deno.test("backend redeploy checks that the new version answers", async () => {
   };
   const cwd = seedSource();
   const cmds = makeBackendCommands(backendDeps(client, cwd, p.id));
-  const code = await cmds["backend deploy"].run(
+  const code = await cmds["service deploy"].run(
     { name: "api", runtime: "deno", start: "deno task start" },
     { args: [], flags: deployFlags(p.id) },
   );
@@ -539,7 +539,7 @@ Deno.test("backend deploy refuses to guess between two computes under --json", a
   const cmds = makeBackendCommands(backendDeps(client, cwd, p.id));
   await assertRejects(
     () =>
-      cmds["backend deploy"].run({
+      cmds["service deploy"].run({
         new: "api",
         runtime: "deno",
         start: "deno task start",
@@ -562,7 +562,7 @@ Deno.test("backend deploy refuses to create a backend that cannot start", async 
   const cmds = makeBackendCommands(backendDeps(client, cwd, p.id));
   await assertRejects(
     () =>
-      cmds["backend deploy"].run({ new: "api" }, {
+      cmds["service deploy"].run({ new: "api" }, {
         args: [],
         flags: deployFlags(p.id),
       }),
@@ -590,7 +590,7 @@ Deno.test("backend ls announces the project resolved from config.currentProject"
   );
   const log = captureLog();
   try {
-    const code = await cmds["backend ls"].run({}, {
+    const code = await cmds["service ls"].run({}, {
       args: [],
       flags: { json: false, yes: true, noInput: true, interactive: false },
     });
@@ -612,7 +612,7 @@ Deno.test("backend ls does not announce the project when --project names it", as
   );
   const log = captureLog();
   try {
-    await cmds["backend ls"].run({}, {
+    await cmds["service ls"].run({}, {
       args: [],
       flags: {
         json: false,

@@ -38,15 +38,17 @@ export type PackageResult = {
 export type CommandRunner = (
   command: string,
   cwd: string,
+  env?: Record<string, string>,
 ) => Promise<{ code: number }>;
 
-export const runShell: CommandRunner = async (command, cwd) => {
+export const runShell: CommandRunner = async (command, cwd, env) => {
   const [exe, flag] = Deno.build.os === "windows"
     ? ["cmd", "/c"]
     : ["/bin/sh", "-c"];
   const child = new Deno.Command(exe, {
     args: [flag, command],
     cwd,
+    ...(env ? { env } : {}),
     stdout: "piped",
     stderr: "inherit",
   }).spawn();
@@ -261,10 +263,12 @@ export async function packageResource(opts: {
   progress?: Progress;
   run?: CommandRunner;
   archive?: boolean;
+  buildEnv?: Record<string, string>;
+  strategy?: Strategy;
 }): Promise<PackageResult> {
   const { cwd, kind, build, log } = opts;
   const progress = opts.progress ?? plainProgress(log);
-  const strategy = strategyFor(kind, build.runtime);
+  const strategy = opts.strategy ?? strategyFor(kind, build.runtime);
 
   if (strategy === "standalone" && build.command && !opts.skipBuild) {
     const note = describeStandaloneResult(await ensureStandaloneOutput(cwd));
@@ -293,7 +297,7 @@ export async function packageResource(opts: {
     }
 
     await progress.step(`Building: ${build.command}`, async (step) => {
-      const { code } = await run(build.command as string, cwd);
+      const { code } = await run(build.command as string, cwd, opts.buildEnv);
       if (code !== 0) {
         throw new CliError(
           `Build failed (${build.command} exited ${code}).`,
