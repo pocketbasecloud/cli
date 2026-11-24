@@ -21,6 +21,8 @@ export type CloudCmdDeps = {
   env?: (k: string) => string | undefined;
   envStatePath?: () => string;
   hashIndex?: (cwd: string) => Promise<HashIndex>;
+  portalBase?: string;
+  openUrl?: (url: string) => void;
 };
 
 export function makeProjectCommands(

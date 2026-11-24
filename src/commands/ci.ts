@@ -199,7 +199,7 @@ directory and the surrounding git repo.
 The kind comes from the argument or pbc.json's binding; the branch from the
 one checked out. An existing file is left alone unless --force is passed.
 
-It then prints the remaining one-time step: a CLI access token from the
+It then prints the remaining one-time step: an access token from the
 portal's Account page, saved as the repository secret PBC_TOKEN.`,
       args: [{
         name: "kind",
@@ -382,7 +382,7 @@ portal's Account page, saved as the repository secret PBC_TOKEN.`,
               ...warnings.map((w) => `Warning: ${w}`),
               ``,
               `Two things left, both one-time:`,
-              `  1. Copy your token: portal → Account → CLI access token → Copy.`,
+              `  1. Create a token: portal → Account → Access tokens → Create token.`,
               `  2. Add it as a repository secret named ${SECRET_NAME}:`,
               `     Settings → Secrets and variables → Actions → New repository secret.`,
               ``,

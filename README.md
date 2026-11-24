@@ -6,7 +6,7 @@ One tool to run PocketBase locally, deploy to [PocketBase Cloud](https://pocketb
 pbc local init      # download PocketBase + scaffold here
 ./pocketbase serve  # run it locally
 
-pbc login           # browser login
+pbc login           # confirm a code in the browser; works over SSH
 pbc deploy          # detect kind, build, deploy; asks which project
 pbc logs pocketbase --name my-app-db
 ```
@@ -71,12 +71,14 @@ detection, build config, and the env-push flags.
 ## Scripting and CI
 
 ```sh
-export PBC_TOKEN=…              # portal → Account → CLI access token
+export PBC_TOKEN=pbc_a_…        # portal → Account → Access tokens → Create token
 pbc whoami --json               # preflight
 pbc website deploy --no-input --json
 ```
 
-- `pbc login --token <t>` saves that same access token to the local config instead of exporting it — handy on a headless box you'll run several sessions on.
+- `pbc login --token <t>` saves an access token to the local config instead of exporting it.
+- `pbc token ls` lists your access tokens and logged-in computers; `pbc token revoke <id|prefix>` revokes one; `pbc logout` revokes this computer's login. Tokens are created in the portal (`pbc token create` opens the page).
+- On GitHub Actions the official action can deploy with no stored token at all (GitHub OIDC); see the CI/CD docs.
 - `--json` prints one `{ ok, schemaVersion, data|error }` object on stdout; progress goes to stderr, so piping to `jq` is safe.
 - `--yes` skips confirmations; `--no-input` fails instead of prompting.
 - `pbc ci init` writes the GitHub workflow using [`pocketbasecloud/cli/action`](./action). Full reference: [CI/CD docs](https://pocketbasecloud.com/docs/ci-cd/deploying-from-github-actions).

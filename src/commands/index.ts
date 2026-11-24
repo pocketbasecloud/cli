@@ -37,13 +37,19 @@ import { makeInstanceLogsCommands } from "./admin/logs.ts";
 import { PocketBaseAdminClient } from "../clients/admin.ts";
 import { activeProfileName } from "../resolve/profile.ts";
 import {
+  backendExtUrl,
+  backendUrl,
   loadConfig,
   portalUrl,
+  readLinkFile,
   resolveCloudAuth,
   saveConfig,
+  savedLoginNotice,
+  sessionTokenNotice,
 } from "../config.ts";
 import { PocketBaseCloudClient } from "../clients/cloud.ts";
-import { browserLogin } from "../auth/browser-login.ts";
+import { deviceLogin, openBrowser } from "../auth/device-login.ts";
+import { makeTokenCommands } from "./token.ts";
 import { CliError } from "../errors.ts";
 
 const PORTAL_BASE = portalUrl().replace(/\/login\/?$/, "");
@@ -59,11 +65,15 @@ export function buildCloudDeps(): CloudCmdDeps {
           { code: "NOT_AUTHENTICATED" },
         );
       }
+      const notice = sessionTokenNotice() ?? savedLoginNotice(config);
+      if (notice) console.error(notice);
       return { client: new PocketBaseCloudClient(auth), config, auth };
     },
     loadConfig,
     saveConfig,
     cwd: () => Deno.cwd(),
+    portalBase: PORTAL_BASE,
+    openUrl: openBrowser,
   };
 }
 
@@ -140,8 +150,30 @@ export function registerCommands(registry: CommandRegistry): void {
       loadConfig,
       saveConfig,
       makeClient: (a) => new PocketBaseCloudClient(a),
-      login: (o) => browserLogin(o),
+      login: async () => {
+        const userToken = await deviceLogin({
+          extUrl: backendExtUrl(),
+          name: `pbc on ${Deno.hostname()}`,
+          open: openBrowser,
+          notify: (line) => console.error(line),
+        });
+        const auth = {
+          backendUrl: backendUrl(),
+          extUrl: backendExtUrl(),
+          userToken,
+          userId: "",
+        };
+        const user = await new PocketBaseCloudClient(auth).whoami();
+        return { ...auth, userId: user.id };
+      },
       portalUrl: portalUrl(),
+    }),
+    ...makeTokenCommands({
+      requireAuth: cloud.requireAuth,
+      portalBase: PORTAL_BASE,
+      open: openBrowser,
+      linkedProject: async () =>
+        (await readLinkFile(cloud.cwd()))?.projectId ?? null,
     }),
     ...Object.assign(
       {},

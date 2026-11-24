@@ -9,9 +9,13 @@ branding:
 inputs:
   token:
     description: >-
-      A PocketBase Cloud access token. Copy it from the portal's Account page,
-      store it as a repository secret named PBC_TOKEN, and pass that secret in.
-    required: true
+      A PocketBase Cloud access token. Create one on the portal's Account page
+      (Access tokens), store it as a repository secret named PBC_TOKEN, and
+      pass that secret in. Leave it out to deploy without a secret: give the
+      job `permissions: id-token: write` and add a GitHub trust in the
+      project's settings.
+    required: false
+    default: ""
   kind:
     description: >-
       What to deploy: auto, pb, frontend, or backend. auto lets the CLI decide
@@ -26,10 +30,11 @@ inputs:
     description: >-
       Version of pbc to install. Defaults to the version this
       action shipped with; pinning both together is the point of the tag.
-      Installed from GitHub release assets via scripts/install.sh.
+      Installed from GitHub release assets by the scripts/install.sh released
+      with this action.
     required: false
     # Must equal VERSION in src/version.ts — tests/unit/action.test.ts enforces it.
-    default: "0.10.2"
+    default: "0.11.0"
   project:
     description: "Project name or id. Only needed when pbc.json is not committed."
     required: false
@@ -87,17 +92,55 @@ runs:
     # Everything that can be known before the network is touched. A fork's
     # pull_request job gets no secrets at all, so an empty token is a common
     # and confusing failure that deserves its own sentence.
+    - name: Exchange GitHub identity
+      id: oidc
+      if: inputs.token == ''
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        PBC_PROJECT: ${{ inputs.project }}
+      run: |
+        set -euo pipefail
+        if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+          echo "::error::No token. Pass 'token' (a repository secret holding a PocketBase Cloud access token), or deploy without a secret: add 'permissions: id-token: write' to this job and a GitHub trust in the project's settings. Forked pull_request jobs get neither."
+          exit 4
+        fi
+        identity="$(curl -fsS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=pocketbasecloud" \
+          | node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).value||""))')"
+        echo "::add-mask::${identity}"
+        request="$(node -e '
+          const fs = require("fs");
+          const ID = /^[a-z0-9]{15}$/;
+          const [token, input] = process.argv.slice(1);
+          const linked = ["pbc.json", "pb.json"].map((name) => {
+            try { return JSON.parse(fs.readFileSync(name, "utf8")).projectId || ""; } catch { return ""; }
+          }).find(Boolean) || "";
+          const project = ID.test(input) ? input : ID.test(linked) ? linked : "";
+          process.stdout.write(JSON.stringify(project ? { token, project } : { token }));
+        ' "${identity}" "${PBC_PROJECT}")"
+        answer="$(curl -sS -X POST -H "content-type: application/json" --data-binary "${request}" "${PBC_EXT_URL:-${PB_EXT_URL:-https://backend-ext.pocketbasecloud.com}}/api/oidc/exchange")"
+        token="$(printf '%s' "${answer}" | node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{const a=JSON.parse(s||"{}");if(!a.success){console.error(a.message||a.error||"exchange failed");process.exit(1)}process.stdout.write(a.data.token)})')" || {
+          echo "::error::PocketBase Cloud refused this workflow's GitHub identity. Check the GitHub trust in the project's settings (repository, branch, GitHub environment)."
+          exit 4
+        }
+        echo "::add-mask::${token}"
+        echo "token=${token}" >> "${GITHUB_OUTPUT}"
+
     - name: Preflight
       shell: bash
       env:
-        PBC_TOKEN: ${{ inputs.token }}
+        PBC_TOKEN: ${{ inputs.token || steps.oidc.outputs.token }}
         PBC_KIND: ${{ inputs.kind }}
       run: |
         set -euo pipefail
         if [ -z "${PBC_TOKEN}" ]; then
-          echo "::error::No token. Set 'token' to a repository secret holding a PocketBase Cloud access token (portal -> Account -> CLI access token). GitHub does not pass secrets to pull_request jobs from a fork, so those runs always see an empty value."
+          echo "::error::No token. Set 'token' to a repository secret holding a PocketBase Cloud access token (portal -> Account -> Access tokens). GitHub does not pass secrets to pull_request jobs from a fork, so those runs always see an empty value."
           exit 4
         fi
+        case "${PBC_TOKEN}" in
+          pbc_*) ;;
+          *) echo "::warning::PBC_TOKEN holds a personal session token: it can do anything your account can and expires in 30 days. Replace it with an access token (portal -> Account -> Access tokens -> Create token)." ;;
+        esac
         case "${PBC_KIND}" in
           auto|pb|frontend|backend) ;;
           *) echo "::error::kind must be one of: auto, pb, frontend, backend (got '${PBC_KIND}')."; exit 2 ;;
@@ -125,7 +168,7 @@ runs:
         fi
         export PATH="$PBC_INSTALL_DIR:$PATH"
         echo "$PBC_INSTALL_DIR" >> "$GITHUB_PATH"
-        curl -fsSL https://raw.githubusercontent.com/pocketbasecloud/cli/main/scripts/install.sh | PBC_VERSION="${PBC_CLI_VERSION}" sh
+        PBC_VERSION="${PBC_CLI_VERSION}" sh "${GITHUB_ACTION_PATH}/../scripts/install.sh"
         pbc --version
 
     # The cheapest possible check, and it runs before the build: a missing or
@@ -135,14 +178,14 @@ runs:
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
-        PBC_TOKEN: ${{ inputs.token }}
+        PBC_TOKEN: ${{ inputs.token || steps.oidc.outputs.token }}
       run: pbc cloud whoami --json > /dev/null
 
     - name: Deploy
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
-        PBC_TOKEN: ${{ inputs.token }}
+        PBC_TOKEN: ${{ inputs.token || steps.oidc.outputs.token }}
         PBC_KIND: ${{ inputs.kind }}
         PBC_PROJECT: ${{ inputs.project }}
         PBC_NAME: ${{ inputs.name }}

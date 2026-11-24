@@ -34,19 +34,37 @@ Two things to do once, before that works:
    `pbc backend deploy`). It asks which project and what to call this, and
    writes the answers to `pbc.json`. **Commit that file** — it is what makes the
    `with:` block above need nothing else.
-2. **Add the token.** Portal → **Account** → **CLI access token** → **Copy**,
-   then in your repository: **Settings → Secrets and variables → Actions → New
+2. **Add the token.** Portal → **Account** → **Access tokens** → **Create
+   token** → **Copy**, then in your repository: **Settings → Secrets and variables → Actions → New
    repository secret**, named `PBC_TOKEN`.
 
 `pbc ci init` writes the workflow file for you, filled in from the
 directory's `pbc.json`, and prints those two steps with your project's details
 in them.
 
+### Without a secret
+
+Skip step 2: in the portal, open the project's **Settings → Deploy from GitHub
+without a secret → Add repository**, then give the job `id-token: write` and
+leave `token` out:
+
+```yaml
+permissions:
+  id-token: write
+  contents: read
+steps:
+  - uses: actions/checkout@v4
+  - uses: pocketbasecloud/cli/action@v0.11.0
+```
+
+The action asks GitHub for an identity token and exchanges it for a 15-minute
+access token for that project. Nothing is stored in GitHub.
+
 ## Inputs
 
 | Input | Default | What it does |
 | --- | --- | --- |
-| `token` | *(required)* | A PocketBase Cloud access token. Always pass a secret, never a literal. |
+| `token` | *(empty)* | A PocketBase Cloud access token. Always pass a secret, never a literal. Leave it out to deploy without a secret (needs `id-token: write` and a GitHub trust on the project). |
 | `kind` | `auto` | `auto`, `pb`, `frontend`, or `backend`. `auto` lets the CLI decide from `pbc.json` and the directory. |
 | `working-directory` | `.` | The directory holding `pbc.json`. |
 | `cli-version` | the action's own version | Which pbc release to install from GitHub assets. |

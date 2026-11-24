@@ -428,3 +428,108 @@ Deno.test("summarize.mjs still runs when reached through a symlink", async () =>
     "url=https://site.example.com",
   );
 });
+
+Deno.test("without a token the action exchanges GitHub's identity token, masked", () => {
+  const exchange = stepScript("Exchange GitHub identity");
+  assertStringIncludes(exchange, "ACTIONS_ID_TOKEN_REQUEST_URL");
+  assertStringIncludes(exchange, "audience=pocketbasecloud");
+  assertStringIncludes(exchange, "/api/oidc/exchange");
+  assertStringIncludes(exchange, "::add-mask::");
+  assertStringIncludes(exchange, "id-token: write");
+  const text = readAction();
+  assertStringIncludes(text, "if: inputs.token == ''");
+  assertStringIncludes(text, "id: oidc");
+  assertStringIncludes(text, "PBC_TOKEN: ${{ inputs.token || steps.oidc.outputs.token }}");
+  assertEquals(text.includes("PBC_TOKEN: ${{ inputs.token }}"), false);
+  assertEquals(text.includes("PBC_OIDC_TOKEN"), false);
+  assertEquals(text.includes("GITHUB_ENV"), false);
+});
+
+async function runExchangeStep(
+  env: Record<string, string>,
+  linkFile: Record<string, unknown> | null,
+): Promise<{ code: number; request: string; url: string; outputs: string; jobEnv: string }> {
+  const dir = Deno.makeTempDirSync();
+  const outputPath = join(dir, "github-output");
+  const envPath = join(dir, "github-env");
+  const requestPath = join(dir, "request");
+  if (linkFile) Deno.writeTextFileSync(join(dir, "pbc.json"), JSON.stringify(linkFile));
+  const fakeCurl = `curl() {
+  case "$*" in
+    *api/oidc/exchange*)
+      while [ "$#" -gt 0 ]; do
+        case "$1" in
+          --data-binary) printf '%s' "$2" > "${requestPath}"; shift 2 ;;
+          http*) printf '%s' "$1" > "${requestPath}.url"; shift ;;
+          *) shift ;;
+        esac
+      done
+      printf '%s' '{"success":true,"data":{"token":"pbc_a_exchanged"}}' ;;
+    *) printf '%s' '{"value":"github-jwt"}' ;;
+  esac
+}
+`;
+  const { code } = await new Deno.Command("bash", {
+    args: ["-c", fakeCurl + stepScript("Exchange GitHub identity")],
+    cwd: dir,
+    env: {
+      PATH: Deno.env.get("PATH") ?? "",
+      ACTIONS_ID_TOKEN_REQUEST_URL: "https://github.test/token?x=1",
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: "request-token",
+      GITHUB_OUTPUT: outputPath,
+      GITHUB_ENV: envPath,
+      PBC_PROJECT: "",
+      ...env,
+    },
+    stdout: "piped",
+    stderr: "piped",
+  }).output();
+  const read = (path: string) => {
+    try {
+      return Deno.readTextFileSync(path);
+    } catch {
+      return "";
+    }
+  };
+  return {
+    code,
+    request: read(requestPath),
+    url: read(`${requestPath}.url`),
+    outputs: read(outputPath),
+    jobEnv: read(envPath),
+  };
+}
+
+Deno.test("the exchange passes the token as a step output, never to the whole job", async () => {
+  const { code, outputs, jobEnv } = await runExchangeStep({}, null);
+  assertEquals(code, 0);
+  assertStringIncludes(outputs, "token=pbc_a_exchanged");
+  assertEquals(jobEnv, "");
+});
+
+Deno.test("the exchange sends the project from pbc.json so the right trust is chosen", async () => {
+  const { request } = await runExchangeStep({}, { projectId: "abcdefghij12345" });
+  assertEquals(JSON.parse(request), { token: "github-jwt", project: "abcdefghij12345" });
+});
+
+Deno.test("the exchange prefers the project input and ignores a name", async () => {
+  const chosen = await runExchangeStep({ PBC_PROJECT: "zzzzzzzzzzzzzzz" }, { projectId: "abcdefghij12345" });
+  assertEquals(JSON.parse(chosen.request).project, "zzzzzzzzzzzzzzz");
+  const named = await runExchangeStep({ PBC_PROJECT: "My project" }, null);
+  assertEquals(JSON.parse(named.request), { token: "github-jwt" });
+});
+
+Deno.test("the exchange honours PBC_EXT_URL, then the legacy PB_EXT_URL", async () => {
+  const current = await runExchangeStep({ PBC_EXT_URL: "https://ext.test", PB_EXT_URL: "https://old.test" }, null);
+  assertEquals(current.url, "https://ext.test/api/oidc/exchange");
+  const legacy = await runExchangeStep({ PB_EXT_URL: "https://old.test" }, null);
+  assertEquals(legacy.url, "https://old.test/api/oidc/exchange");
+  const neither = await runExchangeStep({}, null);
+  assertEquals(neither.url, "https://backend-ext.pocketbasecloud.com/api/oidc/exchange");
+});
+
+Deno.test("the installer comes from the action's own release, never from main", () => {
+  const install = stepScript("Install pbc");
+  assertStringIncludes(install, '"${GITHUB_ACTION_PATH}/../scripts/install.sh"');
+  assertEquals(install.includes("raw.githubusercontent.com"), false);
+});

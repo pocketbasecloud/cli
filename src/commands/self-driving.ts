@@ -1,6 +1,7 @@
 import { type Command, defineCommand } from "../command.ts";
 import type { CloudCmdDeps } from "./project.ts";
 import { httpError } from "../errors.ts";
+import { portalHandoff } from "../portal-handoff.ts";
 import { emit } from "../envelope.ts";
 
 export function makeSelfDrivingCommands(
@@ -11,7 +12,13 @@ export function makeSelfDrivingCommands(
     const res = await client.ext("/api/account/update", {
       agentPlatformKeyAcknowledged: on,
     });
-    if (!res.ok) throw await httpError(res, "Self-driving");
+    if (!res.ok) {
+      throw await portalHandoff(
+        res,
+        `${deps.portalBase ?? ""}/account#self-driving`,
+        deps.openUrl ?? (() => {}),
+      ) ?? await httpError(res, "Self-driving");
+    }
   }
 
   return {

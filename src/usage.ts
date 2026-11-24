@@ -9,14 +9,14 @@ export type CommandSpec = { usage: string; summary: string; details?: string; /*
 export const COMMANDS: Record<string, CommandSpec> = {
   "login": {
     "usage": "pbc login [--token <t>]",
-    "summary": "Log in to PocketBase Cloud via browser, or with an access token.",
+    "summary": "Log in with a code you confirm in the browser, or with an access token.",
     "args": [],
     "flags": [
       {
         "name": "token",
         "type": "string",
         "required": false,
-        "description": "CLI access token from the portal's Account page (skips the browser flow)"
+        "description": "Access token from the portal's Account page (skips the browser flow)"
       }
     ]
   },
@@ -29,6 +29,31 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "whoami": {
     "usage": "pbc whoami",
     "summary": "Show the logged-in PocketBase Cloud account.",
+    "args": [],
+    "flags": []
+  },
+  "token ls": {
+    "usage": "pbc token ls",
+    "summary": "List your access tokens and logged-in devices.",
+    "args": [],
+    "flags": []
+  },
+  "token revoke": {
+    "usage": "pbc token revoke <id|prefix>",
+    "summary": "Revoke an access token or a device login.",
+    "args": [
+      {
+        "name": "token",
+        "required": true,
+        "description": "Token id or the start of its prefix"
+      }
+    ],
+    "flags": []
+  },
+  "token create": {
+    "usage": "pbc token create",
+    "summary": "Open the portal page that creates an access token.",
+    "details": "Tokens are created only in the portal, signed in as yourself, so a\nstolen login can never mint a token that outlives it. Inside a directory with\npbc.json, the page starts limited to that project.",
     "args": [],
     "flags": []
   },
@@ -4722,7 +4747,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   "ci init": {
     "usage": "pbc ci init [pb|frontend|backend] [flags]",
     "summary": "Write a GitHub Actions workflow that deploys this directory.",
-    "details": "Writes .github/workflows/deploy.yml (or deploy-<path>.yml for a nested\ndirectory) using the official pocketbasecloud/cli/action. Nothing in the cloud\nis touched, and no login is needed — like `pbc init`, it only inspects the\ndirectory and the surrounding git repo.\n\nThe kind comes from the argument or pbc.json's binding; the branch from the\none checked out. An existing file is left alone unless --force is passed.\n\nIt then prints the remaining one-time step: a CLI access token from the\nportal's Account page, saved as the repository secret PBC_TOKEN.",
+    "details": "Writes .github/workflows/deploy.yml (or deploy-<path>.yml for a nested\ndirectory) using the official pocketbasecloud/cli/action. Nothing in the cloud\nis touched, and no login is needed — like `pbc init`, it only inspects the\ndirectory and the surrounding git repo.\n\nThe kind comes from the argument or pbc.json's binding; the branch from the\none checked out. An existing file is left alone unless --force is passed.\n\nIt then prints the remaining one-time step: an access token from the\nportal's Account page, saved as the repository secret PBC_TOKEN.",
     "args": [
       {
         "name": "kind",

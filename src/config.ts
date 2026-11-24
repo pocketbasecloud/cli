@@ -143,7 +143,9 @@ function fillInHosts(c: Config): Config {
 export async function saveConfig(c: Config): Promise<void> {
   const path = configPath();
   await Deno.mkdir(dirname(path), { recursive: true });
-  await Deno.writeTextFile(path, JSON.stringify(c, null, 2));
+  await Deno.writeTextFile(path, JSON.stringify(c, null, 2), {
+    mode: 0o600,
+  });
   await Deno.chmod(path, 0o600).catch(() => {});
 }
 
@@ -158,6 +160,39 @@ export function tokenUserId(token: string): string {
   } catch {
     return "";
   }
+}
+
+const ACCESS_TOKEN_PREFIX = "pbc_";
+
+export function sessionTokenNotice(
+  env: Record<string, string | undefined> = Deno.env.toObject(),
+): string | undefined {
+  const token = envVar("TOKEN", env);
+  if (!token || token.startsWith(ACCESS_TOKEN_PREFIX)) return undefined;
+  return `Warning: ${envVarName("TOKEN", env)} holds your personal session ` +
+    `token, which can do anything your account can and expires in 30 days. ` +
+    `Replace it with an access token: portal → Account → Access tokens → ` +
+    `Create token.`;
+}
+
+export function savedLoginNotice(
+  c: Config,
+  env: Record<string, string | undefined> = Deno.env.toObject(),
+): string | undefined {
+  if (envVar("TOKEN", env)) return undefined;
+  const token = c.cloud?.userToken;
+  if (!token || token.startsWith(ACCESS_TOKEN_PREFIX)) return undefined;
+  return `Warning: your saved login is a personal session token from an older ` +
+    `pbc. It can do anything your account can and expires in 30 days. Run ` +
+    `\`pbc login\` to replace it with a login for this computer that you can ` +
+    `revoke on its own.`;
+}
+
+export function sessionTokenWarning(token: string): string | undefined {
+  if (token.startsWith(ACCESS_TOKEN_PREFIX)) return undefined;
+  return `Warning: this is a personal session token, which can do anything ` +
+    `your account can and expires in 30 days. Use an access token instead: ` +
+    `portal → Account → Access tokens → Create token.`;
 }
 
 export function resolveCloudAuth(

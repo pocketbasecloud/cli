@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assert, assertEquals, assertRejects } from "@std/assert";
 import {
   backendExtUrl,
   backendUrl,
@@ -15,6 +15,8 @@ import {
   removeEnvironmentFor,
   resolveCloudAuth,
   saveConfig,
+  savedLoginNotice,
+  sessionTokenNotice,
   upsertEnvironment,
 } from "../../src/config.ts";
 import { join } from "@std/path";
@@ -500,6 +502,54 @@ Deno.test("loadConfig reads the pre-0.6.0 config, and saveConfig moves it", asyn
   }
 });
 
+Deno.test({
+  name: "saveConfig creates the config file private, before any chmod runs",
+  ignore: Deno.build.os === "windows",
+  fn: async () => {
+    const home = await Deno.makeTempDir();
+    const xdg = Deno.env.get("XDG_CONFIG_HOME");
+    const chmod = Deno.chmod;
+    Deno.env.set("XDG_CONFIG_HOME", home);
+    Object.defineProperty(Deno, "chmod", {
+      value: () => Promise.reject(new Error("chmod skipped")),
+      configurable: true,
+      writable: true,
+    });
+    try {
+      await saveConfig(defaultConfig());
+      const mode = (await Deno.stat(join(home, "pbc", "config.json"))).mode!;
+      assertEquals(mode & 0o777, 0o600);
+    } finally {
+      Object.defineProperty(Deno, "chmod", { value: chmod, configurable: true, writable: true });
+      if (xdg === undefined) Deno.env.delete("XDG_CONFIG_HOME");
+      else Deno.env.set("XDG_CONFIG_HOME", xdg);
+      await Deno.remove(home, { recursive: true });
+    }
+  },
+});
+
+Deno.test({
+  name: "saveConfig narrows an existing config file to the owner",
+  ignore: Deno.build.os === "windows",
+  fn: async () => {
+    const home = await Deno.makeTempDir();
+    const xdg = Deno.env.get("XDG_CONFIG_HOME");
+    Deno.env.set("XDG_CONFIG_HOME", home);
+    try {
+      await Deno.mkdir(join(home, "pbc"), { recursive: true });
+      await Deno.writeTextFile(join(home, "pbc", "config.json"), "{}", { mode: 0o644 });
+      await Deno.chmod(join(home, "pbc", "config.json"), 0o644);
+      await saveConfig(defaultConfig());
+      const mode = (await Deno.stat(join(home, "pbc", "config.json"))).mode!;
+      assertEquals(mode & 0o777, 0o600);
+    } finally {
+      if (xdg === undefined) Deno.env.delete("XDG_CONFIG_HOME");
+      else Deno.env.set("XDG_CONFIG_HOME", xdg);
+      await Deno.remove(home, { recursive: true });
+    }
+  },
+});
+
 Deno.test("a directory holding pb.json is read, and written back in place", async () => {
   const dir = await Deno.makeTempDir();
   try {
@@ -557,3 +607,31 @@ async function exists(path: string): Promise<boolean> {
     return false;
   }
 }
+
+Deno.test("sessionTokenNotice: warns when the env token is a personal session token", () => {
+  const notice = sessionTokenNotice({
+    PBC_TOKEN: "eyJhbGciOiJIUzI1NiJ9.e30.sig",
+  });
+  assert(notice?.includes("Access tokens"));
+  assertEquals(
+    sessionTokenNotice({ PBC_TOKEN: "pbc_a_" + "x".repeat(49) }),
+    undefined,
+  );
+  assertEquals(sessionTokenNotice({}), undefined);
+  assert(sessionTokenNotice({ PB_TOKEN: "eyJ.e30.sig" }));
+});
+
+Deno.test("savedLoginNotice: warns when the saved login is an older session token", () => {
+  const config = defaultConfig();
+  config.cloud = {
+    backendUrl: "u",
+    extUrl: "x",
+    userToken: "eyJ.session.sig",
+    userId: "u1",
+  };
+  assert(savedLoginNotice(config, {})?.includes("pbc login"));
+  assertEquals(savedLoginNotice(config, { PBC_TOKEN: "pbc_a_x" }), undefined);
+  config.cloud.userToken = "pbc_d_device";
+  assertEquals(savedLoginNotice(config, {}), undefined);
+  assertEquals(savedLoginNotice(defaultConfig(), {}), undefined);
+});

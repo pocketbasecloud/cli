@@ -11,9 +11,10 @@ This guide lives on the PocketBase Cloud docs site:
 
 ### → **[pocketbasecloud.com/docs/ci-cd/deploying-from-github-actions](https://pocketbasecloud.com/docs/ci-cd/deploying-from-github-actions)**
 
-It is the five-minute path: deploy once from your computer, copy your token
-from the portal's **Account** page, save it as a GitHub secret named
-`PBC_TOKEN`, and add one workflow file.
+It is the five-minute path: deploy once from your computer, create an access
+token on the portal's **Account** page (or trust the repository and store no
+secret at all), save it as a GitHub secret named `PBC_TOKEN`, and add one
+workflow file.
 
 For environments, monorepos, PR previews, exit codes, and every error message
 with its fix, see the

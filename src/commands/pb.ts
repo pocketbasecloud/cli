@@ -13,6 +13,7 @@ import type { CloudCmdDeps } from "./project.ts";
 import type { ICloudClient } from "../clients/cloud.ts";
 import type { Resource } from "../clients/types.ts";
 import { CliError, httpError } from "../errors.ts";
+import { portalHandoff } from "../portal-handoff.ts";
 import { emit } from "../envelope.ts";
 import {
   deployToPreview,
@@ -1304,7 +1305,15 @@ pay it, then run the command again.`,
         if (res.status === HTTP_PAYMENT_REQUIRED) {
           throw await paymentRequiredError(res);
         }
-        if (!res.ok) throw await httpError(res, "Continuous backup interval");
+        if (!res.ok) {
+          throw await portalHandoff(
+            res,
+            `${
+              deps.portalBase ?? ""
+            }/projects/${found.project}/pocketbases/${found.id}/backups`,
+            deps.openUrl ?? (() => {}),
+          ) ?? await httpError(res, "Continuous backup interval");
+        }
         const tier = BACKUP_INTERVALS[interval];
         emit(
           ctx.flags.json,
